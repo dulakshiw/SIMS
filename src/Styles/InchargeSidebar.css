@@ -1,0 +1,56 @@
+.sidebar {
+  width: 220px;
+  background-color: #17253b;
+  color: white;
+  min-height: 100%;
+  position: relative;
+}
+
+.sidebar-title {
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.menu-item {
+  padding: 10px;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  color: white;
+  text-decoration: none;
+}
+
+.menu-item:hover {
+  background-color: #444;
+}
+
+.submenu {
+  padding-left: 15px;
+}
+
+.submenu-item {
+  display: block;
+  padding: 8px;
+  color: #ddd;
+  text-decoration: none;
+}
+
+.submenu-item:hover {
+  background-color: #555;
+}
+
+/* Active menu highlight */
+.active {
+  background-color: #416286;
+  border-radius: 4px;
+}
+
+/* Logout styling */
+.logout {
+  margin-top: 30px;
+  color: #ff4d4d;
+}
+
+.arrow {
+  font-size: 12px;
+}

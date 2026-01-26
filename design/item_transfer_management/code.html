@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Item Transfer Management - Smart Inventory</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#0b3b5b",
+                        "background-light": "#f6f7f8",
+                        "background-dark": "#111b21",
+                    },
+                    fontFamily: {
+                        "display": ["Inter"]
+                    },
+                    borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px"},
+                },
+            },
+        }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .fill-icon {
+            font-variation-settings: 'FILL' 1;
+        }
+    </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark text-slate-900 dark:text-slate-100 font-display">
+<!-- Top Navigation Bar -->
+<header class="flex items-center justify-between whitespace-nowrap border-b border-solid border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-10 py-3 sticky top-0 z-50">
+<div class="flex items-center gap-8">
+<div class="flex items-center gap-4 text-primary dark:text-blue-400">
+<div class="size-6">
+<svg fill="none" viewbox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+<path d="M24 4C25.7818 14.2173 33.7827 22.2182 44 24C33.7827 25.7818 25.7818 33.7827 24 44C22.2182 33.7827 14.2173 25.7818 4 24C14.2173 22.2182 22.2182 14.2173 24 4Z" fill="currentColor"></path>
+</svg>
+</div>
+<h2 class="text-lg font-bold leading-tight tracking-[-0.015em]">Smart Inventory</h2>
+</div>
+<nav class="hidden lg:flex items-center gap-9">
+<a class="text-sm font-medium leading-normal hover:text-primary transition-colors" href="#">Dashboard</a>
+<a class="text-sm font-medium leading-normal hover:text-primary transition-colors" href="#">Inventory</a>
+<a class="text-primary dark:text-blue-400 text-sm font-bold border-b-2 border-primary" href="#">Transfers</a>
+<a class="text-sm font-medium leading-normal hover:text-primary transition-colors" href="#">Reports</a>
+</nav>
+</div>
+<div class="flex flex-1 justify-end gap-6 items-center">
+<label class="hidden md:flex flex-col min-w-40 !h-10 max-w-64">
+<div class="flex w-full flex-1 items-stretch rounded-lg h-full">
+<div class="text-slate-500 flex border-none bg-slate-100 dark:bg-slate-800 items-center justify-center pl-4 rounded-l-lg">
+<span class="material-symbols-outlined text-[20px]">search</span>
+</div>
+<input class="form-input flex w-full min-w-0 flex-1 border-none bg-slate-100 dark:bg-slate-800 focus:ring-0 h-full placeholder:text-slate-500 px-4 rounded-r-lg text-sm font-normal" placeholder="Search transfers..." value=""/>
+</div>
+</label>
+<div class="flex gap-2">
+<button class="flex size-10 cursor-pointer items-center justify-center rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<button class="flex size-10 cursor-pointer items-center justify-center rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+<span class="material-symbols-outlined">settings</span>
+</button>
+</div>
+<div class="bg-center bg-no-repeat aspect-square bg-cover rounded-full size-10 border border-slate-200" data-alt="User profile avatar of a faculty member" style='background-image: url("https://lh3.googleusercontent.com/aida-public/AB6AXuD4o72v8ACEOeKgNGCwkvkENskjq2Ko-e5bHyXZXmxXXC9M44Ny_g5Lkax3la6w1RMusye3ih0Gl0MHJhtNz6vPg3_yrzSxl6eWYt7byWQB2D4MLwxpCJHqyMO1KofxIXZtWOfY2za3heJv-BhXEZrHZVwbsz1_TJA3aCLYdeG-kEjs2Yg4WUCUaAFM9GiTosGt_9Jx1rq9kcWgSJ_s9LrmB0i9H4sdfaZD_2CLrGqnOvcK2jxXiRQRipX2h490QrT_RUif9GF5M_5i");'></div>
+</div>
+</header>
+<div class="flex min-h-[calc(100vh-64px)]">
+<!-- Side Navigation Bar -->
+<aside class="w-64 hidden xl:flex flex-col justify-between bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 p-4">
+<div class="flex flex-col gap-6">
+<div class="flex flex-col px-3">
+<h1 class="text-primary dark:text-blue-400 text-base font-bold leading-normal">Faculty of IT</h1>
+<p class="text-slate-500 text-xs font-medium leading-normal">University of Moratuwa</p>
+</div>
+<div class="flex flex-col gap-1">
+<div class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer transition-colors">
+<span class="material-symbols-outlined text-slate-600 dark:text-slate-400">dashboard</span>
+<p class="text-slate-700 dark:text-slate-300 text-sm font-medium">Dashboard</p>
+</div>
+<div class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer transition-colors">
+<span class="material-symbols-outlined text-slate-600 dark:text-slate-400">inventory_2</span>
+<p class="text-slate-700 dark:text-slate-300 text-sm font-medium">Assets</p>
+</div>
+<div class="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-primary/10 text-primary dark:bg-primary/20 dark:text-blue-300">
+<span class="material-symbols-outlined fill-icon">swap_horiz</span>
+<p class="text-sm font-semibold">Transfers</p>
+</div>
+<div class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer transition-colors">
+<span class="material-symbols-outlined text-slate-600 dark:text-slate-400">location_on</span>
+<p class="text-slate-700 dark:text-slate-300 text-sm font-medium">Locations</p>
+</div>
+<div class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer transition-colors">
+<span class="material-symbols-outlined text-slate-600 dark:text-slate-400">group</span>
+<p class="text-slate-700 dark:text-slate-300 text-sm font-medium">Users</p>
+</div>
+</div>
+</div>
+<div class="p-3 bg-slate-50 dark:bg-slate-800 rounded-xl">
+<p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">System Status</p>
+<div class="flex items-center gap-2">
+<div class="size-2 rounded-full bg-emerald-500"></div>
+<span class="text-xs font-medium text-slate-600 dark:text-slate-300">Syncing Live</span>
+</div>
+</div>
+</aside>
+<!-- Main Content Area -->
+<main class="flex-1 flex flex-col min-w-0">
+<!-- Breadcrumbs -->
+<div class="flex flex-wrap gap-2 px-8 py-4 items-center border-b border-slate-200 dark:border-slate-800">
+<a class="text-slate-500 text-sm font-medium hover:text-primary" href="#">Inventory</a>
+<span class="material-symbols-outlined text-slate-400 text-sm">chevron_right</span>
+<a class="text-slate-500 text-sm font-medium hover:text-primary" href="#">Transfers</a>
+<span class="material-symbols-outlined text-slate-400 text-sm">chevron_right</span>
+<span class="text-primary dark:text-blue-400 text-sm font-semibold">TRF-2023-0892</span>
+</div>
+<!-- Page Heading -->
+<div class="flex flex-wrap justify-between items-end gap-4 px-8 py-6">
+<div class="flex flex-col gap-2">
+<div class="flex items-center gap-3">
+<h1 class="text-slate-900 dark:text-white text-3xl font-black leading-tight tracking-tight">Transfer Request: TRF-2023-0892</h1>
+<span class="px-3 py-1 bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-400 rounded-full text-xs font-bold uppercase tracking-wider">Pending Approval</span>
+</div>
+<p class="text-slate-500 text-base font-normal">Initiated by Dr. S. Perera on Oct 24, 2023 • <strong>Reason:</strong> Permanent Relocation for Lab Upgrade</p>
+</div>
+<div class="flex gap-3">
+<button class="flex items-center justify-center rounded-lg h-10 px-4 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-sm font-bold gap-2 hover:bg-slate-50">
+<span class="material-symbols-outlined text-[20px]">print</span>
+                        Print Gate Pass
+                    </button>
+<button class="flex items-center justify-center rounded-lg h-10 px-6 bg-primary text-white text-sm font-bold gap-2 hover:bg-primary/90 shadow-lg shadow-primary/20">
+                        Approve Transfer
+                    </button>
+</div>
+</div>
+<div class="flex flex-col xl:flex-row gap-6 px-8 pb-10">
+<!-- Left: Location and Items -->
+<div class="flex-1 flex flex-col gap-6">
+<!-- Location Comparison -->
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+<!-- Source -->
+<div class="bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm relative overflow-hidden">
+<div class="absolute top-0 left-0 w-1 h-full bg-slate-400"></div>
+<div class="flex items-center justify-between mb-4">
+<span class="text-xs font-bold text-slate-400 uppercase tracking-widest">Current Location (Source)</span>
+<span class="material-symbols-outlined text-slate-300">logout</span>
+</div>
+<h3 class="text-lg font-bold text-slate-900 dark:text-white">Dept. of Information Technology</h3>
+<div class="mt-4 space-y-2">
+<div class="flex items-center gap-3 text-sm">
+<span class="material-symbols-outlined text-slate-400 text-lg">person</span>
+<span class="text-slate-600 dark:text-slate-300">In-Charge: Mr. Amaraweera</span>
+</div>
+<div class="flex items-center gap-3 text-sm">
+<span class="material-symbols-outlined text-slate-400 text-lg">meeting_room</span>
+<span class="text-slate-600 dark:text-slate-300">Location: IT Lab 04, Level 2</span>
+</div>
+</div>
+</div>
+<!-- Destination -->
+<div class="bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm relative overflow-hidden">
+<div class="absolute top-0 left-0 w-1 h-full bg-emerald-500"></div>
+<div class="flex items-center justify-between mb-4">
+<span class="text-xs font-bold text-slate-400 uppercase tracking-widest">Receiving Location (Target)</span>
+<span class="material-symbols-outlined text-emerald-500">login</span>
+</div>
+<h3 class="text-lg font-bold text-slate-900 dark:text-white">Dept. of Computational Biology</h3>
+<div class="mt-4 space-y-2">
+<div class="flex items-center gap-3 text-sm">
+<span class="material-symbols-outlined text-slate-400 text-lg">person</span>
+<span class="text-slate-600 dark:text-slate-300">In-Charge: Ms. Dilrukshi</span>
+</div>
+<div class="flex items-center gap-3 text-sm">
+<span class="material-symbols-outlined text-slate-400 text-lg">meeting_room</span>
+<span class="text-slate-600 dark:text-slate-300">Location: Research Wing A, Level 3</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Items List -->
+<div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+<div class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
+<h3 class="font-bold text-slate-900 dark:text-white">Assets to be Transferred (4)</h3>
+<button class="text-primary dark:text-blue-400 text-sm font-semibold hover:underline">View All Specs</button>
+</div>
+<div class="overflow-x-auto">
+<table class="w-full text-left">
+<thead class="bg-slate-50 dark:bg-slate-800/50">
+<tr>
+<th class="px-6 py-3 text-xs font-bold text-slate-500 uppercase">Asset Tag</th>
+<th class="px-6 py-3 text-xs font-bold text-slate-500 uppercase">Item Description</th>
+<th class="px-6 py-3 text-xs font-bold text-slate-500 uppercase">Serial No.</th>
+<th class="px-6 py-3 text-xs font-bold text-slate-500 uppercase">Condition</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-slate-100 dark:divide-slate-800">
+<tr class="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+<td class="px-6 py-4 text-sm font-bold text-primary dark:text-blue-400">FIT-SRV-2023-01</td>
+<td class="px-6 py-4">
+<p class="text-sm font-medium text-slate-900 dark:text-white">Dell PowerEdge R750</p>
+<p class="text-xs text-slate-500 italic">Core Server Node</p>
+</td>
+<td class="px-6 py-4 text-sm font-mono text-slate-600 dark:text-slate-400">DELL88291X0</td>
+<td class="px-6 py-4"><span class="px-2 py-1 bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 rounded text-[10px] font-bold uppercase">Excellent</span></td>
+</tr>
+<tr class="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+<td class="px-6 py-4 text-sm font-bold text-primary dark:text-blue-400">FIT-MON-2021-44</td>
+<td class="px-6 py-4">
+<p class="text-sm font-medium text-slate-900 dark:text-white">Samsung 32" Curved Monitor</p>
+<p class="text-xs text-slate-500 italic">Workstation Accessory</p>
+</td>
+<td class="px-6 py-4 text-sm font-mono text-slate-600 dark:text-slate-400">SAM-MON-772</td>
+<td class="px-6 py-4"><span class="px-2 py-1 bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 rounded text-[10px] font-bold uppercase">Good</span></td>
+</tr>
+<tr class="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+<td class="px-6 py-4 text-sm font-bold text-primary dark:text-blue-400">FIT-UPS-2022-09</td>
+<td class="px-6 py-4">
+<p class="text-sm font-medium text-slate-900 dark:text-white">APC Smart-UPS 3kVA</p>
+<p class="text-xs text-slate-500 italic">Power Backup</p>
+</td>
+<td class="px-6 py-4 text-sm font-mono text-slate-600 dark:text-slate-400">APC-992-KLA</td>
+<td class="px-6 py-4"><span class="px-2 py-1 bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400 rounded text-[10px] font-bold uppercase">Fair</span></td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</div>
+<!-- Right: Approval Timeline -->
+<div class="w-full xl:w-80 flex flex-col gap-6">
+<div class="bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+<h3 class="text-lg font-bold text-slate-900 dark:text-white mb-6">Approval Pipeline</h3>
+<!-- Timeline Content -->
+<div class="grid grid-cols-[40px_1fr] gap-x-2">
+<!-- Stage 1: Done -->
+<div class="flex flex-col items-center gap-1">
+<div class="text-emerald-500">
+<span class="material-symbols-outlined fill-icon">check_circle</span>
+</div>
+<div class="w-[2px] bg-emerald-500 h-10 grow"></div>
+</div>
+<div class="flex flex-1 flex-col pb-6">
+<p class="text-slate-900 dark:text-white text-sm font-bold leading-none">Source In-Charge</p>
+<p class="text-slate-500 text-xs font-medium mt-1">Approved by Mr. Amaraweera</p>
+<p class="text-[10px] text-slate-400 mt-0.5">Oct 25, 09:12 AM</p>
+</div>
+<!-- Stage 2: Done -->
+<div class="flex flex-col items-center gap-1">
+<div class="text-emerald-500">
+<span class="material-symbols-outlined fill-icon">check_circle</span>
+</div>
+<div class="w-[2px] bg-emerald-500 h-10 grow"></div>
+</div>
+<div class="flex flex-1 flex-col pb-6">
+<p class="text-slate-900 dark:text-white text-sm font-bold leading-none">Source HOD Approval</p>
+<p class="text-slate-500 text-xs font-medium mt-1">Approved by Prof. Dias</p>
+<p class="text-[10px] text-slate-400 mt-0.5">Oct 26, 02:45 PM</p>
+</div>
+<!-- Stage 3: Current -->
+<div class="flex flex-col items-center gap-1">
+<div class="text-yellow-500 animate-pulse">
+<span class="material-symbols-outlined">pending</span>
+</div>
+<div class="w-[2px] bg-slate-200 dark:bg-slate-800 h-10 grow"></div>
+</div>
+<div class="flex flex-1 flex-col pb-6">
+<p class="text-primary dark:text-blue-400 text-sm font-bold leading-none">Receiving In-Charge</p>
+<p class="text-slate-900 dark:text-white text-xs font-bold mt-2 px-2 py-1 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-900/50 rounded inline-block w-fit">PENDING REVIEW</p>
+<p class="text-slate-400 text-xs mt-1 italic">Assigned to: Ms. Dilrukshi</p>
+</div>
+<!-- Stage 4: Waiting -->
+<div class="flex flex-col items-center gap-1">
+<div class="text-slate-300 dark:text-slate-700">
+<span class="material-symbols-outlined">circle</span>
+</div>
+<div class="w-[2px] bg-slate-200 dark:bg-slate-800 h-10 grow"></div>
+</div>
+<div class="flex flex-1 flex-col pb-6">
+<p class="text-slate-400 dark:text-slate-600 text-sm font-medium leading-none">Receiving HOD Approval</p>
+<p class="text-slate-400 text-xs font-normal mt-1 italic">Waiting</p>
+</div>
+<!-- Stage 5: Final -->
+<div class="flex flex-col items-center gap-1">
+<div class="text-slate-300 dark:text-slate-700">
+<span class="material-symbols-outlined">verified_user</span>
+</div>
+</div>
+<div class="flex flex-1 flex-col">
+<p class="text-slate-400 dark:text-slate-600 text-sm font-medium leading-none">Registrar Final Seal</p>
+<p class="text-slate-400 text-xs font-normal mt-1 italic">Waiting</p>
+</div>
+</div>
+<!-- Mini Approval Form -->
+<div class="mt-8 pt-6 border-t border-slate-100 dark:border-slate-800">
+<p class="text-xs font-bold text-slate-400 uppercase mb-3">Your Action</p>
+<div class="space-y-3">
+<textarea class="w-full text-sm border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 rounded-lg focus:ring-primary focus:border-primary" placeholder="Add approval/rejection notes..." rows="2"></textarea>
+<div class="flex gap-2">
+<button class="flex-1 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700">Approve</button>
+<button class="flex-1 py-2 bg-rose-600 text-white text-xs font-bold rounded-lg hover:bg-rose-700">Reject</button>
+</div>
+</div>
+</div>
+</div>
+<div class="bg-primary text-white p-6 rounded-xl shadow-xl shadow-primary/30 flex flex-col gap-4">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined">help</span>
+<h4 class="font-bold">Need Help?</h4>
+</div>
+<p class="text-xs text-primary-200 opacity-80 leading-relaxed">Refer to the University Asset Transfer Guideline v2.4 for relocation protocols.</p>
+<a class="text-xs font-bold underline" href="#">Download Handbook</a>
+</div>
+</div>
+</div>
+</main>
+</div>
+</body></html>

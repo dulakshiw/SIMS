@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>FIT Inventory - Mobile View</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#0b3b5b",
+                        "background-light": "#f6f7f8",
+                        "background-dark": "#111b21",
+                    },
+                    fontFamily: {
+                        "display": ["Inter"]
+                    },
+                    borderRadius: { "DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px" },
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Mobile Frame Simulation */
+        .mobile-viewport {
+            max-width: 414px;
+            margin: 0 auto;
+            min-height: 100vh;
+            position: relative;
+            box-shadow: 0 0 50px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body class="bg-gray-200 dark:bg-zinc-900 font-display">
+<!-- Desktop Container to center the Mobile View -->
+<div class="min-h-screen py-0 md:py-10">
+<!-- Simulated Mobile Device -->
+<div class="mobile-viewport bg-background-light dark:bg-background-dark overflow-hidden flex flex-col border-x border-gray-200 dark:border-zinc-800">
+<!-- TopNavBar (Mobile Optimized) -->
+<header class="sticky top-0 z-50 flex items-center justify-between px-4 py-3 bg-primary text-white shadow-md">
+<div class="flex items-center gap-3">
+<button class="p-1 hover:bg-white/10 rounded-lg">
+<span class="material-symbols-outlined">menu</span>
+</button>
+<h1 class="text-lg font-bold tracking-tight">FIT Inventory</h1>
+</div>
+<div class="flex items-center gap-2">
+<button class="p-2 hover:bg-white/10 rounded-full">
+<span class="material-symbols-outlined text-[20px]">notifications</span>
+</button>
+<div class="size-8 rounded-full bg-cover bg-center border-2 border-white/20" data-alt="User profile picture thumbnail" style='background-image: url("https://lh3.googleusercontent.com/aida-public/AB6AXuDJi7JfSIpcmyZ9GLe6a92qle3zFsK5ZZetB4-oX8Bpf3Ge_IPFpIkIJgTcr7vQmv20BufmBL6RHZzEpL5oDhRuHIaXBrw0Wi8COWq7jnfnsJ9YTT5BHQ6V3WIUf54WmhG9hTHQUQNW3eRAcFWV--Ji0W0B6aZXKOIp3neGSCVuDWr_maZx8IcmZvIbXwWBTeKprvWlWos-PhfmY_koaK21DGriI2EGLvWwaO0Q31ueDkgq0B7J9s8paYyko1lLmBi9nDq9P2J7-S-6");'>
+</div>
+</div>
+</header>
+<!-- Main Content Area -->
+<main class="flex-1 overflow-y-auto">
+<!-- Page Title & Stats -->
+<div class="p-4 bg-white dark:bg-zinc-800 border-b border-gray-100 dark:border-zinc-700">
+<div class="flex items-center justify-between mb-4">
+<h2 class="text-xl font-bold text-primary dark:text-blue-400">Inventory List</h2>
+<span class="text-xs font-medium px-2 py-1 bg-primary/10 text-primary rounded-full">UoM Faculty of IT</span>
+</div>
+<!-- Condensed Stats -->
+<div class="grid grid-cols-2 gap-3">
+<div class="bg-background-light dark:bg-zinc-900 p-3 rounded-lg border border-gray-200 dark:border-zinc-700">
+<p class="text-[10px] uppercase tracking-wider text-gray-500 font-bold">Total Items</p>
+<p class="text-lg font-bold text-primary dark:text-white">1,240</p>
+</div>
+<div class="bg-background-light dark:bg-zinc-900 p-3 rounded-lg border border-gray-200 dark:border-zinc-700">
+<p class="text-[10px] uppercase tracking-wider text-gray-500 font-bold">In Use</p>
+<p class="text-lg font-bold text-primary dark:text-white">86</p>
+</div>
+</div>
+</div>
+<!-- Search & Filters -->
+<div class="p-4 space-y-3">
+<!-- SearchBar Component -->
+<div class="relative">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">search</span>
+<input class="w-full pl-10 pr-4 py-2.5 bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-lg text-sm focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all" placeholder="Search equipment..." type="text"/>
+</div>
+<!-- Chips / Filters -->
+<div class="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+<button class="flex items-center gap-1 shrink-0 px-4 py-1.5 bg-primary text-white text-xs font-semibold rounded-full shadow-sm">
+                            All
+                        </button>
+<button class="flex items-center gap-1 shrink-0 px-4 py-1.5 bg-white dark:bg-zinc-800 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-zinc-700 text-xs font-semibold rounded-full">
+                            Available
+                            <span class="material-symbols-outlined text-[14px]">expand_more</span>
+</button>
+<button class="flex items-center gap-1 shrink-0 px-4 py-1.5 bg-white dark:bg-zinc-800 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-zinc-700 text-xs font-semibold rounded-full">
+                            Labs
+                            <span class="material-symbols-outlined text-[14px]">expand_more</span>
+</button>
+</div>
+</div>
+<!-- Card-Based Inventory List -->
+<div class="px-4 pb-24 space-y-3">
+<!-- Inventory Card 1 -->
+<div class="bg-white dark:bg-zinc-800 p-4 rounded-xl border border-gray-200 dark:border-zinc-700 shadow-sm">
+<div class="flex justify-between items-start mb-2">
+<div>
+<h3 class="font-bold text-gray-900 dark:text-white">Dell Latitude 5420</h3>
+<p class="text-xs text-gray-500 dark:text-gray-400">SN: UOM-FIT-LAP-042</p>
+</div>
+<span class="px-2 py-1 bg-green-100 text-green-700 text-[10px] font-bold rounded uppercase tracking-wide">Available</span>
+</div>
+<div class="flex items-center gap-4 mt-4 pt-4 border-t border-gray-50 dark:border-zinc-700/50">
+<div class="flex items-center gap-1 text-gray-500 dark:text-gray-400">
+<span class="material-symbols-outlined text-[16px]">location_on</span>
+<span class="text-xs font-medium">Lab 01</span>
+</div>
+<div class="flex-1 flex justify-end gap-2">
+<button class="p-2 bg-gray-100 dark:bg-zinc-700 rounded-lg">
+<span class="material-symbols-outlined text-[18px]">edit</span>
+</button>
+<button class="p-2 bg-primary text-white rounded-lg">
+<span class="material-symbols-outlined text-[18px]">visibility</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Inventory Card 2 -->
+<div class="bg-white dark:bg-zinc-800 p-4 rounded-xl border border-gray-200 dark:border-zinc-700 shadow-sm">
+<div class="flex justify-between items-start mb-2">
+<div>
+<h3 class="font-bold text-gray-900 dark:text-white">Logitech C922 Webcam</h3>
+<p class="text-xs text-gray-500 dark:text-gray-400">SN: UOM-FIT-CAM-118</p>
+</div>
+<span class="px-2 py-1 bg-blue-100 text-blue-700 text-[10px] font-bold rounded uppercase tracking-wide">Issued</span>
+</div>
+<div class="flex items-center gap-4 mt-4 pt-4 border-t border-gray-50 dark:border-zinc-700/50">
+<div class="flex items-center gap-1 text-gray-500 dark:text-gray-400">
+<span class="material-symbols-outlined text-[16px]">person</span>
+<span class="text-xs font-medium">Dr. Saman Perera</span>
+</div>
+<div class="flex-1 flex justify-end gap-2">
+<button class="p-2 bg-gray-100 dark:bg-zinc-700 rounded-lg">
+<span class="material-symbols-outlined text-[18px]">edit</span>
+</button>
+<button class="p-2 bg-primary text-white rounded-lg">
+<span class="material-symbols-outlined text-[18px]">visibility</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Inventory Card 3 -->
+<div class="bg-white dark:bg-zinc-800 p-4 rounded-xl border border-gray-200 dark:border-zinc-700 shadow-sm">
+<div class="flex justify-between items-start mb-2">
+<div>
+<h3 class="font-bold text-gray-900 dark:text-white">Cisco Router 2901</h3>
+<p class="text-xs text-gray-500 dark:text-gray-400">SN: UOM-FIT-NET-005</p>
+</div>
+<span class="px-2 py-1 bg-amber-100 text-amber-700 text-[10px] font-bold rounded uppercase tracking-wide">Repair</span>
+</div>
+<div class="flex items-center gap-4 mt-4 pt-4 border-t border-gray-50 dark:border-zinc-700/50">
+<div class="flex items-center gap-1 text-gray-500 dark:text-gray-400">
+<span class="material-symbols-outlined text-[16px]">build</span>
+<span class="text-xs font-medium">Maintenance</span>
+</div>
+<div class="flex-1 flex justify-end gap-2">
+<button class="p-2 bg-gray-100 dark:bg-zinc-700 rounded-lg">
+<span class="material-symbols-outlined text-[18px]">edit</span>
+</button>
+<button class="p-2 bg-primary text-white rounded-lg">
+<span class="material-symbols-outlined text-[18px]">visibility</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Inventory Card 4 -->
+<div class="bg-white dark:bg-zinc-800 p-4 rounded-xl border border-gray-200 dark:border-zinc-700 shadow-sm">
+<div class="flex justify-between items-start mb-2">
+<div>
+<h3 class="font-bold text-gray-900 dark:text-white">Epson Projector X41</h3>
+<p class="text-xs text-gray-500 dark:text-gray-400">SN: UOM-FIT-PRJ-012</p>
+</div>
+<span class="px-2 py-1 bg-green-100 text-green-700 text-[10px] font-bold rounded uppercase tracking-wide">Available</span>
+</div>
+<div class="flex items-center gap-4 mt-4 pt-4 border-t border-gray-50 dark:border-zinc-700/50">
+<div class="flex items-center gap-1 text-gray-500 dark:text-gray-400">
+<span class="material-symbols-outlined text-[16px]">location_on</span>
+<span class="text-xs font-medium">Lecture Hall 02</span>
+</div>
+<div class="flex-1 flex justify-end gap-2">
+<button class="p-2 bg-gray-100 dark:bg-zinc-700 rounded-lg">
+<span class="material-symbols-outlined text-[18px]">edit</span>
+</button>
+<button class="p-2 bg-primary text-white rounded-lg">
+<span class="material-symbols-outlined text-[18px]">visibility</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- Floating Action Button -->
+<button class="fixed bottom-6 right-[calc(50%-180px)] md:right-[calc(50%-180px)] w-14 h-14 bg-primary text-white rounded-full shadow-2xl flex items-center justify-center transition-transform active:scale-90 border-4 border-white dark:border-zinc-800 z-[60]">
+<span class="material-symbols-outlined text-[32px]">add</span>
+</button>
+<!-- Simulated Mobile Drawer (Hidden initially, but shown in code for context) -->
+<!-- Note: In a real app, this would be toggled by JS and animated -->
+<div class="fixed inset-0 bg-black/50 z-[100] hidden">
+<div class="w-3/4 h-full bg-white dark:bg-background-dark shadow-xl flex flex-col">
+<div class="p-6 bg-primary text-white">
+<div class="size-12 rounded-full mb-4 bg-cover" data-alt="University Logo or Faculty Icon" style='background-image: url("https://lh3.googleusercontent.com/aida-public/AB6AXuDGZxYQl-bvTKyVEXkwnchU8alS-h4AQONn0GH1SAr8KC7h1Xxv66lv8wnKt0D1ZTnUrLDzEanMQSNH-CsvRA-38lw7-pHseedv9GBbybvWGKzG3QH9DivD1ZFqDktCdtDgqs-0GYzAita0i7vTvMscugkQUxLFURuTDMFUgkVjTiKLKWY7M4K5EZ2Sl537bPHO70ZnXA6IVAR5qkC5YH7kjqCr7Jm45X2ikgGSWUIEeOaId95rayRAISzmYEPSiPGlepLlNU3qrihO");'></div>
+<h4 class="font-bold">Faculty of IT</h4>
+<p class="text-xs text-white/70">University of Moratuwa</p>
+</div>
+<nav class="flex-1 p-4 space-y-2">
+<a class="flex items-center gap-3 p-3 rounded-lg bg-primary/10 text-primary font-bold" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+<span>Dashboard</span>
+</a>
+<a class="flex items-center gap-3 p-3 rounded-lg text-gray-600 dark:text-gray-300" href="#">
+<span class="material-symbols-outlined">inventory_2</span>
+<span>Equipment</span>
+</a>
+<a class="flex items-center gap-3 p-3 rounded-lg text-gray-600 dark:text-gray-300" href="#">
+<span class="material-symbols-outlined">science</span>
+<span>Labs</span>
+</a>
+<a class="flex items-center gap-3 p-3 rounded-lg text-gray-600 dark:text-gray-300" href="#">
+<span class="material-symbols-outlined">assessment</span>
+<span>Reports</span>
+</a>
+<div class="my-4 border-t border-gray-100 dark:border-zinc-800"></div>
+<a class="flex items-center gap-3 p-3 rounded-lg text-gray-600 dark:text-gray-300" href="#">
+<span class="material-symbols-outlined">settings</span>
+<span>Settings</span>
+</a>
+</nav>
+<div class="p-4 border-t border-gray-100 dark:border-zinc-800">
+<button class="w-full py-3 bg-red-50 text-red-600 rounded-lg font-bold flex items-center justify-center gap-2">
+<span class="material-symbols-outlined text-[20px]">logout</span>
+                            Logout
+                        </button>
+</div>
+</div>
+</div>
+<!-- Bottom Navigation (Optional Mobile Standard) -->
+<div class="bg-white dark:bg-zinc-900 border-t border-gray-200 dark:border-zinc-800 py-2 px-6 flex justify-between items-center z-50">
+<button class="flex flex-col items-center gap-0.5 text-primary">
+<span class="material-symbols-outlined text-[22px]">home</span>
+<span class="text-[10px] font-bold">Home</span>
+</button>
+<button class="flex flex-col items-center gap-0.5 text-gray-400">
+<span class="material-symbols-outlined text-[22px]">search</span>
+<span class="text-[10px] font-bold">Search</span>
+</button>
+<button class="flex flex-col items-center gap-0.5 text-gray-400">
+<span class="material-symbols-outlined text-[22px]">inventory</span>
+<span class="text-[10px] font-bold">List</span>
+</button>
+<button class="flex flex-col items-center gap-0.5 text-gray-400">
+<span class="material-symbols-outlined text-[22px]">person</span>
+<span class="text-[10px] font-bold">Profile</span>
+</button>
+</div>
+</div>
+</div>
+</body></html>

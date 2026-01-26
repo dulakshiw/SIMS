@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Inventory Creation Page | Faculty of IT</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#0b3b5b",
+                        "background-light": "#f6f7f8",
+                        "background-dark": "#111b21",
+                    },
+                    fontFamily: {
+                        "display": ["Inter"]
+                    },
+                    borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px"},
+                },
+            },
+        }
+    </script>
+<style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+    </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark min-h-screen text-[#0e161b] dark:text-white font-display">
+<div class="relative flex h-auto min-h-screen w-full flex-col group/design-root overflow-x-hidden">
+<div class="layout-container flex h-full grow flex-col">
+<!-- Top Navigation Bar -->
+<header class="flex items-center justify-between whitespace-nowrap border-b border-solid border-[#e8eef3] dark:border-gray-800 bg-white dark:bg-background-dark px-10 py-3 sticky top-0 z-50">
+<div class="flex items-center gap-8">
+<div class="flex items-center gap-4 text-primary dark:text-white">
+<div class="size-8">
+<svg fill="none" viewbox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+<path clip-rule="evenodd" d="M24 18.4228L42 11.475V34.3663C42 34.7796 41.7457 35.1504 41.3601 35.2992L24 42V18.4228Z" fill="currentColor" fill-rule="evenodd"></path>
+<path clip-rule="evenodd" d="M24 8.18819L33.4123 11.574L24 15.2071L14.5877 11.574L24 8.18819ZM9 15.8487L21 20.4805V37.6263L9 32.9945V15.8487ZM27 37.6263V20.4805L39 15.8487V32.9945L27 37.6263ZM25.354 2.29885C24.4788 1.98402 23.5212 1.98402 22.646 2.29885L4.98454 8.65208C3.7939 9.08038 3 10.2097 3 11.475V34.3663C3 36.0196 4.01719 37.5026 5.55962 38.098L22.9197 44.7987C23.6149 45.0671 24.3851 45.0671 25.0803 44.7987L42.4404 38.098C43.9828 37.5026 45 36.0196 45 34.3663V11.475C45 10.2097 44.2061 9.08038 43.0155 8.65208L25.354 2.29885Z" fill="currentColor" fill-rule="evenodd"></path>
+</svg>
+</div>
+<h2 class="text-lg font-bold leading-tight tracking-[-0.015em]">Faculty of IT | UoM</h2>
+</div>
+<nav class="hidden md:flex items-center gap-9">
+<a class="text-sm font-medium leading-normal hover:text-primary transition-colors" href="#">Dashboard</a>
+<a class="text-sm font-medium leading-normal text-primary" href="#">Inventory</a>
+<a class="text-sm font-medium leading-normal hover:text-primary transition-colors" href="#">Reports</a>
+<a class="text-sm font-medium leading-normal hover:text-primary transition-colors" href="#">Users</a>
+</nav>
+</div>
+<div class="flex flex-1 justify-end gap-6 items-center">
+<label class="flex flex-col min-w-40 !h-10 max-w-64">
+<div class="flex w-full flex-1 items-stretch rounded-lg h-full">
+<div class="text-[#4f7a96] flex border-none bg-[#e8eef3] dark:bg-gray-800 items-center justify-center pl-4 rounded-l-lg">
+<span class="material-symbols-outlined text-[20px]">search</span>
+</div>
+<input class="form-input flex w-full min-w-0 flex-1 resize-none overflow-hidden rounded-lg text-[#0e161b] dark:text-white focus:outline-0 focus:ring-0 border-none bg-[#e8eef3] dark:bg-gray-800 h-full placeholder:text-[#4f7a96] px-4 rounded-l-none pl-2 text-sm font-normal" placeholder="Search Assets..." value=""/>
+</div>
+</label>
+<div class="bg-center bg-no-repeat aspect-square bg-cover rounded-full size-10 border-2 border-primary/20" data-alt="University profile avatar placeholder" style='background-image: url("https://lh3.googleusercontent.com/aida-public/AB6AXuCu7vFpSnQCTky1irLw3aUu6ZUx0b6l7ZRlJsc8xGXcQ54_2M2ohhJVSEiCoMug4LJ2mWBP7W8-zfIfavHwfIVbKM8LH-XCbsLSgMXbiCxr7RG5fVLNMIfH2HEdj8ETfryrXPTAOECx93ZHolVTAYGOZjYIA4EiHelbABQ761vDxrkgz12WE67gE_3H22Llyp6-ite-MApEPlM6oIt4P6KAaEKxl1yLWkiwEdLGNxLl6aWGcw12X22mt0kHpxWi6tb0mFscWklHEQ3G");'></div>
+</div>
+</header>
+<main class="flex-1 flex justify-center py-8">
+<div class="layout-content-container flex flex-col max-w-[1024px] w-full px-4 md:px-10">
+<!-- Breadcrumbs -->
+<div class="flex flex-wrap gap-2 py-2">
+<a class="text-[#4f7a96] hover:text-primary text-sm font-medium leading-normal flex items-center gap-1" href="#">
+<span class="material-symbols-outlined text-sm">home</span> Home
+                        </a>
+<span class="text-[#4f7a96] text-sm font-medium">/</span>
+<a class="text-[#4f7a96] hover:text-primary text-sm font-medium leading-normal" href="#">Inventory</a>
+<span class="text-[#4f7a96] text-sm font-medium">/</span>
+<span class="text-primary text-sm font-bold leading-normal">Create Asset</span>
+</div>
+<!-- Page Heading -->
+<div class="flex flex-wrap justify-between gap-3 py-6">
+<div class="flex min-w-72 flex-col gap-2">
+<h1 class="text-primary dark:text-white text-3xl md:text-4xl font-black leading-tight tracking-[-0.033em]">Add New Inventory Item</h1>
+<p class="text-[#4f7a96] text-base font-normal leading-normal">Register a new physical asset into the Faculty of IT management system.</p>
+</div>
+</div>
+<form class="space-y-8">
+<!-- Form Section: Two Column Grid -->
+<div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+<!-- Item Details Section -->
+<div class="bg-white dark:bg-gray-800/50 p-6 rounded-xl border border-[#e8eef3] dark:border-gray-800 shadow-sm">
+<div class="flex items-center gap-2 pb-4 border-b border-gray-100 dark:border-gray-800 mb-6">
+<span class="material-symbols-outlined text-primary">inventory_2</span>
+<h2 class="text-primary dark:text-white text-xl font-bold">Item Details</h2>
+</div>
+<div class="flex flex-col gap-5">
+<label class="flex flex-col w-full">
+<p class="text-[#0e161b] dark:text-gray-300 text-sm font-semibold pb-1.5">Item Name <span class="text-red-500">*</span></p>
+<input class="form-input rounded-lg border-[#d0dee6] dark:border-gray-700 bg-white dark:bg-gray-900 focus:border-primary focus:ring-1 focus:ring-primary h-12 px-4 text-sm" placeholder="e.g., Dell Latitude 5420 Laptop" required=""/>
+</label>
+<label class="flex flex-col w-full">
+<p class="text-[#0e161b] dark:text-gray-300 text-sm font-semibold pb-1.5">Asset Code <span class="text-red-500">*</span></p>
+<input class="form-input rounded-lg border-[#d0dee6] dark:border-gray-700 bg-white dark:bg-gray-900 focus:border-primary focus:ring-1 focus:ring-primary h-12 px-4 text-sm font-mono" placeholder="UOM/FIT/IT/2023/045" required=""/>
+</label>
+<div class="grid grid-cols-2 gap-4">
+<label class="flex flex-col w-full">
+<p class="text-[#0e161b] dark:text-gray-300 text-sm font-semibold pb-1.5">Brand</p>
+<input class="form-input rounded-lg border-[#d0dee6] dark:border-gray-700 bg-white dark:bg-gray-900 focus:border-primary focus:ring-1 focus:ring-primary h-12 px-4 text-sm" placeholder="e.g., Dell"/>
+</label>
+<label class="flex flex-col w-full">
+<p class="text-[#0e161b] dark:text-gray-300 text-sm font-semibold pb-1.5">Model</p>
+<input class="form-input rounded-lg border-[#d0dee6] dark:border-gray-700 bg-white dark:bg-gray-900 focus:border-primary focus:ring-1 focus:ring-primary h-12 px-4 text-sm" placeholder="e.g., Latitude 5420"/>
+</label>
+</div>
+</div>
+</div>
+<!-- Purchase Information Section -->
+<div class="bg-white dark:bg-gray-800/50 p-6 rounded-xl border border-[#e8eef3] dark:border-gray-800 shadow-sm">
+<div class="flex items-center gap-2 pb-4 border-b border-gray-100 dark:border-gray-800 mb-6">
+<span class="material-symbols-outlined text-primary">payments</span>
+<h2 class="text-primary dark:text-white text-xl font-bold">Purchase Information</h2>
+</div>
+<div class="flex flex-col gap-5">
+<div class="grid grid-cols-2 gap-4">
+<label class="flex flex-col w-full">
+<p class="text-[#0e161b] dark:text-gray-300 text-sm font-semibold pb-1.5">Purchase Date</p>
+<input class="form-input rounded-lg border-[#d0dee6] dark:border-gray-700 bg-white dark:bg-gray-900 focus:border-primary focus:ring-1 focus:ring-primary h-12 px-4 text-sm" type="date"/>
+</label>
+<label class="flex flex-col w-full">
+<p class="text-[#0e161b] dark:text-gray-300 text-sm font-semibold pb-1.5">Purchase Value (LKR)</p>
+<input class="form-input rounded-lg border-[#d0dee6] dark:border-gray-700 bg-white dark:bg-gray-900 focus:border-primary focus:ring-1 focus:ring-primary h-12 px-4 text-sm" placeholder="0.00" type="number"/>
+</label>
+</div>
+<label class="flex flex-col w-full">
+<p class="text-[#0e161b] dark:text-gray-300 text-sm font-semibold pb-1.5">Supplier</p>
+<select class="form-select rounded-lg border-[#d0dee6] dark:border-gray-700 bg-white dark:bg-gray-900 focus:border-primary focus:ring-1 focus:ring-primary h-12 px-4 text-sm">
+<option value="">Select Supplier</option>
+<option>Abans PLC</option>
+<option>Softlogic IT</option>
+<option>Singer Sri Lanka</option>
+<option>John Keells IT</option>
+</select>
+</label>
+<label class="flex flex-col w-full">
+<p class="text-[#0e161b] dark:text-gray-300 text-sm font-semibold pb-1.5">GIN Number</p>
+<input class="form-input rounded-lg border-[#d0dee6] dark:border-gray-700 bg-white dark:bg-gray-900 focus:border-primary focus:ring-1 focus:ring-primary h-12 px-4 text-sm" placeholder="GIN-2023-0001"/>
+</label>
+</div>
+</div>
+</div>
+<!-- Logistics Section -->
+<div class="bg-white dark:bg-gray-800/50 p-6 rounded-xl border border-[#e8eef3] dark:border-gray-800 shadow-sm">
+<div class="flex items-center gap-2 pb-4 border-b border-gray-100 dark:border-gray-800 mb-6">
+<span class="material-symbols-outlined text-primary">local_shipping</span>
+<h2 class="text-primary dark:text-white text-xl font-bold">Logistics &amp; Warranty</h2>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+<label class="flex flex-col w-full">
+<p class="text-[#0e161b] dark:text-gray-300 text-sm font-semibold pb-1.5">Location / Lab</p>
+<select class="form-select rounded-lg border-[#d0dee6] dark:border-gray-700 bg-white dark:bg-gray-900 focus:border-primary focus:ring-1 focus:ring-primary h-12 px-4 text-sm">
+<option value="">Select Location</option>
+<option>Main Lab 01</option>
+<option>Network Operations Center</option>
+<option>Staff Room - Dept of IT</option>
+<option>Reading Room</option>
+</select>
+</label>
+<label class="flex flex-col w-full">
+<p class="text-[#0e161b] dark:text-gray-300 text-sm font-semibold pb-1.5">Warranty Expiry Date</p>
+<input class="form-input rounded-lg border-[#d0dee6] dark:border-gray-700 bg-white dark:bg-gray-900 focus:border-primary focus:ring-1 focus:ring-primary h-12 px-4 text-sm" type="date"/>
+</label>
+<div class="flex flex-col w-full">
+<p class="text-[#0e161b] dark:text-gray-300 text-sm font-semibold pb-1.5">GIN PDF Upload</p>
+<div class="relative flex items-center justify-center w-full">
+<label class="flex flex-col items-center justify-center w-full h-12 border-2 border-[#d0dee6] dark:border-gray-700 border-dashed rounded-lg cursor-pointer bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors" for="dropzone-file">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary text-[20px]">upload_file</span>
+<p class="text-xs text-gray-500 dark:text-gray-400 font-medium">Click to upload GIN</p>
+</div>
+<input class="hidden" id="dropzone-file" type="file"/>
+</label>
+</div>
+</div>
+</div>
+</div>
+<!-- Remarks Section -->
+<div class="bg-white dark:bg-gray-800/50 p-6 rounded-xl border border-[#e8eef3] dark:border-gray-800 shadow-sm">
+<div class="flex items-center gap-2 pb-4 border-b border-gray-100 dark:border-gray-800 mb-6">
+<span class="material-symbols-outlined text-primary">notes</span>
+<h2 class="text-primary dark:text-white text-xl font-bold">Additional Remarks</h2>
+</div>
+<label class="flex flex-col w-full">
+<p class="text-[#0e161b] dark:text-gray-300 text-sm font-semibold pb-1.5">Notes / Observations</p>
+<textarea class="form-textarea rounded-lg border-[#d0dee6] dark:border-gray-700 bg-white dark:bg-gray-900 focus:border-primary focus:ring-1 focus:ring-primary min-h-[120px] p-4 text-sm" placeholder="Any additional information regarding the item condition, accessories, etc."></textarea>
+</label>
+</div>
+<!-- Action Buttons -->
+<div class="flex items-center justify-end gap-4 py-8">
+<button class="px-6 py-3 rounded-lg border border-[#d0dee6] dark:border-gray-700 text-[#4f7a96] hover:bg-gray-100 dark:hover:bg-gray-800 font-bold text-sm transition-colors" type="button">
+                                Cancel
+                            </button>
+<button class="bg-primary hover:bg-primary/90 text-white px-8 py-3 rounded-lg font-bold text-sm shadow-lg shadow-primary/20 flex items-center gap-2 transition-transform active:scale-95" type="submit">
+<span class="material-symbols-outlined text-[20px]">save</span>
+                                Save Item
+                            </button>
+</div>
+</form>
+</div>
+</main>
+<!-- Footer -->
+<footer class="border-t border-[#e8eef3] dark:border-gray-800 py-6 text-center text-[#4f7a96] text-xs">
+                © 2024 Faculty of Information Technology, University of Moratuwa. All Rights Reserved.
+            </footer>
+</div>
+</div>
+</body></html>

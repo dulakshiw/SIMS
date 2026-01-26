@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>SIMS | Design System Gallery</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#0b3b5b",
+                        "background-light": "#f6f7f8",
+                        "background-dark": "#111b21",
+                    },
+                    fontFamily: {
+                        "display": ["Inter"]
+                    },
+                    borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px"},
+                },
+            },
+        }
+    </script>
+<style>
+        .skeleton-shimmer {
+            background: linear-gradient(90deg, #e5e7eb 25%, #f3f4f6 50%, #e5e7eb 75%);
+            background-size: 200% 100%;
+            animation: shimmer 1.5s infinite;
+        }
+        @keyframes shimmer {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+    </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark font-display text-[#0e161b] dark:text-white min-h-screen">
+<!-- Top Navigation Bar -->
+<header class="sticky top-0 z-50 w-full bg-white dark:bg-background-dark border-b border-[#e8eef3] dark:border-slate-800 px-6 lg:px-40 py-3">
+<div class="max-w-[1200px] mx-auto flex items-center justify-between whitespace-nowrap">
+<div class="flex items-center gap-8">
+<div class="flex items-center gap-3 text-primary dark:text-blue-400">
+<span class="material-symbols-outlined text-3xl">inventory_2</span>
+<h2 class="text-lg font-bold leading-tight tracking-tight">SIMS | UoM IT</h2>
+</div>
+<div class="hidden md:flex items-center bg-[#e8eef3] dark:bg-slate-800 rounded-lg px-3 py-1.5 gap-2 w-64">
+<span class="material-symbols-outlined text-[#4f7a96] text-xl">search</span>
+<input class="bg-transparent border-none focus:ring-0 text-sm w-full placeholder:text-[#4f7a96]" placeholder="Quick search components..."/>
+</div>
+</div>
+<div class="flex items-center gap-6">
+<nav class="hidden lg:flex items-center gap-6 text-sm font-medium">
+<a class="hover:text-primary transition-colors" href="#">Dashboard</a>
+<a class="hover:text-primary transition-colors" href="#">Inventory</a>
+<a class="text-primary font-bold" href="#">UI Kit</a>
+</nav>
+<div class="bg-primary/10 p-1 rounded-full border border-primary/20">
+<div class="bg-center bg-no-repeat aspect-square bg-cover rounded-full size-8" data-alt="User profile avatar placeholder" style='background-image: url("https://lh3.googleusercontent.com/aida-public/AB6AXuCpOBVEapQzDHAOM_rjfqlcRtq9j3M8FWQ2jzUCyiGvkHSFwOc-Kx53TFL08Ufv1irlVmDTjlFELbdKUjYEWVEwWfjmxWY9KPyvlI8YIJ3zp5byIidUYC5F9DZU3bcl-cTb8U8Ph04WdLRe7AUN2WfxF7TUkfobQbW1vAoVFO1RzwaG9aJPm-rnQ8Tr32CCQDuAFrFHEgHbGNksaEXI_-1ngv_JowxfYo0d-vPTWtQBdoGeSh2izcQjPxhpNTsh8rk_yA7zbWWfVeup");'></div>
+</div>
+</div>
+</div>
+</header>
+<main class="max-w-[1200px] mx-auto px-6 lg:px-40 py-10 space-y-12">
+<!-- Page Heading -->
+<section>
+<div class="flex flex-col gap-2">
+<h1 class="text-4xl font-black leading-tight tracking-tight text-primary dark:text-white">Design System Gallery</h1>
+<p class="text-[#4f7a96] text-lg max-w-2xl">Standardized UI components and interaction states for the Faculty of IT Inventory Management System.</p>
+</div>
+</section>
+<!-- Modals & Overlays Section -->
+<section class="space-y-6">
+<h2 class="text-2xl font-bold flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">layers</span>
+                Modals &amp; Overlays
+            </h2>
+<div class="bg-white dark:bg-slate-900 border border-[#d0dee6] dark:border-slate-800 rounded-xl p-8 flex justify-center items-center min-h-[400px] relative overflow-hidden">
+<!-- Static Backdrop for Preview -->
+<div class="absolute inset-0 bg-slate-900/10 backdrop-blur-[2px]"></div>
+<!-- Confirmation Modal -->
+<div class="relative w-full max-w-md bg-white dark:bg-slate-800 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+<div class="p-6">
+<div class="flex items-center gap-4 mb-4">
+<div class="bg-red-100 dark:bg-red-900/30 p-3 rounded-full">
+<span class="material-symbols-outlined text-red-600 dark:text-red-400">warning</span>
+</div>
+<div>
+<h3 class="text-lg font-bold text-slate-900 dark:text-white">Delete Inventory Item?</h3>
+<p class="text-sm text-slate-500 dark:text-slate-400">This action cannot be undone.</p>
+</div>
+</div>
+<p class="text-slate-600 dark:text-slate-300 mb-6">
+                            Are you sure you want to delete <span class="font-bold">"Dell Optiplex 7080 - Lab 04"</span>? This will permanently remove it from the database and active tracking.
+                        </p>
+<div class="flex gap-3 justify-end">
+<button class="px-4 py-2 text-sm font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors">
+                                Cancel
+                            </button>
+<button class="px-6 py-2 text-sm font-semibold text-white bg-red-600 hover:bg-red-700 rounded-lg shadow-sm transition-colors">
+                                Delete Item
+                            </button>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Feedback & Alerts -->
+<section class="space-y-6">
+<h2 class="text-2xl font-bold flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">notification_important</span>
+                Feedback &amp; Alerts
+            </h2>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+<!-- Success Alert -->
+<div class="flex items-center justify-between gap-4 rounded-lg border border-emerald-200 bg-emerald-50 dark:bg-emerald-900/20 dark:border-emerald-900/30 p-5">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-emerald-600">check_circle</span>
+<div class="flex flex-col gap-0.5">
+<p class="text-emerald-900 dark:text-emerald-400 text-sm font-bold">Success Notification</p>
+<p class="text-emerald-700 dark:text-emerald-500/80 text-sm">Inventory item #1024 updated successfully.</p>
+</div>
+</div>
+<button class="text-emerald-900 dark:text-emerald-400">
+<span class="material-symbols-outlined text-xl">close</span>
+</button>
+</div>
+<!-- Error Alert -->
+<div class="flex items-center justify-between gap-4 rounded-lg border border-red-200 bg-red-50 dark:bg-red-900/20 dark:border-red-900/30 p-5">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-red-600">error</span>
+<div class="flex flex-col gap-0.5">
+<p class="text-red-900 dark:text-red-400 text-sm font-bold">Connection Error</p>
+<p class="text-red-700 dark:text-red-500/80 text-sm">Server timed out. Please check your network.</p>
+</div>
+</div>
+<button class="px-3 py-1 bg-red-600 text-white text-xs font-bold rounded-md uppercase tracking-wider">Retry</button>
+</div>
+</div>
+</section>
+<!-- Form Validation States -->
+<section class="space-y-6">
+<h2 class="text-2xl font-bold flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">edit_note</span>
+                Form Validation
+            </h2>
+<div class="bg-white dark:bg-slate-900 border border-[#d0dee6] dark:border-slate-800 rounded-xl p-8">
+<div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+<!-- Required Field State -->
+<div class="space-y-2">
+<label class="block text-sm font-semibold text-slate-700 dark:text-slate-300">Inventory Serial Number</label>
+<input class="w-full rounded-lg border-red-500 bg-red-50/50 dark:bg-red-900/10 focus:ring-red-500 focus:border-red-500 p-2.5 text-sm" placeholder="e.g. UOM-FIT-001" type="text"/>
+<p class="text-xs text-red-600 font-medium flex items-center gap-1">
+<span class="material-symbols-outlined text-sm">info</span> Serial number is required for asset tracking.
+                        </p>
+</div>
+<!-- Email Validation State -->
+<div class="space-y-2">
+<label class="block text-sm font-semibold text-slate-700 dark:text-slate-300">Faculty Coordinator Email</label>
+<div class="relative">
+<input class="w-full rounded-lg border-red-500 bg-red-50/50 dark:bg-red-900/10 focus:ring-red-500 focus:border-red-500 p-2.5 pr-10 text-sm" type="email" value="invalid-email-format"/>
+<span class="material-symbols-outlined absolute right-3 top-2.5 text-red-500">warning</span>
+</div>
+<p class="text-xs text-red-600 font-medium">Please enter a valid university email address (@uom.lk).</p>
+</div>
+</div>
+</div>
+</section>
+<!-- Data Loading & Empty States -->
+<section class="space-y-6">
+<h2 class="text-2xl font-bold flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">hourglass_empty</span>
+                Data States
+            </h2>
+<div class="grid grid-cols-1 xl:grid-cols-2 gap-8">
+<!-- Loading Skeleton -->
+<div class="bg-white dark:bg-slate-900 border border-[#d0dee6] dark:border-slate-800 rounded-xl p-6">
+<p class="text-sm font-bold mb-4 uppercase text-slate-400 tracking-widest">State: Loading</p>
+<div class="space-y-4">
+<div class="flex items-center gap-4">
+<div class="h-10 w-10 rounded-lg skeleton-shimmer"></div>
+<div class="flex-1 space-y-2">
+<div class="h-4 w-1/4 rounded skeleton-shimmer"></div>
+<div class="h-3 w-1/2 rounded skeleton-shimmer"></div>
+</div>
+</div>
+<div class="border-t border-slate-100 dark:border-slate-800 pt-4">
+<table class="w-full">
+<tbody><tr class="border-b border-slate-100 dark:border-slate-800">
+<th class="py-3"><div class="h-4 w-16 rounded skeleton-shimmer"></div></th>
+<th class="py-3"><div class="h-4 w-24 rounded skeleton-shimmer"></div></th>
+<th class="py-3 text-right"><div class="h-4 w-12 ml-auto rounded skeleton-shimmer"></div></th>
+</tr>
+<tr>
+<td class="py-4"><div class="h-3 w-20 rounded skeleton-shimmer"></div></td>
+<td class="py-4"><div class="h-3 w-32 rounded skeleton-shimmer"></div></td>
+<td class="py-4"><div class="h-3 w-10 ml-auto rounded skeleton-shimmer"></div></td>
+</tr>
+<tr>
+<td class="py-4"><div class="h-3 w-20 rounded skeleton-shimmer"></div></td>
+<td class="py-4"><div class="h-3 w-32 rounded skeleton-shimmer"></div></td>
+<td class="py-4"><div class="h-3 w-10 ml-auto rounded skeleton-shimmer"></div></td>
+</tr>
+</tbody></table>
+</div>
+</div>
+</div>
+<!-- Empty State -->
+<div class="bg-white dark:bg-slate-900 border border-[#d0dee6] dark:border-slate-800 rounded-xl p-6 flex flex-col items-center justify-center text-center min-h-[300px]">
+<p class="text-sm font-bold mb-8 uppercase text-slate-400 tracking-widest self-start">State: Empty</p>
+<div class="mb-6 bg-slate-50 dark:bg-slate-800 p-6 rounded-full">
+<span class="material-symbols-outlined text-6xl text-slate-300 dark:text-slate-600">assignment_late</span>
+</div>
+<h3 class="text-xl font-bold text-slate-900 dark:text-white">No Requests Found</h3>
+<p class="text-slate-500 dark:text-slate-400 max-w-xs mt-2 mb-6 text-sm">
+                        There are currently no pending inventory requests for your department.
+                    </p>
+<button class="bg-primary hover:bg-primary/90 text-white px-6 py-2.5 rounded-lg font-bold text-sm flex items-center gap-2 transition-all">
+<span class="material-symbols-outlined text-lg">add</span>
+                        Create New Request
+                    </button>
+</div>
+</div>
+</section>
+</main>
+<footer class="max-w-[1200px] mx-auto px-6 lg:px-40 py-12 border-t border-[#e8eef3] dark:border-slate-800 mt-12">
+<div class="flex flex-col md:flex-row justify-between items-center gap-6">
+<div class="flex items-center gap-3 opacity-50">
+<span class="material-symbols-outlined">school</span>
+<span class="text-sm font-semibold">Faculty of Information Technology, UoM</span>
+</div>
+<div class="flex gap-8 text-sm text-[#4f7a96]">
+<a class="hover:text-primary" href="#">Documentation</a>
+<a class="hover:text-primary" href="#">Support</a>
+<a class="hover:text-primary" href="#">v2.4.0</a>
+</div>
+</div>
+</footer>
+</body></html>

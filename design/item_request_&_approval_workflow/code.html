@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Item Request &amp; Approval Workflow | UOM Faculty of IT</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#0b3b5b",
+                        "background-light": "#f6f7f8",
+                        "background-dark": "#111b21",
+                    },
+                    fontFamily: {
+                        "display": ["Inter"]
+                    },
+                    borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px"},
+                },
+            },
+        }
+    </script>
+</head>
+<body class="bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-slate-100 min-h-screen">
+<!-- Top Navigation Bar -->
+<header class="flex items-center justify-between whitespace-nowrap border-b border-solid border-slate-200 dark:border-slate-800 bg-white dark:bg-background-dark px-6 py-3 sticky top-0 z-50">
+<div class="flex items-center gap-8">
+<div class="flex items-center gap-3 text-primary">
+<div class="size-8 bg-primary rounded-lg flex items-center justify-center text-white">
+<span class="material-symbols-outlined">inventory_2</span>
+</div>
+<div>
+<h2 class="text-slate-900 dark:text-white text-lg font-bold leading-tight">UOM Faculty of IT</h2>
+<p class="text-xs text-slate-500 font-medium uppercase tracking-wider">Inventory System</p>
+</div>
+</div>
+<label class="flex flex-col min-w-40 h-10 max-w-64">
+<div class="flex w-full flex-1 items-stretch rounded-lg h-full bg-slate-100 dark:bg-slate-800">
+<div class="text-slate-500 flex items-center justify-center pl-4">
+<span class="material-symbols-outlined text-xl">search</span>
+</div>
+<input class="form-input flex w-full min-w-0 flex-1 border-none bg-transparent focus:ring-0 h-full placeholder:text-slate-500 px-2 text-sm font-normal" placeholder="Search requests..." value=""/>
+</div>
+</label>
+</div>
+<div class="flex items-center gap-6">
+<nav class="hidden md:flex items-center gap-6">
+<a class="text-slate-600 dark:text-slate-300 text-sm font-semibold hover:text-primary transition-colors" href="#">Dashboard</a>
+<a class="text-primary dark:text-white text-sm font-semibold border-b-2 border-primary pb-1" href="#">Requests</a>
+<a class="text-slate-600 dark:text-slate-300 text-sm font-semibold hover:text-primary transition-colors" href="#">Inventory</a>
+<a class="text-slate-600 dark:text-slate-300 text-sm font-semibold hover:text-primary transition-colors" href="#">Reports</a>
+</nav>
+<div class="flex gap-2 border-l border-slate-200 dark:border-slate-800 pl-6">
+<button class="flex items-center justify-center rounded-lg size-10 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 transition-colors">
+<span class="material-symbols-outlined text-xl">notifications</span>
+</button>
+<button class="flex items-center justify-center rounded-lg size-10 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 transition-colors">
+<span class="material-symbols-outlined text-xl">settings</span>
+</button>
+</div>
+<div class="size-10 rounded-full border-2 border-primary overflow-hidden" data-alt="University staff profile picture">
+<img alt="Profile" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuA1Gk329iFFh1xpkxzm9jd9NrsniUXtCdNqJw5uVp8357kmWgyjd-o-uE5OrVnSqYOyUYGR86aUSmcXvSCuETwYtrTUXSJgk0ePr2SbeNFKPUCO0wDMYDtolUqrADl-ebrViFONIPGEhTcyX06LdJLZUSj_eQQmFDUwX6Rj4YV5i0QPfL9jbfYWgxFEAvP1yCagN4FA5LK9zfC03U7nzIYN-3mQOXEbaIFGFDoYJD8caoxrm28zkQjSX6fDghbh7TBBansYDRySZQPY"/>
+</div>
+</div>
+</header>
+<main class="flex h-[calc(100vh-65px)] overflow-hidden">
+<!-- Side Navigation/Request List -->
+<aside class="w-1/3 lg:w-1/4 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-background-dark flex flex-col">
+<div class="p-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-900/50">
+<h3 class="font-bold text-slate-800 dark:text-white flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">view_list</span>
+                    All Requests
+                </h3>
+<span class="bg-primary/10 text-primary text-xs font-bold px-2 py-1 rounded-full">24 Active</span>
+</div>
+<div class="flex-1 overflow-y-auto">
+<!-- Request Item Active -->
+<div class="p-4 border-b border-primary/20 bg-primary/5 cursor-pointer border-l-4 border-l-primary transition-all">
+<div class="flex justify-between mb-1">
+<span class="text-xs font-bold text-primary">#REQ-2023-001</span>
+<span class="text-xs font-medium text-slate-500">2h ago</span>
+</div>
+<h4 class="font-bold text-slate-900 dark:text-white text-sm mb-1 truncate">Dell Latitude Laptops for Lab 01</h4>
+<p class="text-xs text-slate-500 mb-2">Requested by: Dr. Aruna Perera</p>
+<div class="flex items-center gap-2">
+<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700 uppercase tracking-wide">Pending HOD</span>
+<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-700 uppercase tracking-wide">Urgent</span>
+</div>
+</div>
+<!-- Request Item 2 -->
+<div class="p-4 border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900 cursor-pointer transition-all">
+<div class="flex justify-between mb-1">
+<span class="text-xs font-bold text-slate-400">#REQ-2023-042</span>
+<span class="text-xs font-medium text-slate-500">Yesterday</span>
+</div>
+<h4 class="font-bold text-slate-800 dark:text-slate-300 text-sm mb-1 truncate">Projector Screens for LH 02</h4>
+<p class="text-xs text-slate-500 mb-2">Requested by: Ms. Dilani S.</p>
+<div class="flex items-center gap-2">
+<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-green-100 text-green-700 uppercase tracking-wide">Approved</span>
+</div>
+</div>
+<!-- Request Item 3 -->
+<div class="p-4 border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900 cursor-pointer transition-all">
+<div class="flex justify-between mb-1">
+<span class="text-xs font-bold text-slate-400">#REQ-2023-085</span>
+<span class="text-xs font-medium text-slate-500">Oct 24</span>
+</div>
+<h4 class="font-bold text-slate-800 dark:text-slate-300 text-sm mb-1 truncate">HDMI Cables (Batch 12)</h4>
+<p class="text-xs text-slate-500 mb-2">Requested by: Lab Assistant</p>
+<div class="flex items-center gap-2">
+<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 uppercase tracking-wide">Draft</span>
+</div>
+</div>
+</div>
+</aside>
+<!-- Main Workspace: Request Detail & Workflow -->
+<div class="flex-1 overflow-y-auto bg-slate-50 dark:bg-background-dark p-6">
+<div class="max-w-5xl mx-auto space-y-6">
+<!-- Page Heading -->
+<div class="flex flex-wrap justify-between items-start gap-4">
+<div class="flex flex-col gap-1">
+<div class="flex items-center gap-2">
+<span class="text-primary font-bold">Request #REQ-2023-001</span>
+<span class="bg-red-500 text-white text-[10px] px-2 py-0.5 rounded font-black uppercase tracking-tighter">Urgent Priority</span>
+</div>
+<h1 class="text-slate-900 dark:text-white text-3xl font-black leading-tight tracking-tight">Dell Latitude Laptops for Lab 01</h1>
+<p class="text-slate-500 text-base">Submitted Oct 25, 2023 by Dr. Aruna Perera (Dept. of CSE)</p>
+</div>
+<div class="flex gap-2">
+<button class="flex items-center justify-center rounded-lg h-10 px-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 text-sm font-bold shadow-sm">
+<span class="material-symbols-outlined mr-2 text-xl">picture_as_pdf</span>
+                            Export PDF
+                        </button>
+<button class="flex items-center justify-center rounded-lg h-10 px-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 text-sm font-bold shadow-sm">
+<span class="material-symbols-outlined mr-2 text-xl">history</span>
+                            Logs
+                        </button>
+</div>
+</div>
+<!-- Tabs -->
+<div class="border-b border-slate-200 dark:border-slate-800">
+<div class="flex gap-8">
+<a class="border-b-2 border-primary text-primary pb-3 pt-4 font-bold text-sm flex items-center gap-2" href="#">
+<span class="material-symbols-outlined text-lg">info</span> Request Details
+                        </a>
+<a class="border-b-2 border-transparent text-slate-500 pb-3 pt-4 font-bold text-sm hover:text-slate-700 flex items-center gap-2" href="#">
+<span class="material-symbols-outlined text-lg">attachment</span> Attachments (2)
+                        </a>
+<a class="border-b-2 border-transparent text-slate-500 pb-3 pt-4 font-bold text-sm hover:text-slate-700 flex items-center gap-2" href="#">
+<span class="material-symbols-outlined text-lg">comment</span> Discussion
+                        </a>
+</div>
+</div>
+<!-- Main Content Grid -->
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+<!-- Workflow/Stepper Column -->
+<div class="lg:col-span-1 flex flex-col gap-4">
+<div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm">
+<h3 class="font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">account_tree</span>
+                                Approval Workflow
+                            </h3>
+<!-- Vertical Stepper -->
+<div class="relative space-y-8 pl-4">
+<!-- Line -->
+<div class="absolute left-7 top-2 bottom-2 w-0.5 bg-slate-200 dark:bg-slate-800"></div>
+<!-- Step 1: Initiated -->
+<div class="relative flex items-start gap-6">
+<div class="z-10 size-6 rounded-full bg-green-500 flex items-center justify-center text-white ring-4 ring-white dark:ring-slate-900">
+<span class="material-symbols-outlined text-sm">check</span>
+</div>
+<div>
+<p class="text-sm font-bold text-slate-900 dark:text-white leading-none mb-1">Staff Member</p>
+<p class="text-xs text-slate-500 font-medium">Dr. Aruna Perera</p>
+<p class="text-[10px] text-green-600 font-bold uppercase mt-1">Initiated • Oct 25</p>
+</div>
+</div>
+<!-- Step 2: Inventory In-Charge -->
+<div class="relative flex items-start gap-6">
+<div class="z-10 size-6 rounded-full bg-green-500 flex items-center justify-center text-white ring-4 ring-white dark:ring-slate-900">
+<span class="material-symbols-outlined text-sm">check</span>
+</div>
+<div>
+<p class="text-sm font-bold text-slate-900 dark:text-white leading-none mb-1">Inventory In-Charge</p>
+<p class="text-xs text-slate-500 font-medium">Mr. Kamal Silva</p>
+<p class="text-[10px] text-green-600 font-bold uppercase mt-1">Verified • Oct 26</p>
+</div>
+</div>
+<!-- Step 3: HOD (Pending) -->
+<div class="relative flex items-start gap-6">
+<div class="z-10 size-6 rounded-full bg-primary flex items-center justify-center text-white ring-4 ring-white dark:ring-slate-900 animate-pulse">
+<span class="material-symbols-outlined text-sm">hourglass_empty</span>
+</div>
+<div>
+<p class="text-sm font-bold text-primary leading-none mb-1">Head of Department</p>
+<p class="text-xs text-slate-500 font-medium">Prof. T. Kumara</p>
+<p class="text-[10px] text-primary font-bold uppercase mt-1">Awaiting Approval</p>
+</div>
+</div>
+<!-- Step 4: Registrar (Upcoming) -->
+<div class="relative flex items-start gap-6 opacity-40">
+<div class="z-10 size-6 rounded-full bg-slate-300 flex items-center justify-center text-slate-600 ring-4 ring-white dark:ring-slate-900">
+<span class="material-symbols-outlined text-sm">radio_button_unchecked</span>
+</div>
+<div>
+<p class="text-sm font-bold text-slate-900 dark:text-white leading-none mb-1">Registrar</p>
+<p class="text-xs text-slate-500 font-medium">University of Moratuwa</p>
+<p class="text-[10px] text-slate-400 font-bold uppercase mt-1">Pending Queue</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Details and Approval Column -->
+<div class="lg:col-span-2 space-y-6">
+<!-- Request Card -->
+<div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm">
+<div class="flex justify-between items-center mb-6">
+<h3 class="font-bold text-lg text-slate-800 dark:text-white">Item Specification</h3>
+<div class="px-3 py-1 bg-slate-100 dark:bg-slate-800 rounded-lg text-xs font-bold text-slate-600">Category: IT Hardware</div>
+</div>
+<div class="grid grid-cols-2 md:grid-cols-4 gap-6 mb-8">
+<div>
+<p class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Quantity</p>
+<p class="text-lg font-black text-slate-900 dark:text-white">15 Units</p>
+</div>
+<div>
+<p class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Est. Unit Cost</p>
+<p class="text-lg font-black text-slate-900 dark:text-white">LKR 240,000</p>
+</div>
+<div>
+<p class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Total Budget</p>
+<p class="text-lg font-black text-primary">LKR 3.6M</p>
+</div>
+<div>
+<p class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Inventory ID</p>
+<p class="text-lg font-black text-slate-900 dark:text-white">EQ-IT-009</p>
+</div>
+</div>
+<div class="space-y-4">
+<div class="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-lg border border-slate-100 dark:border-slate-800">
+<p class="text-xs font-bold text-slate-500 uppercase mb-2">Purpose / Justification</p>
+<p class="text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
+                                        The current laptops in Lab 01 are over 6 years old and cannot support the new AI/ML software stack required for the Semester 5 "Intelligent Systems" module. Upgrading to Dell Latitude with i7/16GB specs is essential for student coursework.
+                                    </p>
+</div>
+</div>
+</div>
+<!-- Action Panel (Visible to HOD) -->
+<div class="bg-white dark:bg-slate-900 rounded-xl border-2 border-primary/20 p-6 shadow-xl relative overflow-hidden">
+<div class="absolute top-0 right-0 p-2">
+<span class="bg-primary/10 text-primary text-[10px] font-black px-2 py-1 rounded">ACTION REQUIRED: HOD ROLE</span>
+</div>
+<h3 class="font-bold text-lg text-slate-800 dark:text-white mb-4">Review &amp; Decisions</h3>
+<div class="space-y-4">
+<div>
+<label class="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Comments / Justification for Action</label>
+<textarea class="w-full rounded-lg border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 focus:ring-primary focus:border-primary placeholder:text-slate-400 text-sm" placeholder="Add a comment for the Registrar or feedback for the requester..." rows="4"></textarea>
+</div>
+<div class="flex items-center gap-3 pt-2">
+<button class="flex-1 flex items-center justify-center gap-2 rounded-lg h-12 bg-primary text-white text-sm font-bold shadow-lg hover:bg-primary/90 transition-all">
+<span class="material-symbols-outlined">verified</span>
+                                        Approve Request
+                                    </button>
+<button class="flex-1 flex items-center justify-center gap-2 rounded-lg h-12 bg-red-50 text-red-600 border border-red-200 text-sm font-bold hover:bg-red-100 transition-all">
+<span class="material-symbols-outlined">cancel</span>
+                                        Reject / Return
+                                    </button>
+<button class="flex items-center justify-center rounded-lg size-12 bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all">
+<span class="material-symbols-outlined">more_vert</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+</body></html>

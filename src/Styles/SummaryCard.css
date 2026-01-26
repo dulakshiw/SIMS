@@ -1,0 +1,30 @@
+.summary-card {
+  background: rgb(132, 106, 248);
+  border-radius: 12px;
+  padding: 20px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  width: 260px;
+}
+
+.summary-icon {
+  font-size: 32px;
+  color: #0b3c5d;
+  background-color: #eaf2f8;
+  padding: 15px;
+  border-radius: 50%;
+}
+
+.summary-details h4 {
+  margin: 0;
+  font-size: 14px;
+  color: #555;
+}
+
+.summary-details h2 {
+  margin: 5px 0 0;
+  font-size: 26px;
+  color: #0b3c5d;
+}
