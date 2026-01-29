@@ -63,10 +63,9 @@ const CreateRequest = () => {
                 onChange={(value) => setFormData((prev) => ({ ...prev, priority: value }))}
               />
               <FormInput
-                label="Budget/Cost"
-                name="cost"
-                type="number"
-                placeholder="0.00"
+                label="Expected Return Date"
+                name="returnDate"
+                type="date"
               />
             </div>
 

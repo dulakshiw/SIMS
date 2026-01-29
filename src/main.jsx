@@ -7,6 +7,7 @@ import './index.css'
 import Login from './Pages/Login/Login'
 import SignUp from './Pages/Login/SIgnUp'
 import ForgotPW from './Pages/Login/ForgotPW'
+import ResetPassword from './Pages/Login/ResetPassword'
 
 // Admin Pages
 import AdminDashboard from './Pages/Admin/AdminDashboard'
@@ -50,6 +51,10 @@ const router = createBrowserRouter([
   {
     path: "/forgotPassword",
     element: <ForgotPW />
+  },
+  {
+    path: "/resetPassword",
+    element: <ResetPassword />
   },
 
   // ==================== Admin Routes ====================

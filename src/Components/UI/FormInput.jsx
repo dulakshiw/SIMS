@@ -24,9 +24,11 @@ const FormInput = ({
     w-full px-4 py-2.5 border rounded-md text-base
     transition-smooth focus:outline-none
     ${error ? "border-error focus:ring-2 focus:ring-error focus:ring-opacity-20" : "border-border-light focus:ring-2 focus:ring-primary-800 focus:ring-opacity-20"}
-    ${disabled ? "bg-background-light text-text-light cursor-not-allowed" : "bg-white text-text-dark"}
+    ${disabled ? "text-text-light cursor-not-allowed" : "text-text-dark"}
     placeholder-text-light
   `;
+
+  const bgStyle = { backgroundColor: '#F2F0F0' };
 
   return (
     <div className={`flex flex-col gap-2 ${className}`}>
@@ -53,6 +55,7 @@ const FormInput = ({
             onChange={onChange}
             disabled={disabled}
             rows={rows || 4}
+            style={bgStyle}
             className={`${inputStyles} ${icon ? "pl-12" : ""} resize-none`}
             onFocus={() => setIsFocused(true)}
             onBlur={() => setIsFocused(false)}
@@ -66,6 +69,7 @@ const FormInput = ({
             value={value}
             onChange={onChange}
             disabled={disabled}
+            style={bgStyle}
             className={`${inputStyles} ${icon ? "pl-12" : ""}`}
             onFocus={() => setIsFocused(true)}
             onBlur={() => setIsFocused(false)}

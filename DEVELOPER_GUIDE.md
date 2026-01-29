@@ -29,6 +29,7 @@ npm run dev
 /                   Login
 /signup             Sign Up
 /forgotPassword     Forgot Password
+/resetPassword      Reset Password
 ```
 
 ### Admin Routes (AdminLayout)
@@ -69,6 +70,9 @@ npm run dev
 ```
 /staff/dashboard                Staff Dashboard
 /incharge/dashboard             Incharge Dashboard
+/hod/dashboard                  Head of the Department Dashboard
+/registrar/dashboard            Registrar Dashboard
+/dean/dashboard                 Dean Dashboard
 ```
 
 ---
@@ -117,7 +121,7 @@ import { Button, Card, Table, Badge, FormInput, Select } from '../../Components/
 </Card>
 
 // Table
-<Table columns={columns} data={data} actions={actions} />
+<Table columns={columns} data={data} status={status} actions={actions}  />
 
 // Badge
 <Badge label="Pending" variant="warning" />
@@ -184,9 +188,9 @@ import YourPage from './Pages/YourModule/YourPage'
 ### Semantic Colors
 
 ```
-#10b981  - Success
-#f59e0b  - Warning
-#ef4444  - Error
+#2fcf84  - Success
+#e4424d  - Warning
+rgb(189, 246, 4)  - Error
 #3b82f6  - Info
 ```
 
@@ -252,7 +256,7 @@ import {
 
 formatDate(new Date()); // "15/01/2024"
 formatDateTime(new Date()); // "15/01/2024 10:30 AM"
-formatCurrency(1500); // "$1,500.00"
+formatCurrency(1500); // "Rs. 1,500.00"
 ```
 
 ### Text Utilities
@@ -283,7 +287,7 @@ import { validation } from "../../utils/helpers";
 
 validation.email(email); // Boolean
 validation.phone(phone); // Boolean
-validation.password(pwd); // Boolean (min 6)
+validation.password(pwd); // Boolean (min 8)
 validation.username(user); // Boolean (3-20 chars)
 ```
 
