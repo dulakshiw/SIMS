@@ -49,12 +49,97 @@ export const CONDITION_ASSESSMENT = [
   { value: "good", label: "Good" },
 ];
 
-// Role Types
+// Role Types and Hierarchy
 export const ROLES = {
   ADMIN: "admin",
+  REGISTRAR: "registrar",
   STAFF: "staff",
-  INCHARGE: "incharge",
+  INVENTORY_INCHARGE: "inventory_incharge",
+  HEAD_OF_DEPARTMENT: "head_of_department",
+  DEAN: "dean",
 };
+
+// Role Descriptions and Permissions
+export const ROLE_HIERARCHY = {
+  admin: {
+    label: "System Administrator",
+    description: "Full system access and control",
+    superclass: null,
+    permissions: ["manage_users", "manage_departments", "manage_inventories", "approve_accounts", "view_all_data"],
+  },
+  registrar: {
+    label: "Registrar",
+    description: "Approves inventory creation and user account activations",
+    superclass: null,
+    permissions: ["approve_inventory", "activate_accounts", "view_all_data", "manage_departments"],
+  },
+  staff: {
+    label: "Staff Member",
+    description: "Regular staff member",
+    superclass: "staff",
+    permissions: ["request_items", "view_own_inventory"],
+  },
+  inventory_incharge: {
+    label: "Inventory In-Charge",
+    description: "Manages inventory items, transfers, and disposals",
+    superclass: "staff",
+    permissions: [
+      "add_items",
+      "update_items",
+      "delete_items",
+      "manage_transfers",
+      "manage_disposals",
+      "manage_repairs",
+      "view_inventory",
+      "request_items",
+    ],
+  },
+  head_of_department: {
+    label: "Head of Department (HOD)",
+    description: "Approves requests and manages department inventory",
+    superclass: "staff",
+    permissions: [
+      "approve_inventory_requests",
+      "approve_item_requests",
+      "view_department_inventory",
+      "view_department_users",
+      "manage_department_staff",
+      "request_items",
+    ],
+  },
+  dean: {
+    label: "Dean",
+    description: "Faculty-level oversight of all inventories",
+    superclass: "staff",
+    permissions: ["view_faculty_inventory", "view_faculty_users", "approve_item_requests", "request_items"],
+  },
+};
+
+// Account Creation Request Status
+export const ACCOUNT_REQUEST_STATUS = {
+  PENDING_DEPT_HEAD: "pending_dept_head",
+  APPROVED_BY_DEPT_HEAD: "approved_by_dept_head",
+  PENDING_ADMIN: "pending_admin",
+  APPROVED_BY_ADMIN: "approved_by_admin",
+  REJECTED: "rejected",
+};
+
+// Inventory Creation Request Status
+export const INVENTORY_REQUEST_STATUS = {
+  PENDING_STAFF: "pending_staff",
+  APPROVED_BY_HOD: "approved_by_hod",
+  PENDING_REGISTRAR: "pending_registrar",
+  APPROVED_BY_REGISTRAR: "approved_by_registrar",
+  REJECTED: "rejected",
+};
+
+// Item Transfer/Disposal Status
+export const ITEM_REMARK_TYPE = {
+  TRANSFERRED: "transferred",
+  DISPOSED: "disposed",
+  REPAIRED: "repaired",
+};
+
 
 // Item Status
 export const ITEM_STATUS = [
@@ -93,10 +178,11 @@ export const ITEMS_PER_PAGE_OPTIONS = [10, 25, 50, 100];
 // Navigation Items
 export const ADMIN_NAV_ITEMS = [
   { id: 1, label: "Dashboard", path: "/admin/dashboard", icon: "dashboard" },
-  { id: 2, label: "Inventory", path: "/inventory/list", icon: "inventory_2" },
-  { id: 3, label: "Departments", path: "/dept/view", icon: "business" },
+  { id: 2, label: "Inventory", path: "/admin/inventories", icon: "inventory_2" },
+  { id: 3, label: "Departments", path: "/admin/departments", icon: "business" },
   { id: 4, label: "Users", path: "/admin/users", icon: "people" },
   { id: 5, label: "Reports", path: "/admin/reports", icon: "assessment" },
+  { id: 6, label: "Profile", path: "/profile", icon: "person" },
 ];
 
 export const INVENTORY_NAV_ITEMS = [
@@ -106,6 +192,7 @@ export const INVENTORY_NAV_ITEMS = [
   { id: 4, label: "Transfers", path: "/inventory/transfers", icon: "compare_arrows" },
   { id: 5, label: "Disposals", path: "/inventory/disposals", icon: "delete_sweep" },
   { id: 6, label: "Requests", path: "/inventory/requests", icon: "request_quote" },
+  { id: 7, label: "Profile", path: "/profile", icon: "person" },
 ];
 
 // Mock data structure
@@ -125,6 +212,10 @@ export default {
   DISPOSAL_REASONS,
   CONDITION_ASSESSMENT,
   ROLES,
+  ROLE_HIERARCHY,
+  ACCOUNT_REQUEST_STATUS,
+  INVENTORY_REQUEST_STATUS,
+  ITEM_REMARK_TYPE,
   ITEM_STATUS,
   TRANSFER_STATUS,
   REQUEST_PRIORITY,

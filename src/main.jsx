@@ -13,12 +13,14 @@ import ResetPassword from './Pages/Login/ResetPassword'
 import AdminDashboard from './Pages/Admin/AdminDashboard'
 import UserManagement from './Pages/Admin/UserManagement'
 import Reports from './Pages/Admin/Reports'
+import Profile from './Pages/Admin/Profile'
 
 // Inventory Pages
-import InventoryDashboard from './Pages/Inventory/InventoryDashboard'
+import InventoryDashboard from './Pages/Inventory/InchargeDashboard'
 import InventoryListView from './Pages/Inventory/InventoryListView'
 import AddNewItem from './Pages/Inventory/AddNewItem'
 import InchargeDashboard from './Pages/Inventory/InchargeDashboard'
+import ItemView from './Pages/Inventory/ItemView'
 
 // Disposal Pages
 import DisposalList from './Pages/Inventory/Disposals/DisposalList'
@@ -66,6 +68,10 @@ const router = createBrowserRouter([
         element: <AdminDashboard />
       },
       {
+        path: "profile",
+        element: <Profile />
+      },
+      {
         path: "users",
         element: <UserManagement />
       },
@@ -82,8 +88,12 @@ const router = createBrowserRouter([
     children: [
       {
         path: "dashboard",
-        element: <InventoryDashboard />
+        element: <InchargeDashboard />
       },
+        {
+          path: "scan",
+          element: <ItemView />
+        },
       {
         path: "list",
         element: <InventoryListView />
@@ -140,6 +150,12 @@ const router = createBrowserRouter([
         ]
       }
     ]
+  },
+
+  // ==================== Shared Profile Route ====================
+  {
+    path: "/profile",
+    element: <Profile />
   },
 
   // ==================== Requests & Approvals Routes ====================

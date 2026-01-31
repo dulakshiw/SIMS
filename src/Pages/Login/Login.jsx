@@ -51,9 +51,9 @@ const Login = () => {
           <div className="space-y-6">
             {/* Header */}
             <div className="text-center space-y-2">
-              <h1 className="text-3xl font-bold text-text-dark">Welcome Back</h1>
+              <h1 className="text-3xl font-bold text-text-dark">Inventory Management System</h1>
               <p className="text-text-light text-sm">
-                Inventory Management System
+                
               </p>
             </div>
 
@@ -74,7 +74,7 @@ const Login = () => {
               {/* Email */}
               <div className="space-y-2">
                 <label className="block text-sm font-semibold text-text-dark">
-                  Email Address <span className="text-danger">*</span>
+                  Email Address 
                 </label>
                 <input
                   type="email"
@@ -91,7 +91,7 @@ const Login = () => {
               {/* Password */}
               <div className="space-y-2">
                 <label className="block text-sm font-semibold text-text-dark">
-                  Password <span className="text-danger">*</span>
+                  Password 
                 </label>
                 <div className="relative">
                   <input

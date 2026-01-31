@@ -108,7 +108,7 @@ const ForgotPW = () => {
               <form onSubmit={handleSendOTP} className="space-y-4">
                 <div className="space-y-2">
                   <label className="block text-sm font-semibold text-text-dark">
-                    Email Address <span className="text-danger">*</span>
+                    Email Address 
                   </label>
                   <input
                     type="email"
