@@ -1,5 +1,12 @@
 import React, { useState } from "react";
-import { ADMIN_NAV_ITEMS, INVENTORY_NAV_ITEMS, ROLES } from "../../utils/constants";
+import {
+  ADMIN_NAV_ITEMS,
+  DEAN_NAV_ITEMS,
+  HOD_NAV_ITEMS,
+  INCHARGE_NAV_ITEMS,
+  INVENTORY_NAV_ITEMS,
+  STAFF_NAV_ITEMS,
+} from "../../utils/constants";
 import { Link, useLocation } from "react-router-dom";
 
 const Sidebar = ({ variant = "inventory", onCollapseChange }) => {
@@ -14,7 +21,16 @@ const Sidebar = ({ variant = "inventory", onCollapseChange }) => {
     }
   };
 
-  const navItems = variant === "admin" ? ADMIN_NAV_ITEMS : INVENTORY_NAV_ITEMS;
+  const navItemsByVariant = {
+    admin: ADMIN_NAV_ITEMS,
+    inventory: INVENTORY_NAV_ITEMS,
+    staff: STAFF_NAV_ITEMS,
+    hod: HOD_NAV_ITEMS,
+    dean: DEAN_NAV_ITEMS,
+    incharge: INCHARGE_NAV_ITEMS,
+  };
+
+  const navItems = navItemsByVariant[variant] || INVENTORY_NAV_ITEMS;
 
   return (
     <aside

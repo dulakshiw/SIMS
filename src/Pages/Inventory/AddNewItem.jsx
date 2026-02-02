@@ -1,11 +1,19 @@
 import React, { useState } from "react";
+import { useLocation, useParams } from "react-router-dom";
 import MainLayout from "../../Components/Layouts/MainLayout";
 import { Card, Button } from "../../Components/UI";
+import { resolveSidebarVariant } from "../../utils/helpers";
 
 const AddNewItem = () => {
+  const location = useLocation();
+  const { role } = useParams();
+  const sidebarVariant = resolveSidebarVariant(location.pathname, role);
   const [uploadMode, setUploadMode] = useState("single"); // "single" or "bulk"
   const [bulkFile, setBulkFile] = useState(null);
   const [bulkItems, setBulkItems] = useState([]);
+  const [selectedBulk, setSelectedBulk] = useState({});
+  const [selectAllBulk, setSelectAllBulk] = useState(false);
+  const [labelLayout, setLabelLayout] = useState('grid'); // 'grid' or 'avery'
   
   const [itemData, setItemData] = useState({
     itemName: "",
@@ -14,6 +22,7 @@ const AddNewItem = () => {
     serialNo2: "",
     model: "",
     QRCode: "",
+    pageno: "",
     itemImage: null,
     value: "",
     purchaseDate: "",
@@ -162,6 +171,9 @@ const AddNewItem = () => {
         });
 
         setBulkItems(itemsWithQr);
+        // reset selection
+        setSelectedBulk({});
+        setSelectAllBulk(false);
         alert(`Successfully parsed ${items.length} items from CSV file`);
       } catch (error) {
         alert('Error parsing CSV file. Please ensure it has the correct format.');
@@ -174,13 +186,13 @@ const AddNewItem = () => {
   const downloadTemplate = () => {
     const headers = [
       'itemName', 'itemCode', 'serialNo', 'serialNo2', 'model', 
-      'QRCode', 'value', 'purchaseDate', 'ginNo', 'poNo', 
+      'QRCode', "pageno", 'value', 'purchaseDate', 'ginNo', 'poNo', 
       'supplier', 'funding', 'receivedfrom', 'warranty', 'location', 'remarks'
     ];
     
     const csvContent = [
       headers.join(','),
-      'Sample Item,CODE001,SN123,SN456,ModelX,QR001,5000,2025-01-15,GIN001,PO001,Supplier A,Internal Fund,Department A,1 Year,Building A,Good condition'
+      'Core i7 Computer,ITDEOFQCE 01,SN123,SN456,HP,QR001,1,5000,2025-01-15,15550,PO001,VSIS,Capital Fund,Stores,3 Years,Deans Office,Good condition'
     ].join('\n');
     
     const blob = new Blob([csvContent], { type: 'text/csv' });
@@ -217,6 +229,53 @@ const AddNewItem = () => {
         alert('Bulk upload failed (network). Ensure mock server is running at http://localhost:4000');
       }
     })();
+  };
+
+  const handleBulkPrint = () => {
+    if (!bulkItems || bulkItems.length === 0) {
+      alert('No parsed items to print.');
+      return;
+    }
+
+    const w = window.open('', '_blank');
+    if (!w) {
+      alert('Unable to open print window. Please allow popups.');
+      return;
+    }
+
+    // pick items based on selection if any
+    const itemsToPrint = Object.keys(selectedBulk).length > 0
+      ? bulkItems.filter((_, i) => selectedBulk[i])
+      : bulkItems;
+
+    const cardHtml = itemsToPrint.map((it) => {
+      const name = it.itemname || it.itemName || '';
+      const code = it.itemcode || it.itemCode || '';
+      const serial = it.serialno || it.serialNo || '';
+      const url = it.qrcodeUrl || `${window.location.origin}/inventory/scan?q=${encodeURIComponent(it.qrcode || '')}`;
+      const qrImg = getQrImageUrl(url, labelLayout === 'avery' ? 140 : 200);
+      if (labelLayout === 'avery') {
+        return `
+          <div style="width:180px;height:110px;display:inline-block;margin:6px;padding:6px;border:0;box-sizing:border-box;text-align:center;font-family:Arial,Helvetica,sans-serif;vertical-align:top">
+            <img src="${qrImg}" style="width:86px;height:86px;object-fit:contain;display:block;margin:0 auto" />
+            <div style="margin-top:6px;font-weight:600;font-size:11px">${name}</div>
+            <div style="font-size:10px;color:#444">${code}${serial? ' | ' + serial : ''}</div>
+          </div>
+        `;
+      }
+      return `
+        <div style="width:240px;height:320px;display:inline-block;margin:8px;padding:8px;border:1px solid #e5e7eb;box-sizing:border-box;text-align:center;font-family:Arial,Helvetica,sans-serif">
+          <img src="${qrImg}" style="width:200px;height:200px;object-fit:contain" />
+          <div style="margin-top:8px;font-weight:600">${name}</div>
+          <div style="font-size:12px;color:#444">${code}${serial? ' | ' + serial : ''}</div>
+        </div>
+      `;
+    }).join('\n');
+
+    w.document.write(`<!doctype html><html><head><title>QR Labels</title><style>body{padding:20px}</style></head><body>${cardHtml}</body></html>`);
+    w.document.close();
+    w.focus();
+    setTimeout(() => { w.print(); }, 300);
   };
 
   const handleSubmit = (e) => {
@@ -256,6 +315,7 @@ const AddNewItem = () => {
       serialNo2: "",
       model: "",
       QRCode: "",
+      pageno: "",
       itemImage: null,
       value: "",
       purchaseDate: "",
@@ -272,7 +332,7 @@ const AddNewItem = () => {
   };
 
   return (
-    <MainLayout>
+    <MainLayout variant={sidebarVariant}>
       <div className="space-y-6">
         {/* Header */}
         <div>
@@ -440,6 +500,20 @@ const AddNewItem = () => {
                   )}
                 </div>
 
+                {/* Inventory Page Number */}
+                <div className="space-y-2">
+                  <label className="block text-sm font-semibold text-text-dark">Inventory Page No</label>
+                  <input
+                    type="number"
+                    name="pageno"
+                    value={itemData.pageno}
+                    onChange={handleChange}
+                    placeholder="Enter Inventory page number"
+                    style={{ backgroundColor: '#F2F0F0' }}
+                    className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  />
+                </div>
+
                 {/* Item Image */}
                 <div className="space-y-2">
                   <label className="block text-sm font-semibold text-text-dark">Item Image</label>
@@ -552,16 +626,20 @@ const AddNewItem = () => {
                 {/* Funding Source */}
                 <div className="space-y-2">
                   <label className="block text-sm font-semibold text-text-dark">Funding Source</label>
-                  <input
-                    type="text"
+                  <select
                     name="funding"
                     value={itemData.funding}
                     onChange={handleChange}
-                    placeholder="Enter funding source"
                     style={{ backgroundColor: '#F2F0F0' }}
                     className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  />
-                </div>
+                  >
+                    <option value="capital">Capital Fund</option>
+                    <option value="unidevfund">University Development Fund</option>
+                    <option value="facdevfund">Faculty Development Fund</option>
+                    <option value="deptdevfund">Department Development Fund</option>
+                    <option value="other">Other (please specify)</option>
+                  </select>
+                 </div>
               </div>
             </div>
 
@@ -605,15 +683,19 @@ const AddNewItem = () => {
                 {/* Warranty Period */}
                 <div className="space-y-2">
                   <label className="block text-sm font-semibold text-text-dark">Warranty Period</label>
-                  <input
-                    type="text"
+                  <select
                     name="warranty"
                     value={itemData.warranty}
                     onChange={handleChange}
-                    placeholder="Enter warranty period"
                     style={{ backgroundColor: '#F2F0F0' }}
                     className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  />
+                  >
+                    <option value="1year">1 Year</option>
+                    <option value="2years">2 Years</option>
+                    <option value="3years">3 Years</option>
+                    <option value="5years">5 Years</option>
+                    <option value="other">Other (please specify)</option>
+                  </select>
                 </div>
               </div>
             </div>
@@ -708,6 +790,33 @@ const AddNewItem = () => {
               </div>
             </div>
 
+            {/* Bulk controls: layout + select all */}
+            {bulkItems.length > 0 && (
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <label className="text-sm font-semibold">Label Layout:</label>
+                  <select value={labelLayout} onChange={e => setLabelLayout(e.target.value)} className="px-3 py-2 border rounded-lg bg-white">
+                    <option value="grid">Grid (large)</option>
+                    <option value="avery">Avery (small labels)</option>
+                  </select>
+                </div>
+                <div className="flex items-center gap-3">
+                  <label className="text-sm">Select All</label>
+                  <input type="checkbox" checked={selectAllBulk} onChange={(e) => {
+                    const checked = e.target.checked;
+                    setSelectAllBulk(checked);
+                    if (checked) {
+                      const obj = {};
+                      bulkItems.forEach((it, i) => { obj[i] = true; });
+                      setSelectedBulk(obj);
+                    } else {
+                      setSelectedBulk({});
+                    }
+                  }} />
+                </div>
+              </div>
+            )}
+
             {/* Preview Section */}
             {bulkItems.length > 0 && (
               <div className="space-y-3">
@@ -721,17 +830,37 @@ const AddNewItem = () => {
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="bg-gray-100 border-b">
-                        <th className="px-3 py-2 text-left font-semibold">Item Name</th>
-                        <th className="px-3 py-2 text-left font-semibold">Item Code</th>
-                        <th className="px-3 py-2 text-left font-semibold">Serial No</th>
-                        <th className="px-3 py-2 text-left font-semibold">Value</th>
-                        <th className="px-3 py-2 text-left font-semibold">Location</th>
-                      </tr>
+                              <tr className="bg-gray-100 border-b">
+                                <th className="px-3 py-2 text-left font-semibold"><input type="checkbox" checked={selectAllBulk} onChange={(e)=>{
+                                  const checked = e.target.checked;
+                                  setSelectAllBulk(checked);
+                                  if (checked) {
+                                    const obj = {};
+                                    bulkItems.forEach((it, i) => { obj[i] = true; });
+                                    setSelectedBulk(obj);
+                                  } else {
+                                    setSelectedBulk({});
+                                  }
+                                }} /></th>
+                              <th className="px-3 py-2 text-left font-semibold">Item Name</th>
+                              <th className="px-3 py-2 text-left font-semibold">Item Code</th>
+                              <th className="px-3 py-2 text-left font-semibold">Serial No</th>
+                              <th className="px-3 py-2 text-left font-semibold">Value</th>
+                              <th className="px-3 py-2 text-left font-semibold">Location</th>
+                            </tr>
                     </thead>
                     <tbody>
                       {bulkItems.slice(0, 5).map((item, index) => (
                         <tr key={index} className="border-b hover:bg-gray-50">
+                          <td className="px-3 py-2">
+                            <input type="checkbox" checked={!!selectedBulk[index]} onChange={(e) => {
+                              const obj = { ...selectedBulk };
+                              if (e.target.checked) obj[index] = true; else delete obj[index];
+                              setSelectedBulk(obj);
+                              // keep selectAll in sync
+                              setSelectAllBulk(Object.keys(obj).length === bulkItems.length);
+                            }} />
+                          </td>
                           <td className="px-3 py-2">{item.itemname || item.itemName || '-'}</td>
                           <td className="px-3 py-2">{item.itemcode || item.itemCode || '-'}</td>
                           <td className="px-3 py-2">{item.serialno || item.serialNo || '-'}</td>
@@ -766,6 +895,14 @@ const AddNewItem = () => {
                 variant="tertiary"
               >
                 Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={handleBulkPrint}
+                variant="secondary"
+                disabled={bulkItems.length === 0}
+              >
+                Print QR Labels
               </Button>
               <Button
                 type="button"

@@ -1,9 +1,11 @@
 import React from 'react'
+import { useLocation } from 'react-router-dom'
 import MainLayout from '../../Components/Layouts/MainLayout'
 import { Card, Button } from '../../Components/UI'
 
 const InchargeDashboard = () => {
-    const username = 'Inventory In-Charge'
+    const location = useLocation()
+    const sidebarVariant = location.pathname.startsWith('/incharge') ? 'incharge' : 'inventory'
 
     const mockStats = [
         { title: 'Total Assets', value: '425', icon: 'inventory_2', color: 'primary-800' },
@@ -13,13 +15,13 @@ const InchargeDashboard = () => {
     ]
 
     const mockRecentActivity = [
-        { item: 'Laptop Dell XPS 13', action: 'Added', date: '2024-01-15' },
-        { item: 'Office Chair', action: 'Transferred', date: '2024-01-10' },
-        { item: 'Printer HP M433', action: 'Maintenance', date: '2024-01-12' },
+        { item: 'Laptop Dell XPS 13', action: 'Added', date: '2026-01-15' },
+        { item: 'Office Chair', action: 'Transferred', date: '2026-01-18' },
+        { item: 'Printer HP M433', action: 'Under Repair', date: '2026-01-12' },
     ]
 
     return (
-        <MainLayout>
+        <MainLayout variant={sidebarVariant}>
             <div className="gradient-primary py-6 rounded-t">
                 <div className="max-w-7xl mx-auto px-6">
                     <h1 className="text-3xl font-bold text-white">Inventory Dashboard</h1>

@@ -1,8 +1,13 @@
 import React from "react";
+import { useLocation, useParams } from "react-router-dom";
 import MainLayout from "../../../Components/Layouts/MainLayout";
 import { Card, Button } from "../../../Components/UI";
+import { resolveSidebarVariant } from "../../../utils/helpers";
 
 const DisposalReports = () => {
+  const location = useLocation();
+  const { role } = useParams();
+  const sidebarVariant = resolveSidebarVariant(location.pathname, role);
   const mockStats = [
     { title: "Total Disposals", value: "45", icon: "delete_sweep", color: "primary-800" },
     { title: "Total Value", value: "$15,200", icon: "paid", color: "success" },
@@ -11,7 +16,7 @@ const DisposalReports = () => {
   ];
 
   return (
-    <MainLayout>
+    <MainLayout variant={sidebarVariant}>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">

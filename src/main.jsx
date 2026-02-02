@@ -16,11 +16,11 @@ import Reports from './Pages/Admin/Reports'
 import Profile from './Pages/Admin/Profile'
 
 // Inventory Pages
-import InventoryDashboard from './Pages/Inventory/InchargeDashboard'
 import InventoryListView from './Pages/Inventory/InventoryListView'
 import AddNewItem from './Pages/Inventory/AddNewItem'
 import InchargeDashboard from './Pages/Inventory/InchargeDashboard'
 import ItemView from './Pages/Inventory/ItemView'
+import ItemDetail from './Pages/Inventory/ItemDetail'
 
 // Disposal Pages
 import DisposalList from './Pages/Inventory/Disposals/DisposalList'
@@ -36,9 +36,12 @@ import TransferDetails from './Pages/Inventory/Transfers/TransferDetails'
 import RequestList from './Pages/Inventory/Requests/RequestList'
 import CreateRequest from './Pages/Inventory/Requests/CreateRequest'
 import ItemRequest from './Pages/Requests/ItemRequest'
+import MyRequests from './Pages/Requests/MyRequests'
 
 // Staff Pages
 import StaffDashboard from './Pages/StaffMember/StaffDashboard'
+import HodDashboard from './Pages/StaffMember/HodDashboard'
+import DeanDashboard from './Pages/StaffMember/DeanDashboard'
 
 const router = createBrowserRouter([
   // ==================== Authentication Routes ====================
@@ -90,16 +93,36 @@ const router = createBrowserRouter([
         path: "dashboard",
         element: <InchargeDashboard />
       },
-        {
-          path: "scan",
-          element: <ItemView />
-        },
+      {
+        path: "scan",
+        element: <ItemView />
+      },
+      {
+        path: "scan/:role",
+        element: <ItemView />
+      },
+      {
+        path: "item/:id",
+        element: <ItemDetail />
+      },
+      {
+        path: "item/:id/:role",
+        element: <ItemDetail />
+      },
       {
         path: "list",
         element: <InventoryListView />
       },
       {
+        path: "list/:role",
+        element: <InventoryListView />
+      },
+      {
         path: "add",
+        element: <AddNewItem />
+      },
+      {
+        path: "add/:role",
         element: <AddNewItem />
       },
       {
@@ -112,7 +135,7 @@ const router = createBrowserRouter([
           {
             path: ":transferId",
             element: <TransferDetails />
-          }
+          },
         ]
       },
       {
@@ -123,7 +146,15 @@ const router = createBrowserRouter([
             element: <DisposalList />
           },
           {
+            path: "list/:role",
+            element: <DisposalList />
+          },
+          {
             path: "new",
+            element: <CreateDisposal />
+          },
+          {
+            path: "new/:role",
             element: <CreateDisposal />
           },
           {
@@ -131,7 +162,15 @@ const router = createBrowserRouter([
             element: <DisposalDetails />
           },
           {
+            path: ":disposalId/:role",
+            element: <DisposalDetails />
+          },
+          {
             path: "reports",
+            element: <DisposalReports />
+          },
+          {
+            path: "reports/:role",
             element: <DisposalReports />
           }
         ]
@@ -144,7 +183,15 @@ const router = createBrowserRouter([
             element: <RequestList />
           },
           {
+            path: "list/:role",
+            element: <RequestList />
+          },
+          {
             path: "new",
+            element: <CreateRequest />
+          },
+          {
+            path: "new/:role",
             element: <CreateRequest />
           }
         ]
@@ -157,6 +204,16 @@ const router = createBrowserRouter([
     path: "/profile",
     element: <Profile />
   },
+  {
+    path: "/profile/:role",
+    element: <Profile />
+  },
+
+  // ==================== Shared Reports Route ====================
+  {
+    path: "/reports/:role",
+    element: <Reports layoutVariant="main" />
+  },
 
   // ==================== Requests & Approvals Routes ====================
   {
@@ -165,6 +222,14 @@ const router = createBrowserRouter([
       {
         path: "approval",
         element: <ItemRequest />
+      },
+      {
+        path: "approval/:role",
+        element: <ItemRequest />
+      },
+      {
+        path: "my/:role",
+        element: <MyRequests />
       }
     ]
   },
@@ -176,6 +241,28 @@ const router = createBrowserRouter([
       {
         path: "dashboard",
         element: <StaffDashboard />
+      }
+    ]
+  },
+
+  // ==================== HOD Routes ====================
+  {
+    path: "/hod",
+    children: [
+      {
+        path: "dashboard",
+        element: <HodDashboard />
+      }
+    ]
+  },
+
+  // ==================== Dean Routes ====================
+  {
+    path: "/dean",
+    children: [
+      {
+        path: "dashboard",
+        element: <DeanDashboard />
       }
     ]
   },

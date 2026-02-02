@@ -1,0 +1,110 @@
+import React, { useEffect, useState } from 'react';
+import { useLocation, useParams } from 'react-router-dom';
+import MainLayout from "../../Components/Layouts/MainLayout";
+import { Card, Button } from "../../Components/UI";
+import { resolveSidebarVariant } from "../../utils/helpers";
+
+const ItemDetail = () => {
+  const { id, role } = useParams();
+  const location = useLocation();
+  const sidebarVariant = resolveSidebarVariant(location.pathname, role);
+  const [item, setItem] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const res = await fetch(`http://localhost:4000/api/items/${id}`);
+        const data = await res.json();
+        if (!mounted) return;
+        if (res.ok) setItem(data.item);
+        else setItem(null);
+      } catch (err) {
+        console.error(err);
+        setItem(null);
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    })();
+    return () => { mounted = false; };
+  }, [id]);
+
+  if (loading) return (
+    <MainLayout variant={sidebarVariant}>
+      <div className="p-6">Loading...</div>
+    </MainLayout>
+  );
+
+  if (!item) return (
+    <MainLayout variant={sidebarVariant}>
+      <div className="p-6">Item not found.</div>
+    </MainLayout>
+  );
+
+  // Simulated current user (replace with real auth lookup)
+  const currentUser = (window.currentUser && window.currentUser.name) || 'Alice';
+  const isIncharge = item.receivedfrom === currentUser || item.incharge === currentUser;
+
+  return (
+    <MainLayout variant={sidebarVariant}>
+      <div className="p-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold">{item.itemName || item.name || 'Item Details'}</h1>
+            <p className="text-sm text-text-light">ID: {item.id}</p>
+          </div>
+          <div className="flex gap-2">
+            <Button onClick={() => window.history.back()} variant="tertiary">Back</Button>
+            <Button onClick={() => window.print()} variant="primary">Print</Button>
+          </div>
+        </div>
+
+        <Card>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-2">
+              <div><strong>Item Code:</strong> {item.itemCode || item.code || '-'}</div>
+              <div><strong>Serial No:</strong> {item.serialNo || item.serial || '-'}</div>
+              <div><strong>Serial No 2:</strong> {item.serialNo2 || '-'}</div>
+              <div><strong>Model:</strong> {item.model || '-'}</div>
+              <div><strong>Value:</strong> {item.value || '-'}</div>
+              <div><strong>Purchase Date:</strong> {item.purchaseDate || '-'}</div>
+            </div>
+
+            <div className="space-y-2">
+              <div><strong>Supplier:</strong> {item.supplier || '-'}</div>
+              <div><strong>Funding:</strong> {item.funding || '-'}</div>
+              <div><strong>GIN No:</strong> {item.ginNo || '-'}</div>
+              <div><strong>Location:</strong> {item.location || '-'}</div>
+              <div><strong>Incharge / Received From:</strong> {item.receivedfrom || item.incharge || '-'}</div>
+            </div>
+
+            <div className="col-span-1 md:col-span-2 space-y-2">
+              <div><strong>Remarks:</strong></div>
+              <div className="whitespace-pre-wrap">{item.remarks || '-'}</div>
+            </div>
+
+            {isIncharge && (
+              <>
+                <div className="col-span-1 md:col-span-2">
+                  <h3 className="text-lg font-semibold">Confidential Details (Incharge only)</h3>
+                  <div><strong>QR Code:</strong> {item.QRCode || item.qrcode || '-'}</div>
+                  <div><strong>GIN File:</strong> {item.ginfile || '-'}</div>
+                  <div><strong>Image:</strong> {item.itemImage || '-'}</div>
+                </div>
+              </>
+            )}
+
+            {!isIncharge && (
+              <div className="col-span-1 md:col-span-2 text-sm text-text-light">
+                Only the inventory name and incharge are visible to you.
+              </div>
+            )}
+          </div>
+        </Card>
+      </div>
+    </MainLayout>
+  );
+};
+
+export default ItemDetail;

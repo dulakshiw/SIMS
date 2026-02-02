@@ -1,11 +1,17 @@
 import React, { useState } from "react";
+import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import MainLayout from "../../Components/Layouts/MainLayout";
 import { Card, Button, SearchBox, Table, Badge } from "../../Components/UI";
 import { ITEM_STATUS } from "../../utils/constants";
+import { resolveSidebarVariant } from "../../utils/helpers";
 
 const InventoryListView = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState(null);
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { role } = useParams();
+  const sidebarVariant = resolveSidebarVariant(location.pathname, role);
 
   // Mock data
   const mockItems = [
@@ -51,12 +57,13 @@ const InventoryListView = () => {
   ];
 
   const actions = [
+    { label: "View", icon: "visibility", onClick: (row) => navigate(`/inventory/item/${row.id}`) },
     { label: "Edit", icon: "edit", onClick: (row) => console.log("Edit", row) },
     { label: "Delete", icon: "delete", onClick: (row) => console.log("Delete", row) },
   ];
 
   return (
-    <MainLayout>
+    <MainLayout variant={sidebarVariant}>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">

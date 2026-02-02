@@ -1,9 +1,14 @@
 import React, { useState } from "react";
+import { useLocation, useParams } from "react-router-dom";
 import MainLayout from "../../../Components/Layouts/MainLayout";
 import { Card, Button, SearchBox, Table, Badge } from "../../../Components/UI";
+import { resolveSidebarVariant } from "../../../utils/helpers";
 import { TRANSFER_STATUS } from "../../../utils/constants";
 
 const TransferList = () => {
+  const location = useLocation();
+  const { role } = useParams();
+  const sidebarVariant = resolveSidebarVariant(location.pathname, role);
   const [searchTerm, setSearchTerm] = useState("");
 
   const mockTransfers = [
@@ -58,7 +63,7 @@ const TransferList = () => {
   ];
 
   return (
-    <MainLayout>
+    <MainLayout variant={sidebarVariant}>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">

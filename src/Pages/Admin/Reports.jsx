@@ -1,8 +1,13 @@
 import React, { useState } from "react";
+import { useParams } from "react-router-dom";
 import AdminLayout from "../../Components/Layouts/AdminLayout";
+import MainLayout from "../../Components/Layouts/MainLayout";
 import { Card, Button, Table, Badge } from "../../Components/UI";
 
-const Reports = () => {
+const Reports = ({ layoutVariant = "admin", sidebarVariant }) => {
+  const params = useParams();
+  const resolvedSidebarVariant = sidebarVariant || params?.role || "staff";
+  const Layout = layoutVariant === "admin" ? AdminLayout : MainLayout;
   const [activeTab, setActiveTab] = useState("user-details"); // user-details, user-login, inventory-details
 
   const mockStats = [
@@ -244,7 +249,7 @@ const Reports = () => {
   };
 
   return (
-    <AdminLayout>
+    <Layout {...(layoutVariant === "admin" ? {} : { variant: resolvedSidebarVariant })}>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
@@ -350,7 +355,7 @@ const Reports = () => {
           </Card>
         </div>
       </div>
-    </AdminLayout>
+    </Layout>
   );
 };
 

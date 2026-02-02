@@ -1,9 +1,14 @@
 import React from 'react';
+import { useLocation, useParams } from 'react-router-dom';
 import MainLayout from "../../Components/Layouts/MainLayout";
+import { resolveSidebarVariant } from "../../utils/helpers";
 
 // Very small client-side QR view helper. In a real app this should
 // fetch item details by identifier from backend and apply real auth.
 const ItemView = () => {
+  const location = useLocation();
+  const { role } = useParams();
+  const sidebarVariant = resolveSidebarVariant(location.pathname, role);
   const params = new URLSearchParams(window.location.search);
   const q = params.get('q') || ''; // expected format: CODE_serial
   const inchargeParam = params.get('incharge') || '';
@@ -28,7 +33,7 @@ const ItemView = () => {
   const isIncharge = item.incharge === currentUser;
 
   return (
-    <MainLayout>
+    <MainLayout variant={sidebarVariant}>
       <div className="p-6">
         <h1 className="text-2xl font-bold">Scanned Item</h1>
         <p className="text-sm text-text-light mt-2">QR payload: {q}</p>

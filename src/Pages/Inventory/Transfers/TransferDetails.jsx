@@ -1,8 +1,13 @@
 import React from "react";
 import MainLayout from "../../../Components/Layouts/MainLayout";
 import { Card, Button, Badge, Tabs } from "../../../Components/UI";
+import { useLocation, useParams } from "react-router-dom";
+import { resolveSidebarVariant } from "../../../utils/helpers";
 
 const TransferDetails = () => {
+  const location = useLocation();
+  const { role } = useParams();
+  const sidebarVariant = resolveSidebarVariant(location.pathname, role);
   const transfer = {
     id: "TRF-001",
     item: "Laptop Dell XPS",
@@ -95,7 +100,7 @@ const TransferDetails = () => {
   ];
 
   return (
-    <MainLayout>
+    <MainLayout variant={sidebarVariant}>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">

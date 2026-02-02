@@ -77,7 +77,14 @@ export const ROLE_HIERARCHY = {
     label: "Staff Member",
     description: "Regular staff member",
     superclass: "staff",
-    permissions: ["request_items", "view_own_inventory"],
+    permissions: [
+      "request_items",
+      "view_request_status",
+      "view_issued_items",
+      "view_own_inventory",
+      "view_reports",
+      "view_profile",
+    ],
   },
   inventory_incharge: {
     label: "Inventory In-Charge",
@@ -92,6 +99,11 @@ export const ROLE_HIERARCHY = {
       "manage_repairs",
       "view_inventory",
       "request_items",
+      "request_inventory_creation",
+      "view_request_status",
+      "view_issued_items",
+      "view_reports",
+      "view_profile",
     ],
   },
   head_of_department: {
@@ -104,14 +116,30 @@ export const ROLE_HIERARCHY = {
       "view_department_inventory",
       "view_department_users",
       "manage_department_staff",
+      "approve_staff_accounts",
+      "recommend_inventory_creation",
       "request_items",
+      "view_request_status",
+      "view_issued_items",
+      "view_reports",
+      "view_profile",
     ],
   },
   dean: {
     label: "Dean",
     description: "Faculty-level oversight of all inventories",
     superclass: "staff",
-    permissions: ["view_faculty_inventory", "view_faculty_users", "approve_item_requests", "request_items"],
+    permissions: [
+      "view_faculty_inventory",
+      "view_faculty_users",
+      "approve_item_requests",
+      "approve_hod_accounts",
+      "request_items",
+      "view_request_status",
+      "view_issued_items",
+      "view_reports",
+      "view_profile",
+    ],
   },
 };
 
@@ -182,17 +210,59 @@ export const ADMIN_NAV_ITEMS = [
   { id: 3, label: "Departments", path: "/admin/departments", icon: "business" },
   { id: 4, label: "Users", path: "/admin/users", icon: "people" },
   { id: 5, label: "Reports", path: "/admin/reports", icon: "assessment" },
-  { id: 6, label: "Profile", path: "/profile", icon: "person" },
+  { id: 6, label: "Profile", path: "/admin/profile", icon: "person" },
 ];
 
 export const INVENTORY_NAV_ITEMS = [
   { id: 1, label: "Dashboard", path: "/inventory/dashboard", icon: "home" },
   { id: 2, label: "Items", path: "/inventory/list", icon: "inventory_2" },
   { id: 3, label: "Add Item", path: "/inventory/add", icon: "add_circle" },
-  { id: 4, label: "Transfers", path: "/inventory/transfers", icon: "compare_arrows" },
-  { id: 5, label: "Disposals", path: "/inventory/disposals", icon: "delete_sweep" },
-  { id: 6, label: "Requests", path: "/inventory/requests", icon: "request_quote" },
+  { id: 4, label: "Transfers", path: "/inventory/transfers/list", icon: "compare_arrows" },
+  { id: 5, label: "Disposals", path: "/inventory/disposals/list", icon: "delete_sweep" },
+  { id: 6, label: "Requests", path: "/inventory/requests/list", icon: "request_quote" },
   { id: 7, label: "Profile", path: "/profile", icon: "person" },
+];
+
+export const STAFF_NAV_ITEMS = [
+  { id: 1, label: "Dashboard", path: "/staff/dashboard", icon: "dashboard" },
+  { id: 2, label: "Request Items", path: "/inventory/requests/new/staff", icon: "add_circle" },
+  { id: 3, label: "My Requests", path: "/requests/my/staff", icon: "fact_check" },
+  { id: 4, label: "My Issued Items", path: "/inventory/list/staff", icon: "inventory_2" },
+  { id: 5, label: "Reports", path: "/reports/staff", icon: "assessment" },
+  { id: 6, label: "Profile", path: "/profile/staff", icon: "person" },
+];
+
+export const HOD_NAV_ITEMS = [
+  { id: 1, label: "Dashboard", path: "/hod/dashboard", icon: "dashboard" },
+  { id: 2, label: "Request Items", path: "/inventory/requests/new/hod", icon: "add_circle" },
+  { id: 3, label: "My Requests", path: "/requests/my/hod", icon: "fact_check" },
+  { id: 4, label: "Requests by Staff", path: "/inventory/requests/list/hod", icon: "rule" },
+  { id: 5, label: "Inventories", path: "/inventory/list/hod", icon: "inventory_2" },
+  { id: 6, label: "Reports", path: "/reports/hod", icon: "assessment" },
+  { id: 7, label: "Profile", path: "/profile/hod", icon: "person" },
+];
+
+export const DEAN_NAV_ITEMS = [
+  { id: 1, label: "Dashboard", path: "/dean/dashboard", icon: "dashboard" },
+  { id: 2, label: "Request Items", path: "/inventory/requests/new/dean", icon: "add_circle" },
+  { id: 3, label: "My Requests", path: "/requests/my/dean", icon: "fact_check" },
+  { id: 4, label: "Faculty Inventories", path: "/inventory/list/dean", icon: "inventory_2" },
+  { id: 5, label: "Faculty Requests", path: "/inventory/requests/list/dean", icon: "rule" },
+  { id: 6, label: "Approvals", path: "/requests/approval/dean", icon: "how_to_reg" },
+  { id: 7, label: "Reports", path: "/reports/dean", icon: "assessment" },
+  { id: 8, label: "Profile", path: "/profile/dean", icon: "person" },
+];
+
+export const INCHARGE_NAV_ITEMS = [
+  { id: 1, label: "Dashboard", path: "/incharge/dashboard", icon: "dashboard" },
+  { id: 2, label: "My Inventories", path: "/inventory/list/incharge", icon: "inventory_2" },
+  { id: 3, label: "Add Item", path: "/inventory/add/incharge", icon: "add_circle" },
+  { id: 4, label: "Transfers", path: "/inventory/transfers/list/incharge", icon: "compare_arrows" },
+  { id: 5, label: "Disposals", path: "/inventory/disposals/list/incharge", icon: "delete_sweep" },
+  { id: 6, label: "My Requests", path: "/requests/my/incharge", icon: "fact_check" },
+  { id: 7, label: "Requests", path: "/inventory/requests/list/incharge", icon: "request_quote" },
+  { id: 8, label: "Reports", path: "/reports/incharge", icon: "assessment" },
+  { id: 9, label: "Profile", path: "/profile/incharge", icon: "person" },
 ];
 
 // Mock data structure
@@ -226,5 +296,9 @@ export default {
   ITEMS_PER_PAGE_OPTIONS,
   ADMIN_NAV_ITEMS,
   INVENTORY_NAV_ITEMS,
+  STAFF_NAV_ITEMS,
+  HOD_NAV_ITEMS,
+  DEAN_NAV_ITEMS,
+  INCHARGE_NAV_ITEMS,
   MOCK_USER,
 };

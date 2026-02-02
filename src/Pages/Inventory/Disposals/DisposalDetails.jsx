@@ -1,8 +1,13 @@
 import React from "react";
+import { useLocation, useParams } from "react-router-dom";
 import MainLayout from "../../../Components/Layouts/MainLayout";
 import { Card, Button, Badge, Tabs } from "../../../Components/UI";
+import { resolveSidebarVariant } from "../../../utils/helpers";
 
 const DisposalDetails = () => {
+  const location = useLocation();
+  const { role } = useParams();
+  const sidebarVariant = resolveSidebarVariant(location.pathname, role);
   const disposal = {
     id: "DSL-001",
     itemName: "Old Laptop",
@@ -101,7 +106,7 @@ const DisposalDetails = () => {
   ];
 
   return (
-    <MainLayout>
+    <MainLayout variant={sidebarVariant}>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">

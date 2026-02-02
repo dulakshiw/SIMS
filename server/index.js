@@ -62,6 +62,19 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // GET single item by id
+  if (req.method === 'GET' && req.url.startsWith('/api/items/')) {
+    const parts = req.url.split('/');
+    const id = parseInt(parts[parts.length - 1], 10);
+    const item = itemsStore.find(it => it.id === id);
+    if (!item) {
+      sendJson(res, 404, { success: false, error: 'Item not found' });
+      return;
+    }
+    sendJson(res, 200, { success: true, item });
+    return;
+  }
+
   // default 404
   sendJson(res, 404, { success: false, error: 'Not found' });
 });

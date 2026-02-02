@@ -1,9 +1,14 @@
 import React, { useState } from "react";
+import { useLocation, useParams } from "react-router-dom";
 import MainLayout from "../../../Components/Layouts/MainLayout";
 import { Card, Button, SearchBox, Table, Badge } from "../../../Components/UI";
 import { REQUEST_PRIORITY } from "../../../utils/constants";
+import { resolveSidebarVariant } from "../../../utils/helpers";
 
 const RequestList = () => {
+  const location = useLocation();
+  const { role } = useParams();
+  const sidebarVariant = resolveSidebarVariant(location.pathname, role);
   const [searchTerm, setSearchTerm] = useState("");
 
   const mockRequests = [
@@ -67,7 +72,7 @@ const RequestList = () => {
   ];
 
   return (
-    <MainLayout>
+    <MainLayout variant={sidebarVariant}>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">

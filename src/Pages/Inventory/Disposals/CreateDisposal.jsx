@@ -1,9 +1,14 @@
 import React, { useState } from "react";
+import { useLocation, useParams } from "react-router-dom";
 import MainLayout from "../../../Components/Layouts/MainLayout";
 import { Card, Button, FormInput, Select, Tabs } from "../../../Components/UI";
 import { DISPOSAL_REASONS, CONDITION_ASSESSMENT } from "../../../utils/constants";
+import { resolveSidebarVariant } from "../../../utils/helpers";
 
 const CreateDisposal = () => {
+  const location = useLocation();
+  const { role } = useParams();
+  const sidebarVariant = resolveSidebarVariant(location.pathname, role);
   const [formData, setFormData] = useState({
     itemName: "",
     category: "",
@@ -151,7 +156,7 @@ const CreateDisposal = () => {
   ];
 
   return (
-    <MainLayout>
+    <MainLayout variant={sidebarVariant}>
       <div className="space-y-6">
         {/* Header */}
         <div>

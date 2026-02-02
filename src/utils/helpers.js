@@ -128,6 +128,22 @@ export const getQueryParams = (search) => {
 };
 
 /**
+ * Resolve sidebar variant from route
+ * @param {string} pathname - location pathname
+ * @param {string} roleParam - optional role param
+ * @returns {string} - sidebar variant
+ */
+export const resolveSidebarVariant = (pathname, roleParam) => {
+  if (roleParam) return roleParam;
+  if (!pathname) return "inventory";
+  if (pathname.startsWith("/incharge")) return "incharge";
+  if (pathname.startsWith("/hod")) return "hod";
+  if (pathname.startsWith("/dean")) return "dean";
+  if (pathname.startsWith("/staff")) return "staff";
+  return "inventory";
+};
+
+/**
  * Build query string
  */
 export const buildQueryString = (obj) => {

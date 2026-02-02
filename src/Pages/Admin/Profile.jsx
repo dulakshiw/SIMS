@@ -1,6 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { useLocation, useParams } from 'react-router-dom'
 import MainLayout from '../../Components/Layouts/MainLayout'
+import AdminLayout from '../../Components/Layouts/AdminLayout'
 import { MOCK_USER } from '../../utils/constants'
+import { resolveSidebarVariant } from '../../utils/helpers'
 
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -14,6 +17,11 @@ const passwordStrength = (pwd = '') => {
 }
 
 const Profile = () => {
+  const location = useLocation()
+  const { role } = useParams()
+  const isAdminRoute = location.pathname.startsWith('/admin')
+  const sidebarVariant = resolveSidebarVariant(location.pathname, role)
+  const Layout = isAdminRoute ? AdminLayout : MainLayout
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [department, setDepartment] = useState('')
@@ -83,7 +91,7 @@ const Profile = () => {
   }
 
   return (
-    <MainLayout>
+    <Layout {...(isAdminRoute ? {} : { variant: sidebarVariant })}>
       <div className="p-6">
         <h2 className="text-2xl font-semibold mb-4">Profile Settings</h2>
 
@@ -194,7 +202,7 @@ const Profile = () => {
           </div>
         </form>
       </div>
-    </MainLayout>
+    </Layout>
   )
 }
 

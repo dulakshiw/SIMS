@@ -1,8 +1,13 @@
 import React, { useState } from "react";
+import { useLocation, useParams } from "react-router-dom";
 import MainLayout from "../../Components/Layouts/MainLayout";
 import { Card, Button, Badge, Tabs } from "../../Components/UI";
+import { resolveSidebarVariant } from "../../utils/helpers";
 
 const ItemRequest = () => {
+  const location = useLocation();
+  const { role } = useParams();
+  const sidebarVariant = resolveSidebarVariant(location.pathname, role);
   const [selectedRequest, setSelectedRequest] = useState(0);
 
   const requests = [
@@ -109,7 +114,7 @@ const ItemRequest = () => {
   ];
 
   return (
-    <MainLayout>
+    <MainLayout variant={sidebarVariant}>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Requests List */}
         <div className="lg:col-span-1">

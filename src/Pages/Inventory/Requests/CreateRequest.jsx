@@ -1,9 +1,14 @@
 import React, { useState } from "react";
+import { useLocation, useParams } from "react-router-dom";
 import MainLayout from "../../../Components/Layouts/MainLayout";
 import { Card, Button, FormInput, Select } from "../../../Components/UI";
 import { REQUEST_PRIORITY } from "../../../utils/constants";
+import { resolveSidebarVariant } from "../../../utils/helpers";
 
 const CreateRequest = () => {
+  const location = useLocation();
+  const { role } = useParams();
+  const sidebarVariant = resolveSidebarVariant(location.pathname, role);
   const [formData, setFormData] = useState({
     itemName: "",
     quantity: "",
@@ -23,7 +28,7 @@ const CreateRequest = () => {
   };
 
   return (
-    <MainLayout>
+    <MainLayout variant={sidebarVariant}>
       <div className="space-y-6">
         {/* Header */}
         <div>
