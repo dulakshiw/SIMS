@@ -11,8 +11,8 @@ const AddNewItem = () => {
     serialNo: "",
     serialNo2: "",
     model: "",
-    QRCode: "",
-    QRCode2: "",
+    qrCode: "",
+    qrCode2: "",
     value: "",
     purchaseDate: "",
     location: "",
@@ -95,8 +95,8 @@ const AddNewItem = () => {
                                 <label>QR Code</label>
                                 <input
                                     type="text"
-                                    name="QRCode"
-                                    value={itemData.QRCode}
+                                    name="qrCode"
+                                    value={itemData.qrCode}
                                     onChange={handleChange}
                                 />
                             </div>
@@ -104,8 +104,8 @@ const AddNewItem = () => {
                                 <label>QR Code 2 (For Serial No 2)</label>
                                 <input
                                     type="text"
-                                    name="QRCode2"
-                                    value={itemData.QRCode2}
+                                    name="qrCode2"
+                                    value={itemData.qrCode2}
                                     onChange={handleChange}
                                 />
                             </div>
