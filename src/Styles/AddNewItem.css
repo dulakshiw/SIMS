@@ -73,6 +73,7 @@
 }
 
 .form-row input,
+.form-row select,
 .form-row textarea {
   flex: 1;
   padding: 10px;
