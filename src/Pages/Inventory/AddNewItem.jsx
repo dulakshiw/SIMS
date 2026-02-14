@@ -195,7 +195,7 @@ const AddNewItem = () => {
                                 </div>
                             )}
                              <div className="form-row">
-                                <label>Recieved/ Transferred From</label>
+                                <label>Received/ Transferred From</label>
                                 <input
                                     type="text"
                                     name="receivedfrom"
