@@ -16,7 +16,11 @@ const AddNewItem = () => {
     value: "",
     purchaseDate: "",
     location: "",
-    remarks: ""
+    remarks: "",
+    funding: "",
+    fundingOther: "",
+    warranty: "",
+    warrantyOther: ""
   });
 
   const handleChange = (e) => {
@@ -165,13 +169,31 @@ const AddNewItem = () => {
                             </div>
                              <div className="form-row">
                                 <label>Funding Source</label>
-                                <input
-                                    type="text"
+                                <select
                                     name="funding"
                                     value={itemData.funding}
                                     onChange={handleChange}
-                                    />
+                                >
+                                    <option value="">Select Funding Source</option>
+                                    <option value="University Grant">University Grant</option>
+                                    <option value="Research Grant">Research Grant</option>
+                                    <option value="Donation">Donation</option>
+                                    <option value="Government Fund">Government Fund</option>
+                                    <option value="Other">Other</option>
+                                </select>
                             </div>
+                            {itemData.funding === "Other" && (
+                                <div className="form-row">
+                                    <label>Specify Funding Source</label>
+                                    <input
+                                        type="text"
+                                        name="fundingOther"
+                                        value={itemData.fundingOther}
+                                        onChange={handleChange}
+                                        placeholder="Enter funding source"
+                                    />
+                                </div>
+                            )}
                              <div className="form-row">
                                 <label>Recieved/ Transferred From</label>
                                 <input
@@ -183,13 +205,33 @@ const AddNewItem = () => {
                             </div>
                             <div className="form-row">
                                 <label>Warranty Period</label>
-                                <input
-                                    type="text"
+                                <select
                                     name="warranty"
                                     value={itemData.warranty}
                                     onChange={handleChange}
-                                    />
+                                >
+                                    <option value="">Select Warranty Period</option>
+                                    <option value="No Warranty">No Warranty</option>
+                                    <option value="6 Months">6 Months</option>
+                                    <option value="1 Year">1 Year</option>
+                                    <option value="2 Years">2 Years</option>
+                                    <option value="3 Years">3 Years</option>
+                                    <option value="5 Years">5 Years</option>
+                                    <option value="Other">Other</option>
+                                </select>
                             </div>
+                            {itemData.warranty === "Other" && (
+                                <div className="form-row">
+                                    <label>Specify Warranty Period</label>
+                                    <input
+                                        type="text"
+                                        name="warrantyOther"
+                                        value={itemData.warrantyOther}
+                                        onChange={handleChange}
+                                        placeholder="Enter warranty period"
+                                    />
+                                </div>
+                            )}
                             <div className="form-row">
                                 <label>Location<span className="required">*</span></label>
                                 <input
