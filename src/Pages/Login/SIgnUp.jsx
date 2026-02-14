@@ -6,10 +6,12 @@ const SignUp = () => {
   const [formData, setFormData] = useState({
     fullName: "",
     email: "",
+    mobileNo: "",
+    officeExtNo: "",
     password: "",
     confirmPassword: "",
     role: "Staff",
-    department: "it"
+    department: "Information Technology"
   });
 
   const [passwordStrength, setPasswordStrength] = useState(0);
@@ -110,6 +112,34 @@ const SignUp = () => {
                 />
               </div>
 
+              {/* Mobile Number */}
+              <div className="space-y-2">
+                <label className="block text-sm font-semibold text-text-dark">Mobile No</label>
+                <input
+                  type="tel"
+                  name="mobileNo"
+                  placeholder="e.g., 0771234567"
+                  value={formData.mobileNo}
+                  onChange={handleChange}
+                  className="w-full px-4 py-2.5 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  style={{ backgroundColor: '#F2F0F0' }}
+                />
+              </div>
+
+              {/* Office Extension Number */}
+              <div className="space-y-2">
+                <label className="block text-sm font-semibold text-text-dark">Office Extension No</label>
+                <input
+                  type="text"
+                  name="officeExtNo"
+                  placeholder="e.g., 8100"
+                  value={formData.officeExtNo}
+                  onChange={handleChange}
+                  className="w-full px-4 py-2.5 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  style={{ backgroundColor: '#F2F0F0' }}
+                />
+              </div>
+
               {/* Role */}
               <div className="space-y-2">
                 <label className="block text-sm font-semibold text-text-dark">
@@ -145,12 +175,12 @@ const SignUp = () => {
                   className="w-full px-4 py-2.5 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                   style={{ backgroundColor: '#F2F0F0' }}
                 >
-                  <option value="deanOff">Dean's Office</option>
-                  <option value="it">Information Technology</option>
-                  <option value="cm">Computational Mathematics</option>
-                  <option value="ids">Interdisciplinary Studies</option>
-                  <option value="ugs">Undergraduate Studies</option>
-                  <option value="pgs">Postgraduate Studies</option>
+                  <option value="Dean's Office">Dean's Office</option>
+                  <option value="Information Technology">Information Technology</option>
+                  <option value="Computational Mathematics">Computational Mathematics</option>
+                  <option value="Interdisciplinary Studies">Interdisciplinary Studies</option>
+                  <option value="Undergraduate Studies">Undergraduate Studies</option>
+                  <option value="Postgraduate Studies">Postgraduate Studies</option>
                 </select>
               </div>
 

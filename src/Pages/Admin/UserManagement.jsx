@@ -16,6 +16,8 @@ const UserManagement = () => {
   const [formData, setFormData] = useState({
     name: "",
     email: "",
+    mobileNo: "",
+    officeExtNo: "",
     role: "staff",
     department: "",
   });
@@ -87,6 +89,7 @@ const UserManagement = () => {
   const columns = [
     { field: "name", label: "Name", sortable: true },
     { field: "email", label: "Email", sortable: true },
+    { field: "department", label: "Department", sortable: true },
     {
       field: "role",
       label: "Role",
@@ -98,7 +101,6 @@ const UserManagement = () => {
         />
       ),
     },
-    { field: "department", label: "Department", sortable: true },
     {
       field: "status",
       label: "Status",
@@ -127,8 +129,8 @@ const UserManagement = () => {
         />
       ),
     },
-    { field: "department", label: "Department", sortable: true },
     { field: "requestedByDeptHead", label: "Requested By", sortable: true },
+    { field: "department", label: "Department", sortable: true },
     {
       field: "approvalStatus",
       label: "Status",
@@ -188,6 +190,8 @@ const UserManagement = () => {
       id: accountRequests.length + 101,
       name: formData.name,
       email: formData.email,
+      mobileNo: formData.mobileNo,
+      officeExtNo: formData.officeExtNo,
       requestedRole: formData.role,
       department: formData.department,
       requestedDate: new Date().toISOString().split("T")[0],
@@ -197,7 +201,7 @@ const UserManagement = () => {
     setAccountRequests([...accountRequests, newRequest]);
     console.log("New account request created:", newRequest);
     setIsModalOpen(false);
-    setFormData({ name: "", email: "", role: "staff", department: "" });
+    setFormData({ name: "", email: "", mobileNo: "", officeExtNo: "", role: "staff", department: "" });
   };
 
   const handleToggleStatus = (user) => {
@@ -263,6 +267,8 @@ const UserManagement = () => {
         id: Math.max(...users.map((u) => u.id), 0) + 1,
         name: request.name,
         email: request.email,
+        mobileNo: request.mobileNo || "",
+        officeExtNo: request.officeExtNo || "",
         role: request.requestedRole,
         department: request.department,
         status: "active",
@@ -422,7 +428,7 @@ const UserManagement = () => {
           <FormInput
             label="Full Name"
             name="name"
-            placeholder="John Doe"
+            placeholder="ABC Silva"
             value={formData.name}
             onChange={handleInputChange}
             required
@@ -431,11 +437,27 @@ const UserManagement = () => {
             label="Email"
             name="email"
             type="email"
-            placeholder="john@example.com"
+            placeholder="abcsilva@example.com"
             value={formData.email}
             onChange={handleInputChange}
             required
           />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <FormInput
+              label="Mobile No"
+              name="mobileNo"
+              placeholder="e.g., 0771234567"
+              value={formData.mobileNo}
+              onChange={handleInputChange}
+            />
+            <FormInput
+              label="Office Extension No"
+              name="officeExtNo"
+              placeholder="e.g., 8100"
+              value={formData.officeExtNo}
+              onChange={handleInputChange}
+            />
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Select
               label="Requested Role"
@@ -450,12 +472,19 @@ const UserManagement = () => {
               ]}
               required
             />
-            <FormInput
+            <Select
               label="Department"
               name="department"
-              placeholder="e.g., IT, Engineering"
               value={formData.department}
               onChange={handleInputChange}
+              options={[
+                { value: "Dean's Office", label: "Dean's Office" },
+                { value: "Information Technology", label: "Information Technology" },
+                { value: "Computational Mathematics", label: "Computational Mathematics" },
+                { value: "Interdisciplinary Studies", label: "Interdisciplinary Studies" },
+                { value: "Undergraduate Studies", label: "Undergraduate Studies" },
+                { value: "Postgraduate Studies", label: "Postgraduate Studies" },
+              ]}
               required
             />
           </div>
@@ -534,6 +563,18 @@ const UserManagement = () => {
                 <div>
                   <p className="text-text-light">Email</p>
                   <p className="font-semibold text-text-dark">{accountRequests.find((r) => r.id === selectedUserId)?.email}</p>
+                </div>
+                <div>
+                  <p className="text-text-light">Mobile No</p>
+                  <p className="font-semibold text-text-dark">
+                    {accountRequests.find((r) => r.id === selectedUserId)?.mobileNo || "-"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-text-light">Office Extension</p>
+                  <p className="font-semibold text-text-dark">
+                    {accountRequests.find((r) => r.id === selectedUserId)?.officeExtNo || "-"}
+                  </p>
                 </div>
                 <div>
                   <p className="text-text-light">Requested Role</p>

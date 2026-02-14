@@ -32,16 +32,31 @@ const AddNewItem = () => {
     poNo: "",
     supplier: "",
     funding: "",
+    fundingOther: "",
     receivedfrom: "",
     warranty: "",
+    warrantyOther: "",
     location: "",
     remarks: ""
   });
 
   const handleChange = (e) => {
-    setItemData({
-      ...itemData,
-      [e.target.name]: e.target.value
+    const { name, value } = e.target;
+    setItemData((prev) => {
+      const next = {
+        ...prev,
+        [name]: value
+      };
+
+      if (name === "funding" && value !== "other") {
+        next.fundingOther = "";
+      }
+
+      if (name === "warranty" && value !== "other") {
+        next.warrantyOther = "";
+      }
+
+      return next;
     });
   };
 
@@ -219,12 +234,12 @@ const AddNewItem = () => {
     const headers = [
       'itemName', 'itemCode', 'serialNo', 'serialNo2', 'model', 
       'QRCode', 'QRCode2', "pageno", 'value', 'purchaseDate', 'ginNo', 'poNo', 
-      'supplier', 'funding', 'receivedfrom', 'warranty', 'location', 'remarks'
+      'supplier', 'funding', 'fundingOther', 'receivedfrom', 'warranty', 'warrantyOther', 'location', 'remarks'
     ];
     
     const csvContent = [
       headers.join(','),
-      'Core i7 Computer,ITDEOFQCE 01,SN123,SN456,HP,QR001,QR002,1,5000,2025-01-15,15550,PO001,VSIS,Capital Fund,Stores,3 Years,Deans Office,Good condition'
+      'Core i7 Computer,ITDEOFQCE 01,SN123,SN456,HP,QR001,QR002,1,5000,2025-01-15,15550,PO001,VSIS,other,Alumni Grant,Stores,other,4 Years,Deans Office,Good condition'
     ].join('\n');
     
     const blob = new Blob([csvContent], { type: 'text/csv' });
@@ -246,13 +261,33 @@ const AddNewItem = () => {
         const res = await fetch('http://localhost:4000/api/items/bulk', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(bulkItems.map(it => ({
-            ...it,
-            qrcode: it.qrcode,
-            qrcodeUrl: it.qrcodeUrl,
-            qrcode2: it.qrcode2,
-            qrcode2Url: it.qrcode2Url
-          })))
+          body: JSON.stringify(bulkItems.map(it => {
+            const {
+              fundingOther,
+              fundingother,
+              warrantyOther,
+              warrantyother,
+              ...rest
+            } = it;
+            const fundingOtherValue = fundingOther || fundingother || "";
+            const warrantyOtherValue = warrantyOther || warrantyother || "";
+            const normalizedFunding = it.funding === "other"
+              ? (fundingOtherValue || "")
+              : (it.funding || "");
+            const normalizedWarranty = it.warranty === "other"
+              ? (warrantyOtherValue || "")
+              : (it.warranty || "");
+
+            return {
+              ...rest,
+              funding: !normalizedFunding && fundingOtherValue ? fundingOtherValue : normalizedFunding,
+              warranty: !normalizedWarranty && warrantyOtherValue ? warrantyOtherValue : normalizedWarranty,
+              qrcode: it.qrcode,
+              qrcodeUrl: it.qrcodeUrl,
+              qrcode2: it.qrcode2,
+              qrcode2Url: it.qrcode2Url
+            };
+          }))
         });
         const data = await res.json();
         if (res.ok) {
@@ -333,6 +368,27 @@ const AddNewItem = () => {
       try {
         // prepare payload (omit File objects; include file names if present)
         const payload = { ...itemData };
+        const normalizedFunding = payload.funding === "other"
+          ? (payload.fundingOther || "")
+          : (payload.funding || "");
+        const normalizedWarranty = payload.warranty === "other"
+          ? (payload.warrantyOther || "")
+          : (payload.warranty || "");
+
+        if (!normalizedFunding && payload.fundingOther) {
+          payload.funding = payload.fundingOther;
+        } else {
+          payload.funding = normalizedFunding;
+        }
+
+        if (!normalizedWarranty && payload.warrantyOther) {
+          payload.warranty = payload.warrantyOther;
+        } else {
+          payload.warranty = normalizedWarranty;
+        }
+
+        delete payload.fundingOther;
+        delete payload.warrantyOther;
         if (payload.itemImage) payload.itemImage = payload.itemImage.name;
         if (payload.ginfile) payload.ginfile = payload.ginfile.name;
 
@@ -374,8 +430,10 @@ const AddNewItem = () => {
       poNo: "",
       supplier: "",
       funding: "",
+      fundingOther: "",
       receivedfrom: "",
       warranty: "",
+      warrantyOther: "",
       location: "",
       remarks: ""
     });
@@ -736,7 +794,19 @@ const AddNewItem = () => {
                     <option value="deptdevfund">Department Development Fund</option>
                     <option value="other">Other (please specify)</option>
                   </select>
-                 </div>
+                  {itemData.funding === "other" && (
+                    <input
+                      type="text"
+                      name="fundingOther"
+                      value={itemData.fundingOther}
+                      onChange={handleChange}
+                      required
+                      placeholder="Specify funding source"
+                      style={{ backgroundColor: '#F2F0F0' }}
+                      className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    />
+                  )}
+                </div>
               </div>
             </div>
 
@@ -793,6 +863,18 @@ const AddNewItem = () => {
                     <option value="5years">5 Years</option>
                     <option value="other">Other (please specify)</option>
                   </select>
+                  {itemData.warranty === "other" && (
+                    <input
+                      type="text"
+                      name="warrantyOther"
+                      value={itemData.warrantyOther}
+                      onChange={handleChange}
+                      required
+                      placeholder="Specify warranty period"
+                      style={{ backgroundColor: '#F2F0F0' }}
+                      className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    />
+                  )}
                 </div>
               </div>
             </div>
