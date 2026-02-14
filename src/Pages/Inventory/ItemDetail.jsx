@@ -89,6 +89,7 @@ const ItemDetail = () => {
                 <div className="col-span-1 md:col-span-2">
                   <h3 className="text-lg font-semibold">Confidential Details (Incharge only)</h3>
                   <div><strong>QR Code:</strong> {item.QRCode || item.qrcode || '-'}</div>
+                  <div><strong>QR Code 2:</strong> {item.QRCode2 || item.qrcode2 || '-'}</div>
                   <div><strong>GIN File:</strong> {item.ginfile || '-'}</div>
                   <div><strong>Image:</strong> {item.itemImage || '-'}</div>
                 </div>

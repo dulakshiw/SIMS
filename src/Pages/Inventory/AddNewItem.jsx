@@ -22,6 +22,7 @@ const AddNewItem = () => {
     serialNo2: "",
     model: "",
     QRCode: "",
+    QRCode2: "",
     pageno: "",
     itemImage: null,
     value: "",
@@ -76,21 +77,27 @@ const AddNewItem = () => {
   const generateAndSetQRCode = (force = false) => {
     const code = itemData.itemCode && itemData.itemCode.trim();
     const serial = itemData.serialNo && itemData.serialNo.trim();
+    const serial2 = itemData.serialNo2 && itemData.serialNo2.trim();
     const name = itemData.itemName && itemData.itemName.trim();
     const computed = computeQRCodeValue(code, serial, name);
+    const computed2 = computeQRCodeValue(code, serial2, name);
 
-    if (computed) {
-      setItemData({ ...itemData, QRCode: computed });
+    if (computed || computed2) {
+      setItemData((prev) => ({
+        ...prev,
+        QRCode: computed || prev.QRCode,
+        QRCode2: computed2 || prev.QRCode2
+      }));
       return;
     }
 
-    if (!computed && force) {
+    if (!computed && !computed2 && force) {
       // fallback generation when itemCode missing: include name when possible
       const fallbackBase = name ? name.replace(/\s+/g, '_') : `AUTO`;
       const fallback = `${fallbackBase}_${Date.now()}`;
-      setItemData({ ...itemData, QRCode: fallback });
-    } else if (!computed) {
-      alert('Item Code and/or Serial are missing. Use "Force generate" to create an automatic QR identifier including the item name.');
+      setItemData((prev) => ({ ...prev, QRCode: fallback }));
+    } else if (!computed && !computed2) {
+      alert('Please provide Item Code, Serial No, Serial No 2, or Item Name. Use "Force generate" to create an automatic QR identifier.');
     }
   };
 
@@ -103,29 +110,50 @@ const AddNewItem = () => {
     // Build payload: itemCode + serialNo + inventory name
     const code = itemData.itemCode && itemData.itemCode.trim();
     const serial = itemData.serialNo && itemData.serialNo.trim();
+    const serial2 = itemData.serialNo2 && itemData.serialNo2.trim();
     const name = itemData.itemName && itemData.itemName.trim();
-    const payload = computeQRCodeValue(code, serial, name);
+    const payload = (itemData.QRCode && itemData.QRCode.trim()) || computeQRCodeValue(code, serial, name);
+    const payload2 = (itemData.QRCode2 && itemData.QRCode2.trim()) || computeQRCodeValue(code, serial2, name);
 
-    if (!payload) {
-      alert('No data available to generate QR. Please provide at least one of Item Code, Serial No, or Item Name.');
+    if (!payload && !payload2) {
+      alert('No data available to generate QR. Please provide at least one of Item Code, Serial No, Serial No 2, or Item Name.');
       return;
     }
 
-    const qrDataUrl = `${window.location.origin}/inventory/scan?q=${encodeURIComponent(payload)}&incharge=${encodeURIComponent(itemData.receivedfrom || '')}`;
-    const url = getQrImageUrl(qrDataUrl, 300);
+    const labels = [];
+    if (payload) {
+      labels.push({
+        payload,
+        title: name || '',
+        sub: `${code || ''}${serial ? ' | ' + serial : ''}`
+      });
+    }
+    if (payload2) {
+      labels.push({
+        payload: payload2,
+        title: name || '',
+        sub: `${code || ''}${serial2 ? ' | ' + serial2 : ''}`
+      });
+    }
+
     const w = window.open('', '_blank');
     if (!w) {
       alert('Unable to open print window. Please allow popups.');
       return;
     }
-    w.document.write(`<html><head><title>Print QR</title></head><body style="display:flex;align-items:center;justify-content:center;height:100vh">`);
-    w.document.write(`<div style="text-align:center;font-family:Arial,Helvetica,sans-serif">`);
-    w.document.write(`<img src="${url}" alt="QR" style="width:300px;height:300px;"/>`);
-    w.document.write(`<div style="margin-top:12px;font-weight:bold">${name || ''}</div>`);
-    w.document.write(`<div style="margin-top:6px">${code || ''} ${serial ? ' | ' + serial : ''}</div>`);
-    w.document.write(`<div style="margin-top:8px;font-size:12px;color:#666">Scan or visit: ${qrDataUrl}</div>`);
-    w.document.write(`</div>`);
-    w.document.write(`</body></html>`);
+    w.document.write(`<html><head><title>Print QR</title></head><body style="display:flex;align-items:center;justify-content:center;min-height:100vh">`);
+    w.document.write(`<div style="display:flex;gap:24px;flex-wrap:wrap;align-items:center;justify-content:center;font-family:Arial,Helvetica,sans-serif">`);
+    labels.forEach((label) => {
+      const qrDataUrl = `${window.location.origin}/inventory/scan?q=${encodeURIComponent(label.payload)}&incharge=${encodeURIComponent(itemData.receivedfrom || '')}`;
+      const url = getQrImageUrl(qrDataUrl, 300);
+      w.document.write(`<div style="text-align:center">`);
+      w.document.write(`<img src="${url}" alt="QR" style="width:300px;height:300px;"/>`);
+      w.document.write(`<div style="margin-top:12px;font-weight:bold">${label.title}</div>`);
+      w.document.write(`<div style="margin-top:6px">${label.sub}</div>`);
+      w.document.write(`<div style="margin-top:8px;font-size:12px;color:#666">Scan or visit: ${qrDataUrl}</div>`);
+      w.document.write(`</div>`);
+    });
+    w.document.write(`</div></body></html>`);
     w.document.close();
     w.focus();
     setTimeout(() => { w.print(); }, 250);
@@ -163,11 +191,15 @@ const AddNewItem = () => {
         const itemsWithQr = items.map((it, idx) => {
           const code = it.itemcode || it.itemCode || '';
           const serial = it.serialno || it.serialNo || '';
+          const serial2 = it.serialno2 || it.serialNo2 || '';
           const name = it.itemname || it.itemName || '';
           const computed = computeQRCodeValue(code, serial, name);
+          const computed2 = computeQRCodeValue(code, serial2, name);
           const q = computed && computed !== '' ? computed : `AUTO_${Date.now()}_${idx}`;
           const qUrl = `${window.location.origin}/inventory/scan?q=${encodeURIComponent(q)}&incharge=${encodeURIComponent(it.receivedfrom||'')}`;
-          return { ...it, qrcode: q, qrcodeUrl: qUrl };
+          const q2 = computed2 && computed2 !== '' ? computed2 : '';
+          const q2Url = q2 ? `${window.location.origin}/inventory/scan?q=${encodeURIComponent(q2)}&incharge=${encodeURIComponent(it.receivedfrom||'')}` : '';
+          return { ...it, qrcode: q, qrcodeUrl: qUrl, qrcode2: q2, qrcode2Url: q2Url };
         });
 
         setBulkItems(itemsWithQr);
@@ -186,13 +218,13 @@ const AddNewItem = () => {
   const downloadTemplate = () => {
     const headers = [
       'itemName', 'itemCode', 'serialNo', 'serialNo2', 'model', 
-      'QRCode', "pageno", 'value', 'purchaseDate', 'ginNo', 'poNo', 
+      'QRCode', 'QRCode2', "pageno", 'value', 'purchaseDate', 'ginNo', 'poNo', 
       'supplier', 'funding', 'receivedfrom', 'warranty', 'location', 'remarks'
     ];
     
     const csvContent = [
       headers.join(','),
-      'Core i7 Computer,ITDEOFQCE 01,SN123,SN456,HP,QR001,1,5000,2025-01-15,15550,PO001,VSIS,Capital Fund,Stores,3 Years,Deans Office,Good condition'
+      'Core i7 Computer,ITDEOFQCE 01,SN123,SN456,HP,QR001,QR002,1,5000,2025-01-15,15550,PO001,VSIS,Capital Fund,Stores,3 Years,Deans Office,Good condition'
     ].join('\n');
     
     const blob = new Blob([csvContent], { type: 'text/csv' });
@@ -214,7 +246,13 @@ const AddNewItem = () => {
         const res = await fetch('http://localhost:4000/api/items/bulk', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(bulkItems.map(it => ({ ...it, qrcode: it.qrcode, qrcodeUrl: it.qrcodeUrl })))
+          body: JSON.stringify(bulkItems.map(it => ({
+            ...it,
+            qrcode: it.qrcode,
+            qrcodeUrl: it.qrcodeUrl,
+            qrcode2: it.qrcode2,
+            qrcode2Url: it.qrcode2Url
+          })))
         });
         const data = await res.json();
         if (res.ok) {
@@ -248,26 +286,37 @@ const AddNewItem = () => {
       ? bulkItems.filter((_, i) => selectedBulk[i])
       : bulkItems;
 
-    const cardHtml = itemsToPrint.map((it) => {
+    const labelEntries = itemsToPrint.flatMap((it) => {
       const name = it.itemname || it.itemName || '';
       const code = it.itemcode || it.itemCode || '';
       const serial = it.serialno || it.serialNo || '';
+      const serial2 = it.serialno2 || it.serialNo2 || '';
+      const entries = [];
       const url = it.qrcodeUrl || `${window.location.origin}/inventory/scan?q=${encodeURIComponent(it.qrcode || '')}`;
-      const qrImg = getQrImageUrl(url, labelLayout === 'avery' ? 140 : 200);
+      entries.push({ name, code, serial, url });
+      if (it.qrcode2 || serial2) {
+        const url2 = it.qrcode2Url || `${window.location.origin}/inventory/scan?q=${encodeURIComponent(it.qrcode2 || '')}`;
+        entries.push({ name, code, serial: serial2, url: url2 });
+      }
+      return entries;
+    });
+
+    const cardHtml = labelEntries.map((entry) => {
+      const qrImg = getQrImageUrl(entry.url, labelLayout === 'avery' ? 140 : 200);
       if (labelLayout === 'avery') {
         return `
           <div style="width:180px;height:110px;display:inline-block;margin:6px;padding:6px;border:0;box-sizing:border-box;text-align:center;font-family:Arial,Helvetica,sans-serif;vertical-align:top">
             <img src="${qrImg}" style="width:86px;height:86px;object-fit:contain;display:block;margin:0 auto" />
-            <div style="margin-top:6px;font-weight:600;font-size:11px">${name}</div>
-            <div style="font-size:10px;color:#444">${code}${serial? ' | ' + serial : ''}</div>
+            <div style="margin-top:6px;font-weight:600;font-size:11px">${entry.name}</div>
+            <div style="font-size:10px;color:#444">${entry.code}${entry.serial ? ' | ' + entry.serial : ''}</div>
           </div>
         `;
       }
       return `
         <div style="width:240px;height:320px;display:inline-block;margin:8px;padding:8px;border:1px solid #e5e7eb;box-sizing:border-box;text-align:center;font-family:Arial,Helvetica,sans-serif">
           <img src="${qrImg}" style="width:200px;height:200px;object-fit:contain" />
-          <div style="margin-top:8px;font-weight:600">${name}</div>
-          <div style="font-size:12px;color:#444">${code}${serial? ' | ' + serial : ''}</div>
+          <div style="margin-top:8px;font-weight:600">${entry.name}</div>
+          <div style="font-size:12px;color:#444">${entry.code}${entry.serial ? ' | ' + entry.serial : ''}</div>
         </div>
       `;
     }).join('\n');
@@ -315,6 +364,7 @@ const AddNewItem = () => {
       serialNo2: "",
       model: "",
       QRCode: "",
+      QRCode2: "",
       pageno: "",
       itemImage: null,
       value: "",
@@ -433,7 +483,7 @@ const AddNewItem = () => {
                     name="serialNo2"
                     value={itemData.serialNo2}
                     onChange={handleChange}
-                    placeholder="Enter second serial number"
+                    placeholder="Enter serial number 2"
                     style={{ backgroundColor: '#F2F0F0' }}
                     className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                   />
@@ -512,6 +562,53 @@ const AddNewItem = () => {
                     style={{ backgroundColor: '#F2F0F0' }}
                     className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                   />
+                </div>
+
+                {/* QR Code (Serial No 2) */}
+                <div className="space-y-2">
+                  <label className="block text-sm font-semibold text-text-dark">QR Code (Serial No 2)</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      name="QRCode2"
+                      value={itemData.QRCode2}
+                      onChange={handleChange}
+                      placeholder="Enter QR code for serial no 2"
+                      style={{ backgroundColor: '#F2F0F0' }}
+                      className="flex-1 px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => generateAndSetQRCode(false)}
+                      className="px-3 py-2 bg-gray-200 rounded-lg hover:bg-gray-300"
+                    >
+                      Auto-generate
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => generateAndSetQRCode(true)}
+                      className="px-3 py-2 bg-gray-200 rounded-lg hover:bg-gray-300"
+                    >
+                      Force generate
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handlePrintQr}
+                      className="px-3 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600"
+                    >
+                      Print QR
+                    </button>
+                  </div>
+
+                  {itemData.QRCode2 && (
+                    <div className="mt-3 flex items-center gap-4">
+                      <img src={getQrImageUrl(itemData.QRCode2, 120)} alt="QR preview" />
+                      <div className="text-sm">
+                        <div className="font-semibold">{itemData.QRCode2}</div>
+                        <div className="text-text-light">Scan to view item</div>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Item Image */}
