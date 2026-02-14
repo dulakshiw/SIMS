@@ -9,7 +9,10 @@ const AddNewItem = () => {
     itemName: "",
     itemCode: "",
     serialNo: "",
+    serialNo2: "",
     model: "",
+    QRCode: "",
+    QRCode2: "",
     value: "",
     purchaseDate: "",
     location: "",
@@ -65,7 +68,7 @@ const AddNewItem = () => {
                                 <label>Serial Number</label>
                                 <input
                                     type="text"
-                                    name="SerialNo"
+                                    name="serialNo"
                                     value={itemData.serialNo}
                                     onChange={handleChange}
                                 />
@@ -74,7 +77,7 @@ const AddNewItem = () => {
                                 <label>Serial Number 2 (For Computer Items)</label>
                                 <input
                                     type="text"
-                                    name="SerialNo2"
+                                    name="serialNo2"
                                     value={itemData.serialNo2}
                                     onChange={handleChange}
                                 />
@@ -83,7 +86,7 @@ const AddNewItem = () => {
                                 <label>Brand/ Model</label>
                                 <input
                                     type="text"
-                                    name="Model"
+                                    name="model"
                                     value={itemData.model}
                                     onChange={handleChange}
                                 />
@@ -94,6 +97,15 @@ const AddNewItem = () => {
                                     type="text"
                                     name="QRCode"
                                     value={itemData.QRCode}
+                                    onChange={handleChange}
+                                />
+                            </div>
+                            <div className="form-row">
+                                <label>QR Code 2 (For Serial No 2)</label>
+                                <input
+                                    type="text"
+                                    name="QRCode2"
+                                    value={itemData.QRCode2}
                                     onChange={handleChange}
                                 />
                             </div>
