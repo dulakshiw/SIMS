@@ -42,7 +42,7 @@ const AdminDashboard = () => {
 
           <Card title="Recent Activities" icon="history">
             <div className="space-y-2 text-sm">
-              <p className="text-text-dark">New user registered - John Doe</p>
+              <p className="text-text-dark">New user registered - M.D.C.N. Abeynayake</p>
               <p className="text-text-dark">Inventory transfer completed</p>
               <p className="text-text-dark">Disposal request approved</p>
               <p className="text-text-dark">System maintenance completed</p>

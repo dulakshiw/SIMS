@@ -1,12 +1,14 @@
 import React, { useState } from "react";
 import AdminLayout from "../../Components/Layouts/AdminLayout";
-import { Card, Button, SearchBox, Table, Badge, Modal, FormInput, Select } from "../../Components/UI";
+import { Card, Button, SearchBox, Table, Badge, Modal, FormInput, Select, EntityDetailsModal } from "../../Components/UI";
 
 const DepartmentManagement = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isDepartmentDetailsModalOpen, setIsDepartmentDetailsModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState("create"); // create or edit
   const [selectedDeptId, setSelectedDeptId] = useState(null);
+  const [selectedDepartmentDetails, setSelectedDepartmentDetails] = useState(null);
   const [formData, setFormData] = useState({
     name: "",
     code: "",
@@ -23,32 +25,29 @@ const DepartmentManagement = () => {
       id: 1,
       name: "Information Technology",
       code: "IT",
-      head: "Alice Johnson",
-      description: "IT Department",
+      head: "CRJ Amalraj",
       status: "active",
-      createdDate: "2024-01-15",
-      users: ["Alice Johnson", "Bob Smith"],
+      createdDate: "2026-01-15",
+      users: ["", "Bob Smith"],
       inventories: ["Server Room", "IT Equipment"],
     },
     {
       id: 2,
-      name: "Operations",
-      code: "OPS",
-      head: "Carol White",
-      description: "Operations Department",
+      name: "Dean's Office",
+      code: "DO",
+      head: "Yashodara Karunarathne",
       status: "active",
-      createdDate: "2024-01-20",
+      createdDate: "2026-01-20",
       users: ["Carol White", "David Brown"],
       inventories: ["Office Supplies", "Machinery"],
     },
     {
       id: 3,
-      name: "Human Resources",
-      code: "HR",
-      head: "Emma Davis",
-      description: "HR Department",
+      name: "Computational Mathematics",
+      code: "CM",
+      head: "YTS Piyatilake",
       status: "inactive",
-      createdDate: "2024-02-01",
+      createdDate: "2026-02-01",
       users: ["Emma Davis"],
       inventories: ["HR Equipment"],
     },
@@ -74,7 +73,6 @@ const DepartmentManagement = () => {
     { field: "name", label: "Department Name", sortable: true },
     { field: "code", label: "Code", sortable: true },
     { field: "head", label: "Department Head", sortable: true },
-    { field: "description", label: "Description" },
     {
       field: "status",
       label: "Status",
@@ -134,6 +132,11 @@ const DepartmentManagement = () => {
   const handleAssignClick = (dept) => {
     setSelectedDept(dept);
     setAssignModalOpen(true);
+  };
+
+  const handleViewDepartmentDetails = (department) => {
+    setSelectedDepartmentDetails(department);
+    setIsDepartmentDetailsModalOpen(true);
   };
 
   const modalFooter = (
@@ -197,9 +200,42 @@ const DepartmentManagement = () => {
             columns={columns}
             data={filteredDepartments}
             actions={actions}
+            onRowClick={handleViewDepartmentDetails}
             rowsPerPage={10}
           />
         </Card>
+
+        {/* Department Details Modal */}
+        <EntityDetailsModal
+          isOpen={isDepartmentDetailsModalOpen}
+          onClose={() => setIsDepartmentDetailsModalOpen(false)}
+          title={`Department Details${selectedDepartmentDetails?.name ? ` - ${selectedDepartmentDetails.name}` : ""}`}
+          selectedLabel="Selected Department"
+          selectedName={selectedDepartmentDetails?.name}
+          details={[
+            { label: "Code", value: selectedDepartmentDetails?.code },
+            { label: "Department Head", value: selectedDepartmentDetails?.head },
+            {
+              label: "Status",
+              value: selectedDepartmentDetails?.status
+                ? selectedDepartmentDetails.status.charAt(0).toUpperCase() + selectedDepartmentDetails.status.slice(1)
+                : "-",
+            },
+            { label: "Created Date", value: selectedDepartmentDetails?.createdDate },
+            { label: "Assigned Users", value: selectedDepartmentDetails?.users?.filter(Boolean).length || 0 },
+            { label: "Assigned Inventories", value: selectedDepartmentDetails?.inventories?.length || 0 },
+            {
+              label: "Users",
+              value: selectedDepartmentDetails?.users?.filter(Boolean).join(", "),
+              fullWidth: true,
+            },
+            {
+              label: "Inventories",
+              value: selectedDepartmentDetails?.inventories?.join(", "),
+              fullWidth: true,
+            },
+          ]}
+        />
 
         {/* Create/Edit Department Modal */}
         <Modal
@@ -224,7 +260,7 @@ const DepartmentManagement = () => {
               name="code"
               value={formData.code}
               onChange={handleInputChange}
-              placeholder="e.g., IT, HR, OPS"
+              placeholder="e.g., IT, IDS"
               required
             />
 
@@ -237,15 +273,6 @@ const DepartmentManagement = () => {
               required
             />
 
-            <FormInput
-              label="Description"
-              name="description"
-              value={formData.description}
-              onChange={handleInputChange}
-              placeholder="Department description"
-              as="textarea"
-              rows={3}
-            />
           </form>
         </Modal>
 

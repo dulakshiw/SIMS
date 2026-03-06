@@ -9,6 +9,7 @@ const Button = ({
   iconPosition = "left",
   loading = false,
   onClick,
+  title = "",
   className = "",
   type = "button",
   fullWidth = false,
@@ -38,6 +39,8 @@ const Button = ({
       type={type}
       disabled={disabled || loading}
       onClick={onClick}
+      title={title || undefined}
+      aria-label={title || undefined}
       className={`${baseStyles} ${variantStyles[variant]} ${sizeStyles[size]} ${widthStyles} ${className}`}
     >
       {loading && (

@@ -1,18 +1,21 @@
 import React, { useState } from "react";
 import AdminLayout from "../../Components/Layouts/AdminLayout";
-import { Card, Button, SearchBox, Table, Badge, Modal, FormInput, Select } from "../../Components/UI";
+import { Card, Button, SearchBox, Table, Badge, Modal, FormInput, Select, EntityDetailsModal } from "../../Components/UI";
 import { INVENTORY_REQUEST_STATUS } from "../../utils/constants";
 
 const InventoryManagement = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [activeTab, setActiveTab] = useState("inventories"); // inventories or requests
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isInventoryDetailsModalOpen, setIsInventoryDetailsModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState("create");
   const [selectedInventoryId, setSelectedInventoryId] = useState(null);
+  const [selectedInventoryDetails, setSelectedInventoryDetails] = useState(null);
   const [formData, setFormData] = useState({
     name: "",
     department: "",
     incharge: "",
+    Hod: "",
     description: "",
   });
 
@@ -26,9 +29,10 @@ const InventoryManagement = () => {
       name: "Server Room",
       department: "Information Technology",
       incharge: "Alice Johnson",
+      hod: "Dr. N. Perera",
       status: "active",
-      createdDate: "2024-01-10",
-      lastUpdated: "2024-01-25",
+      createdDate: "2026-01-10",
+      lastUpdated: "2026-01-25",
       itemCount: 45,
     },
     {
@@ -36,9 +40,10 @@ const InventoryManagement = () => {
       name: "IT Equipment",
       department: "Information Technology",
       incharge: "Bob Smith",
+      hod: "Dr. N. Perera",
       status: "active",
-      createdDate: "2024-01-15",
-      lastUpdated: "2024-01-24",
+      createdDate: "2026-01-15",
+      lastUpdated: "2026-01-24",
       itemCount: 120,
     },
     {
@@ -46,9 +51,10 @@ const InventoryManagement = () => {
       name: "Office Supplies",
       department: "Operations",
       incharge: "Carol White",
+      hod: "Prof. S. Jayasinghe",
       status: "inactive",
-      createdDate: "2024-01-20",
-      lastUpdated: "2024-01-20",
+      createdDate: "2026-01-20",
+      lastUpdated: "2026-01-20",
       itemCount: 250,
     },
     {
@@ -56,9 +62,10 @@ const InventoryManagement = () => {
       name: "Machinery",
       department: "Operations",
       incharge: "David Brown",
+      hod: "Prof. S. Jayasinghe",
       status: "active",
-      createdDate: "2024-02-01",
-      lastUpdated: "2024-01-26",
+      createdDate: "2026-02-01",
+      lastUpdated: "2026-01-26",
       itemCount: 15,
     },
     {
@@ -66,9 +73,10 @@ const InventoryManagement = () => {
       name: "HR Equipment",
       department: "Human Resources",
       incharge: "Emma Davis",
+      hod: "Dr. P. Fernando",
       status: "active",
-      createdDate: "2024-02-05",
-      lastUpdated: "2024-01-26",
+      createdDate: "2026-02-05",
+      lastUpdated: "2026-01-26",
       itemCount: 30,
     },
   ];
@@ -80,7 +88,7 @@ const InventoryManagement = () => {
       name: "Laboratory Equipment",
       department: "Science",
       requestedBy: "Frank Wilson",
-      requestedDate: "2024-01-24",
+      requestedDate: "2026-01-24",
       approvalStatus: INVENTORY_REQUEST_STATUS.PENDING_STAFF,
       hodApprovedDate: null,
       hodApprovedBy: null,
@@ -91,9 +99,9 @@ const InventoryManagement = () => {
       name: "Sports Equipment",
       department: "Physical Education",
       requestedBy: "Grace Lee",
-      requestedDate: "2024-01-25",
+      requestedDate: "2026-01-25",
       approvalStatus: INVENTORY_REQUEST_STATUS.APPROVED_BY_HOD,
-      hodApprovedDate: "2024-01-26",
+      hodApprovedDate: "2026-01-26",
       hodApprovedBy: "PE Department Head",
       reason: "Sports facilities expansion",
     },
@@ -118,6 +126,7 @@ const InventoryManagement = () => {
   const columns = [
     { field: "name", label: "Inventory Name", sortable: true },
     { field: "department", label: "Department", sortable: true },
+    { field: "hod", label: "HOD", sortable: true },
     { field: "incharge", label: "In-Charge", sortable: true },
     { field: "itemCount", label: "Items", sortable: true },
     {
@@ -131,8 +140,6 @@ const InventoryManagement = () => {
         />
       ),
     },
-    { field: "createdDate", label: "Created Date" },
-    { field: "lastUpdated", label: "Last Updated" },
   ];
 
   const actions = [
@@ -260,13 +267,18 @@ const InventoryManagement = () => {
     setAssignInchargeModalOpen(true);
   };
 
+  const handleViewInventoryDetails = (inventory) => {
+    setSelectedInventoryDetails(inventory);
+    setIsInventoryDetailsModalOpen(true);
+  };
+
   const handleAssignInchargeSubmit = () => {
     console.log(`Assigned ${selectedIncharge} to ${selectedInventory?.name}`);
     setAssignInchargeModalOpen(false);
     setSelectedInventory(null);
     setSelectedIncharge("");
   };
-
+ 
   const modalFooter = (
     <div className="flex gap-3 justify-end">
       <Button variant="secondary" onClick={() => setIsModalOpen(false)}>
@@ -303,7 +315,7 @@ const InventoryManagement = () => {
             variant="primary"
             onClick={() => {
               setModalMode("create");
-              setFormData({ name: "", department: "", incharge: "", description: "" });
+              setFormData({ name: "", department: "", incharge: "", hod: "", description: "" });
               setIsModalOpen(true);
             }}
           >
@@ -352,6 +364,7 @@ const InventoryManagement = () => {
               columns={columns}
               data={filteredInventories}
               actions={actions}
+              onRowClick={handleViewInventoryDetails}
               rowsPerPage={10}
             />
           </Card>
@@ -370,6 +383,30 @@ const InventoryManagement = () => {
             </div>
           </Card>
         )}
+
+        {/* Inventory Details Modal */}
+        <EntityDetailsModal
+          isOpen={isInventoryDetailsModalOpen}
+          onClose={() => setIsInventoryDetailsModalOpen(false)}
+          title={`Inventory Details${selectedInventoryDetails?.name ? ` - ${selectedInventoryDetails.name}` : ""}`}
+          selectedLabel="Selected Inventory"
+          selectedName={selectedInventoryDetails?.name}
+          details={[
+            { label: "Department", value: selectedInventoryDetails?.department },
+            { label: "In-Charge", value: selectedInventoryDetails?.incharge },
+            { label: "HOD", value: selectedInventoryDetails?.hod },
+            { label: "Item Count", value: selectedInventoryDetails?.itemCount },
+            {
+              label: "Status",
+              value: selectedInventoryDetails?.status
+                ? selectedInventoryDetails.status.charAt(0).toUpperCase() + selectedInventoryDetails.status.slice(1)
+                : "-",
+            },
+            { label: "Created Date", value: selectedInventoryDetails?.createdDate },
+            { label: "Last Updated", value: selectedInventoryDetails?.lastUpdated },
+            { label: "Inventory ID", value: selectedInventoryDetails?.id },
+          ]}
+        />
 
         {/* Create/Edit Inventory Modal */}
         <Modal

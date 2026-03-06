@@ -143,7 +143,7 @@ const SignUp = () => {
               {/* Role */}
               <div className="space-y-2">
                 <label className="block text-sm font-semibold text-text-dark">
-                  Role <span className="text-danger">*</span>
+                  Requested Role <span className="text-danger">*</span>
                 </label>
                 <select
                   name="role"
@@ -154,7 +154,6 @@ const SignUp = () => {
                   style={{ backgroundColor: '#F2F0F0' }}
                 >
                   <option value="Staff">Staff Member</option>
-                  <option value="Incharge">Inventory InCharge</option>
                   <option value="hod">Head of Department</option>
                   <option value="dean">Dean</option>
                   <option value="registrar">Registrar</option>

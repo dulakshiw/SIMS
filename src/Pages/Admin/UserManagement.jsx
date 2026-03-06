@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import AdminLayout from "../../Components/Layouts/AdminLayout";
-import { Card, Button, SearchBox, Table, Badge, Modal, FormInput, Select } from "../../Components/UI";
+import { Card, Button, SearchBox, Table, Badge, Modal, FormInput, Select, EntityDetailsModal } from "../../Components/UI";
 import { ROLES, ROLE_HIERARCHY, ACCOUNT_REQUEST_STATUS } from "../../utils/constants";
 import { getAssignableRoles, canApproveAccountCreation } from "../../utils/permissionUtils";
 
@@ -9,8 +9,10 @@ const UserManagement = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isChangeRoleModalOpen, setIsChangeRoleModalOpen] = useState(false);
   const [isApproveAccountModalOpen, setIsApproveAccountModalOpen] = useState(false);
+  const [isUserDetailsModalOpen, setIsUserDetailsModalOpen] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState(null);
   const [selectedUserName, setSelectedUserName] = useState("");
+  const [selectedUserDetails, setSelectedUserDetails] = useState(null);
   const [newRole, setNewRole] = useState("");
   const [activeTab, setActiveTab] = useState("active-users"); // active-users or pending-approvals
   const [formData, setFormData] = useState({
@@ -222,6 +224,11 @@ const UserManagement = () => {
     setIsChangeRoleModalOpen(true);
   };
 
+  const handleViewUserDetails = (user) => {
+    setSelectedUserDetails(user);
+    setIsUserDetailsModalOpen(true);
+  };
+
   const handleRoleChangeSubmit = () => {
     setUsers((prevUsers) =>
       prevUsers.map((u) =>
@@ -404,7 +411,13 @@ const UserManagement = () => {
         {/* Users Table or Requests Table */}
         {activeTab === "active-users" ? (
           <Card>
-            <Table columns={columns} data={filteredUsers} actions={actions} rowsPerPage={10} />
+            <Table
+              columns={columns}
+              data={filteredUsers}
+              actions={actions}
+              onRowClick={handleViewUserDetails}
+              rowsPerPage={10}
+            />
           </Card>
         ) : (
           <Card>
@@ -412,6 +425,30 @@ const UserManagement = () => {
           </Card>
         )}
       </div>
+
+      {/* User Details Modal */}
+      <EntityDetailsModal
+        isOpen={isUserDetailsModalOpen}
+        onClose={() => setIsUserDetailsModalOpen(false)}
+        title={`User Details${selectedUserDetails?.name ? ` - ${selectedUserDetails.name}` : ""}`}
+        selectedLabel="Selected User"
+        selectedName={selectedUserDetails?.name}
+        details={[
+          { label: "Email", value: selectedUserDetails?.email },
+          { label: "Role", value: ROLE_HIERARCHY[selectedUserDetails?.role]?.label || selectedUserDetails?.role },
+          { label: "Department", value: selectedUserDetails?.department },
+          {
+            label: "Status",
+            value: selectedUserDetails?.status
+              ? selectedUserDetails.status.charAt(0).toUpperCase() + selectedUserDetails.status.slice(1)
+              : "-",
+          },
+          { label: "Mobile No", value: selectedUserDetails?.mobileNo },
+          { label: "Office Extension", value: selectedUserDetails?.officeExtNo },
+          { label: "Created Date", value: selectedUserDetails?.createdDate },
+          { label: "User ID", value: selectedUserDetails?.id },
+        ]}
+      />
 
       {/* Create User Modal */}
       <Modal

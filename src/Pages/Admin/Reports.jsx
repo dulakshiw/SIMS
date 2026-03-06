@@ -1,5 +1,7 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 import AdminLayout from "../../Components/Layouts/AdminLayout";
 import MainLayout from "../../Components/Layouts/MainLayout";
 import { Card, Button, Table, Badge } from "../../Components/UI";
@@ -9,6 +11,22 @@ const Reports = ({ layoutVariant = "admin", sidebarVariant }) => {
   const resolvedSidebarVariant = sidebarVariant || params?.role || "staff";
   const Layout = layoutVariant === "admin" ? AdminLayout : MainLayout;
   const [activeTab, setActiveTab] = useState("user-details"); // user-details, user-login, inventory-details
+  const [isExportDropdownOpen, setIsExportDropdownOpen] = useState(false);
+  const exportDropdownRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (exportDropdownRef.current && !exportDropdownRef.current.contains(event.target)) {
+        setIsExportDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
 
   const mockStats = [
     { title: "Total Users", value: "25", icon: "people", color: "primary-800" },
@@ -179,6 +197,40 @@ const Reports = ({ layoutVariant = "admin", sidebarVariant }) => {
     },
   ];
 
+  // Department Details Report Data
+  const departmentDetailsData = [
+    {
+      id: 1,
+      name: "Information Technology",
+      code: "IT",
+      head: "CRJ Amalraj",
+      userCount: 12,
+      inventoryCount: 2,
+      status: "active",
+      createdDate: "2024-01-15",
+    },
+    {
+      id: 2,
+      name: "Dean's Office",
+      code: "DO",
+      head: "Yashodara Karunarathne",
+      userCount: 8,
+      inventoryCount: 2,
+      status: "active",
+      createdDate: "2024-01-20",
+    },
+    {
+      id: 3,
+      name: "Computational Mathematics",
+      code: "CM",
+      head: "YTS Piyatilake",
+      userCount: 5,
+      inventoryCount: 1,
+      status: "inactive",
+      createdDate: "2024-02-01",
+    },
+  ];
+
   const userDetailsColumns = [
     { field: "name", label: "Name", sortable: true },
     { field: "email", label: "Email", sortable: true },
@@ -243,9 +295,153 @@ const Reports = ({ layoutVariant = "admin", sidebarVariant }) => {
     },
   ];
 
-  const handleExportReport = (reportType) => {
-    console.log(`Exporting ${reportType} report...`);
-    // Implementation for CSV/PDF export
+  const departmentDetailsColumns = [
+    { field: "name", label: "Department Name", sortable: true },
+    { field: "code", label: "Code", sortable: true },
+    { field: "head", label: "Department Head", sortable: true },
+    { field: "userCount", label: "Users", sortable: true },
+    { field: "inventoryCount", label: "Inventories", sortable: true },
+    {
+      field: "status",
+      label: "Status",
+      render: (value) => (
+        <Badge
+          label={value.charAt(0).toUpperCase() + value.slice(1)}
+          variant={value === "active" ? "success" : "warning"}
+          size="sm"
+        />
+      ),
+    },
+    { field: "createdDate", label: "Created Date" },
+  ];
+
+  const getReportConfig = (reportType) => {
+    const reportConfig = {
+      "user-details": {
+        title: "User Details Report",
+        fileName: "users-report",
+        headers: ["Name", "Email", "Role", "Department", "Status", "Join Date", "Last Active"],
+        rows: userDetailsData.map((user) => [
+          user.name,
+          user.email,
+          user.role,
+          user.department,
+          user.status,
+          user.joinDate,
+          user.lastActive,
+        ]),
+      },
+      "department-details": {
+        title: "Department Details Report",
+        fileName: "departments-report",
+        headers: ["Department Name", "Code", "Department Head", "Users", "Inventories", "Status", "Created Date"],
+        rows: departmentDetailsData.map((department) => [
+          department.name,
+          department.code,
+          department.head,
+          department.userCount,
+          department.inventoryCount,
+          department.status,
+          department.createdDate,
+        ]),
+      },
+      "inventory-details": {
+        title: "Inventory Details Report",
+        fileName: "inventories-report",
+        headers: ["Inventory Name", "Department", "In-Charge", "Item Count", "Status", "Created Date", "Last Updated"],
+        rows: inventoryDetailsData.map((inventory) => [
+          inventory.name,
+          inventory.department,
+          inventory.incharge,
+          inventory.itemCount,
+          inventory.status,
+          inventory.createdDate,
+          inventory.lastUpdated,
+        ]),
+      },
+      "user-login": {
+        title: "User Login Details Report",
+        fileName: "user-logins-report",
+        headers: ["Name", "Email", "Login Count", "Last Login", "Login Date", "Total Hours", "Status"],
+        rows: userLoginData.map((userLogin) => [
+          userLogin.name,
+          userLogin.email,
+          userLogin.loginCount,
+          userLogin.lastLogin,
+          userLogin.loginDate,
+          userLogin.totalLoginHours,
+          userLogin.status,
+        ]),
+      },
+    };
+
+    return reportConfig[reportType] || null;
+  };
+
+  const handleExportCsv = (reportType) => {
+    const selectedReport = getReportConfig(reportType);
+
+    if (!selectedReport) {
+      return;
+    }
+
+    const escapeCell = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+    const csvRows = [selectedReport.headers, ...selectedReport.rows]
+      .map((row) => row.map(escapeCell).join(","))
+      .join("\n");
+
+    const blob = new Blob([csvRows], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", `${selectedReport.fileName}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportPdf = (reportType) => {
+    const selectedReport = getReportConfig(reportType);
+
+    if (!selectedReport) {
+      return;
+    }
+
+    const doc = new jsPDF();
+    const generatedAt = new Date().toLocaleString();
+
+    autoTable(doc, {
+      head: [selectedReport.headers],
+      body: selectedReport.rows,
+      startY: 34,
+      styles: { fontSize: 9 },
+      headStyles: { fillColor: [17, 76, 126] },
+      didDrawPage: () => {
+        const pageHeight = doc.internal.pageSize.getHeight();
+
+        doc.setFontSize(12);
+        doc.text("Inventory Mangement System - Faculty of Information Technology", 14, 14);
+
+        doc.setFontSize(10);
+        doc.text(selectedReport.title, 14, 22);
+
+        doc.setFontSize(9);
+        doc.text(`Generated: ${generatedAt}`, 14, pageHeight - 10);
+      },
+      margin: { top: 30, bottom: 16 },
+    });
+
+    doc.save(`${selectedReport.fileName}.pdf`);
+  };
+
+  const handleExportReport = (reportType, format) => {
+    if (format === "pdf") {
+      handleExportPdf(reportType);
+      return;
+    }
+
+    handleExportCsv(reportType);
   };
 
   return (
@@ -257,9 +453,44 @@ const Reports = ({ layoutVariant = "admin", sidebarVariant }) => {
             <h1 className="text-3xl font-bold text-text-dark">Reports & Analytics</h1>
             <p className="text-text-light mt-2">System analytics and performance metrics</p>
           </div>
-          <Button icon="download" variant="primary" onClick={() => handleExportReport(activeTab)}>
-            Export Report
-          </Button>
+          <div className="relative" ref={exportDropdownRef}>
+            <Button
+              variant="primary"
+              className="min-w-[180px] justify-between"
+              onClick={() => setIsExportDropdownOpen((prev) => !prev)}
+            >
+              <span className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-base">download</span>
+                Export Report
+              </span>
+              <span className="material-symbols-outlined text-base">expand_more</span>
+            </Button>
+
+            {isExportDropdownOpen && (
+              <div className="absolute right-0 mt-2 w-48 bg-white border border-border-light rounded-md shadow-lg z-50 overflow-hidden">
+                <button
+                  type="button"
+                  className="w-full text-left px-4 py-2 text-sm text-text-dark hover:bg-background-light transition-colors"
+                  onClick={() => {
+                    handleExportReport(activeTab, "csv");
+                    setIsExportDropdownOpen(false);
+                  }}
+                >
+                  Export as CSV
+                </button>
+                <button
+                  type="button"
+                  className="w-full text-left px-4 py-2 text-sm text-text-dark hover:bg-background-light transition-colors"
+                  onClick={() => {
+                    handleExportReport(activeTab, "pdf");
+                    setIsExportDropdownOpen(false);
+                  }}
+                >
+                  Export as PDF
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* KPI Cards */}
@@ -305,6 +536,16 @@ const Reports = ({ layoutVariant = "admin", sidebarVariant }) => {
             >
               Inventory Details
             </button>
+            <button
+              onClick={() => setActiveTab("department-details")}
+              className={`px-6 py-3 border-b-2 font-medium transition-colors ${
+                activeTab === "department-details"
+                  ? "border-primary-600 text-primary-600"
+                  : "border-transparent text-text-light hover:text-text-dark"
+              }`}
+            >
+              Department Details
+            </button>
           </div>
         </div>
 
@@ -335,6 +576,16 @@ const Reports = ({ layoutVariant = "admin", sidebarVariant }) => {
               <Table
                 columns={inventoryDetailsColumns}
                 data={inventoryDetailsData}
+                rowsPerPage={10}
+              />
+            </Card>
+          )}
+
+          {activeTab === "department-details" && (
+            <Card title="Department Details Report" icon="business">
+              <Table
+                columns={departmentDetailsColumns}
+                data={departmentDetailsData}
                 rowsPerPage={10}
               />
             </Card>

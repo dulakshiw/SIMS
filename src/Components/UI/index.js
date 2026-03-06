@@ -7,6 +7,7 @@ export { default as Badge } from "./Badge";
 export { default as FormInput } from "./FormInput";
 export { default as Table } from "./Table";
 export { default as Modal } from "./Modal";
+export { default as EntityDetailsModal } from "./EntityDetailsModal";
 export { default as Select } from "./Select";
 export { default as SearchBox } from "./SearchBox";
 export { default as Tabs } from "./Tabs";

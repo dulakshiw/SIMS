@@ -42,6 +42,8 @@ import MyRequests from './Pages/Requests/MyRequests'
 import StaffDashboard from './Pages/StaffMember/StaffDashboard'
 import HodDashboard from './Pages/StaffMember/HodDashboard'
 import DeanDashboard from './Pages/StaffMember/DeanDashboard'
+import DepartmentManagement from './Pages/Admin/DepartmentManagement'
+import InventoryManagement from './Pages/Admin/InventoryManagement'
 
 const router = createBrowserRouter([
   // ==================== Authentication Routes ====================
@@ -81,6 +83,14 @@ const router = createBrowserRouter([
       {
         path: "reports",
         element: <Reports />
+      },
+      {
+        path: "departments",
+        element: <DepartmentManagement />
+      },
+      {
+        path: "inventory",
+        element: <InventoryManagement />
       }
     ]
   },

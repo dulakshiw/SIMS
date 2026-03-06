@@ -206,7 +206,7 @@ export const ITEMS_PER_PAGE_OPTIONS = [10, 25, 50, 100];
 // Navigation Items
 export const ADMIN_NAV_ITEMS = [
   { id: 1, label: "Dashboard", path: "/admin/dashboard", icon: "dashboard" },
-  { id: 2, label: "Inventory", path: "/admin/inventories", icon: "inventory_2" },
+  { id: 2, label: "Inventory", path: "/admin/inventory", icon: "inventory_2" },
   { id: 3, label: "Departments", path: "/admin/departments", icon: "business" },
   { id: 4, label: "Users", path: "/admin/users", icon: "people" },
   { id: 5, label: "Reports", path: "/admin/reports", icon: "assessment" },
