@@ -11,10 +11,12 @@ const SignUp = () => {
     password: "",
     confirmPassword: "",
     role: "Staff",
-    department: "Information Technology"
+    department: "Information Technology",
+    designation: ""
   });
 
   const [passwordStrength, setPasswordStrength] = useState(0);
+  const [otherDesignation, setOtherDesignation] = useState("");
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -44,7 +46,13 @@ const SignUp = () => {
       return;
     }
 
-    console.log("Sign Up Data:", formData);
+    // If "Other" is selected, use the custom designation
+    const finalFormData = {
+      ...formData,
+      designation: formData.designation === "Other" ? otherDesignation : formData.designation
+    };
+
+    console.log("Sign Up Data:", finalFormData);
     alert("Account Created Successfully!");
   };
 
@@ -81,7 +89,7 @@ const SignUp = () => {
               {/* Full Name */}
               <div className="space-y-2">
                 <label className="block text-sm font-semibold text-text-dark">
-                  Full Name <span className="text-danger">*</span>
+                  Full Name 
                 </label>
                 <input
                   type="text"
@@ -98,7 +106,7 @@ const SignUp = () => {
               {/* Email */}
               <div className="space-y-2">
                 <label className="block text-sm font-semibold text-text-dark">
-                  Email <span className="text-danger">*</span>
+                  Email 
                 </label>
                 <input
                   type="email"
@@ -143,7 +151,7 @@ const SignUp = () => {
               {/* Role */}
               <div className="space-y-2">
                 <label className="block text-sm font-semibold text-text-dark">
-                  Requested Role <span className="text-danger">*</span>
+                  Requested Role 
                 </label>
                 <select
                   name="role"
@@ -164,7 +172,7 @@ const SignUp = () => {
               {/* Department */}
               <div className="space-y-2">
                 <label className="block text-sm font-semibold text-text-dark">
-                  Department <span className="text-danger">*</span>
+                  Department 
                 </label>
                 <select
                   name="department"
@@ -183,10 +191,51 @@ const SignUp = () => {
                 </select>
               </div>
 
+              {/* Designation */}
+              <div className="space-y-2">
+                <label className="block text-sm font-semibold text-text-dark">
+                  Designation 
+                </label>
+                <select
+                  name="designation"
+                  value={formData.designation}
+                  onChange={handleChange}
+                  className="w-full px-4 py-2.5 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  style={{ backgroundColor: '#F2F0F0' }}
+                >
+                  <option value="Lecturer">Lecturer</option>
+                  <option value="Instructor">Instructor</option>
+                  <option value="Technical Officer">Technical Officer</option>
+                  <option value="Management Assistant">Management Assistant</option>  
+                  <option value="Laboratory Attendant">Laboratory Attendant</option>
+                  <option value="Works Aide">Works Aide</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+
+              {/* Other Designation Text Area - Only shown when Other is selected */}
+              {formData.designation === "Other" && (
+                <div className="space-y-2 md:col-span-2">
+                  <label className="block text-sm font-semibold text-text-dark">
+                    Please Specify Your Designation 
+                  </label>
+                  <textarea
+                    name="otherDesignation"
+                    placeholder="Enter your designation"
+                    value={otherDesignation}
+                    onChange={(e) => setOtherDesignation(e.target.value)}
+                    required
+                    rows={3}
+                    className="w-full px-4 py-2.5 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 resize-none"
+                    style={{ backgroundColor: '#F2F0F0' }}
+                  />
+                </div>
+              )}
+
               {/* Password */}
               <div className="space-y-2">
                 <label className="block text-sm font-semibold text-text-dark">
-                  Password <span className="text-danger">*</span>
+                  Password 
                 </label>
                 <input
                   type="password"
@@ -203,7 +252,7 @@ const SignUp = () => {
               {/* Confirm Password */}
               <div className="space-y-2">
                 <label className="block text-sm font-semibold text-text-dark">
-                  Confirm Password <span className="text-danger">*</span>
+                  Confirm Password 
                 </label>
                 <input
                   type="password"

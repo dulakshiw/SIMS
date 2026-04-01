@@ -43,6 +43,7 @@ const Reports = ({ layoutVariant = "admin", sidebarVariant }) => {
       email: "alice@example.com",
       role: "Admin",
       department: "IT",
+      designation: "Senior Lecturer",
       status: "active",
       joinDate: "2024-01-15",
       lastActive: "2024-01-26 10:30 AM",
@@ -53,6 +54,7 @@ const Reports = ({ layoutVariant = "admin", sidebarVariant }) => {
       email: "bob@example.com",
       role: "Incharge",
       department: "Inventory",
+      designation: "Lecturer",
       status: "active",
       joinDate: "2024-01-20",
       lastActive: "2024-01-26 09:15 AM",
@@ -63,6 +65,7 @@ const Reports = ({ layoutVariant = "admin", sidebarVariant }) => {
       email: "carol@example.com",
       role: "Admin",
       department: "Operations",
+      designation: "Professor",
       status: "inactive",
       joinDate: "2024-01-22",
       lastActive: "2024-01-24 03:45 PM",
@@ -73,6 +76,7 @@ const Reports = ({ layoutVariant = "admin", sidebarVariant }) => {
       email: "david@example.com",
       role: "Staff",
       department: "Finance",
+      designation: "Assistant Lecturer",
       status: "active",
       joinDate: "2024-02-01",
       lastActive: "2024-01-26 11:20 AM",
@@ -83,6 +87,7 @@ const Reports = ({ layoutVariant = "admin", sidebarVariant }) => {
       email: "emma@example.com",
       role: "Incharge",
       department: "Inventory",
+      designation: "Senior Lecturer",
       status: "active",
       joinDate: "2024-02-05",
       lastActive: "2024-01-26 02:50 PM",
@@ -240,6 +245,7 @@ const Reports = ({ layoutVariant = "admin", sidebarVariant }) => {
       render: (value) => <Badge label={value.toUpperCase()} variant="primary" size="sm" />,
     },
     { field: "department", label: "Department", sortable: true },
+    { field: "designation", label: "Designation", sortable: true },
     {
       field: "status",
       label: "Status",
@@ -320,12 +326,13 @@ const Reports = ({ layoutVariant = "admin", sidebarVariant }) => {
       "user-details": {
         title: "User Details Report",
         fileName: "users-report",
-        headers: ["Name", "Email", "Role", "Department", "Status", "Join Date", "Last Active"],
+        headers: ["Name", "Email", "Role", "Department", "Designation", "Status", "Join Date", "Last Active"],
         rows: userDetailsData.map((user) => [
           user.name,
           user.email,
           user.role,
           user.department,
+          user.designation,
           user.status,
           user.joinDate,
           user.lastActive,
@@ -446,17 +453,15 @@ const Reports = ({ layoutVariant = "admin", sidebarVariant }) => {
 
   return (
     <Layout {...(layoutVariant === "admin" ? {} : { variant: resolvedSidebarVariant })}>
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
+      <div className="gradient-primary py-6 rounded-t">
+        <div className="max-w-7xl mx-auto px-6 flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-text-dark">Reports & Analytics</h1>
-            <p className="text-text-light mt-2">System analytics and performance metrics</p>
+            <h1 className="text-3xl font-bold text-white">Reports & Analytics</h1>
+            <p className="text-sm text-primary-50 mt-1">System analytics and performance metrics</p>
           </div>
           <div className="relative" ref={exportDropdownRef}>
             <Button
-              variant="primary"
-              className="min-w-[180px] justify-between"
+              className="bg-white text-primary-800 hover:bg-primary-50 min-w-[180px] justify-between"
               onClick={() => setIsExportDropdownOpen((prev) => !prev)}
             >
               <span className="flex items-center gap-2">
@@ -492,7 +497,9 @@ const Reports = ({ layoutVariant = "admin", sidebarVariant }) => {
             )}
           </div>
         </div>
+      </div>
 
+      <div className="p-6 space-y-6">
         {/* KPI Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {mockStats.map((stat, index) => (

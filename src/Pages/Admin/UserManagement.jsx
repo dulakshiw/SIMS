@@ -15,6 +15,8 @@ const UserManagement = () => {
   const [selectedUserDetails, setSelectedUserDetails] = useState(null);
   const [newRole, setNewRole] = useState("");
   const [activeTab, setActiveTab] = useState("active-users"); // active-users or pending-approvals
+  const [otherDesignation, setOtherDesignation] = useState("");
+  const [passwordStrength, setPasswordStrength] = useState(0);
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -22,6 +24,9 @@ const UserManagement = () => {
     officeExtNo: "",
     role: "staff",
     department: "",
+    designation: "",
+    password: "",
+    confirmPassword: "",
   });
 
   const [users, setUsers] = useState([
@@ -31,6 +36,7 @@ const UserManagement = () => {
       email: "dulakshiw@uom.lk",
       role: "admin",
       department: "Information Technology",
+      designation: "Senior Lecturer",
       status: "active",
       createdDate: "2026-01-15",
     },
@@ -40,6 +46,7 @@ const UserManagement = () => {
       email: "charithana@uom.lk",
       role: "inventory_incharge",
       department: "Information Technology",
+      designation: "Lecturer",
       status: "active",
       createdDate: "2026-01-20",
     },
@@ -49,6 +56,7 @@ const UserManagement = () => {
       email: "dean@uom.lk",
       role: "Dean",
       department: "Dean's Office",
+      designation: "Professor",
       status: "active",
       createdDate: "2026-01-22",
     },
@@ -58,6 +66,7 @@ const UserManagement = () => {
       email: "sudanthabh@uom.lk",
       role: "staff",
       department: "Information Technology",
+      designation: "Assistant Lecturer",
       status: "active",
       createdDate: "2026-01-22",
     },
@@ -72,6 +81,7 @@ const UserManagement = () => {
       email: "alokal@uom.lk",
       requestedRole: "staff",
       department: "Information Technology",
+      designation: "Lecturer",
       requestedDate: "2026-01-25",
       requestedByDeptHead: "",
       approvalStatus: ACCOUNT_REQUEST_STATUS.PENDING_DEPT_HEAD,
@@ -82,6 +92,7 @@ const UserManagement = () => {
       email: "sampathg@uom.lk",
       requestedRole: "inventory_incharge",
       department: "Interdisciplinary Studies",
+      designation: "Senior Lecturer",
       requestedDate: "2026-01-26",
       requestedByDeptHead: "",
       approvalStatus: ACCOUNT_REQUEST_STATUS.APPROVED_BY_DEPT_HEAD,
@@ -177,13 +188,45 @@ const UserManagement = () => {
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
+
+    // Calculate password strength
+    if (name === "password") {
+      let strength = 0;
+      if (value.length >= 8) strength++;
+      if (/[A-Z]/.test(value)) strength++;
+      if (/[0-9]/.test(value)) strength++;
+      if (/[^A-Za-z0-9]/.test(value)) strength++;
+      setPasswordStrength(strength);
+    }
+  };
+
+  const getPasswordStrengthColor = () => {
+    if (passwordStrength <= 1) return "bg-danger";
+    if (passwordStrength <= 2) return "bg-warning";
+    return "bg-success";
   };
 
   const handleSubmit = (e) => {
     e.preventDefault();
+
+    // Validate passwords
+    if (formData.password !== formData.confirmPassword) {
+      alert("Passwords do not match!");
+      return;
+    }
+
+    if (passwordStrength < 2) {
+      alert("Password is too weak. Please use a stronger password.");
+      return;
+    }
+    
+    // If "Other" is selected, use the custom designation
+    const finalDesignation = formData.designation === "Other" ? otherDesignation : formData.designation;
+    
     const newUser = {
       id: users.length + 1,
       ...formData,
+      designation: finalDesignation,
       status: "inactive", // New users start inactive, need admin activation
       createdDate: new Date().toISOString().split("T")[0],
     };
@@ -196,6 +239,7 @@ const UserManagement = () => {
       officeExtNo: formData.officeExtNo,
       requestedRole: formData.role,
       department: formData.department,
+      designation: finalDesignation,
       requestedDate: new Date().toISOString().split("T")[0],
       requestedByDeptHead: "Department Head", // In real app, get current user's dept head
       approvalStatus: ACCOUNT_REQUEST_STATUS.PENDING_DEPT_HEAD,
@@ -203,7 +247,9 @@ const UserManagement = () => {
     setAccountRequests([...accountRequests, newRequest]);
     console.log("New account request created:", newRequest);
     setIsModalOpen(false);
-    setFormData({ name: "", email: "", mobileNo: "", officeExtNo: "", role: "staff", department: "" });
+    setFormData({ name: "", email: "", mobileNo: "", officeExtNo: "", role: "staff", department: "", designation: "", password: "", confirmPassword: "" });
+    setOtherDesignation("");
+    setPasswordStrength(0);
   };
 
   const handleToggleStatus = (user) => {
@@ -278,6 +324,7 @@ const UserManagement = () => {
         officeExtNo: request.officeExtNo || "",
         role: request.requestedRole,
         department: request.department,
+        designation: request.designation || "",
         status: "active",
         createdDate: new Date().toISOString().split("T")[0],
       };
@@ -343,21 +390,23 @@ const UserManagement = () => {
 
   return (
     <AdminLayout>
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
+      <div className="gradient-primary py-6 rounded-t">
+        <div className="max-w-7xl mx-auto px-6 flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-text-dark">User Management</h1>
-            <p className="text-text-light mt-2">Manage system users, roles, and account approvals</p>
+            <h1 className="text-3xl font-bold text-white">User Management</h1>
+            <p className="text-sm text-primary-50 mt-1">Manage system users, roles, and account approvals</p>
           </div>
           <Button
             icon="add_circle"
-            variant="primary"
+            className="bg-white text-primary-800 hover:bg-primary-50"
             onClick={() => setIsModalOpen(true)}
           >
             Create User
           </Button>
         </div>
+      </div>
+
+      <div className="p-6 space-y-6">
 
         {/* Stats */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -437,6 +486,7 @@ const UserManagement = () => {
           { label: "Email", value: selectedUserDetails?.email },
           { label: "Role", value: ROLE_HIERARCHY[selectedUserDetails?.role]?.label || selectedUserDetails?.role },
           { label: "Department", value: selectedUserDetails?.department },
+          { label: "Designation", value: selectedUserDetails?.designation },
           {
             label: "Status",
             value: selectedUserDetails?.status
@@ -503,7 +553,6 @@ const UserManagement = () => {
               onChange={handleInputChange}
               options={[
                 { value: "staff", label: ROLE_HIERARCHY.staff.label },
-                { value: "inventory_incharge", label: ROLE_HIERARCHY.inventory_incharge.label },
                 { value: "head_of_department", label: ROLE_HIERARCHY.head_of_department.label },
                 { value: "dean", label: ROLE_HIERARCHY.dean.label },
               ]}
@@ -525,6 +574,85 @@ const UserManagement = () => {
               required
             />
           </div>
+          <Select
+            label="Designation"
+            name="designation"
+            value={formData.designation}
+            onChange={handleInputChange}
+            options={[
+              { value: "Lecturer", label: "Lecturer" },
+              { value: "Instructor", label: "Instructor" },
+              { value: "Technical Officer", label: "Technical Officer" },
+              { value: "Management Assistant", label: "Management Assistant" },
+              { value: "Laboratory Attendant", label: "Laboratory Attendant" },
+              { value: "Works Aide", label: "Works Aide" },
+              { value: "Other", label: "Other" },
+            ]}
+            required
+          />
+          {formData.designation === "Other" && (
+            <div className="space-y-2">
+              <label className="block text-sm font-semibold text-text-dark">
+                Please Specify Designation <span className="text-danger">*</span>
+              </label>
+              <textarea
+                name="otherDesignation"
+                placeholder="Enter designation"
+                value={otherDesignation}
+                onChange={(e) => setOtherDesignation(e.target.value)}
+                required
+                rows={3}
+                className="w-full px-4 py-2.5 border border-border-light rounded-md focus:ring-2 focus:ring-primary-800 focus:outline-none resize-none"
+              />
+            </div>
+          )}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <FormInput
+              label="Password"
+              name="password"
+              type="password"
+              placeholder="Enter password (min 8 characters)"
+              value={formData.password}
+              onChange={handleInputChange}
+              required
+            />
+            <FormInput
+              label="Confirm Password"
+              name="confirmPassword"
+              type="password"
+              placeholder="Confirm password"
+              value={formData.confirmPassword}
+              onChange={handleInputChange}
+              required
+            />
+          </div>
+          {formData.password && (
+            <div className="bg-gray-50 p-4 rounded-lg space-y-2">
+              <div className="flex gap-1">
+                {[...Array(4)].map((_, i) => (
+                  <div
+                    key={i}
+                    className={`h-2 flex-1 rounded ${
+                      i < passwordStrength ? getPasswordStrengthColor() : "bg-gray-200"
+                    }`}
+                  />
+                ))}
+              </div>
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-text-light">
+                  {passwordStrength <= 1 && "Weak password"}
+                  {passwordStrength === 2 && "Fair password"}
+                  {passwordStrength >= 3 && "Strong password"}
+                </p>
+                {formData.password && formData.confirmPassword && formData.password !== formData.confirmPassword && (
+                  <p className="text-xs text-danger font-semibold">✗ Passwords do not match</p>
+                )}
+                {formData.password && formData.confirmPassword && formData.password === formData.confirmPassword && (
+                  <p className="text-xs text-success font-semibold">✓ Passwords match</p>
+                )}
+              </div>
+            </div>
+          )}
         </form>
       </Modal>
 

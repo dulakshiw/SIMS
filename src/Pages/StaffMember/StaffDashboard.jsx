@@ -22,7 +22,7 @@ const StaffDashboard = () => {
       <div className="gradient-primary py-6 rounded-t">
         <div className="max-w-7xl mx-auto px-6">
           <h1 className="text-3xl font-bold text-white">Staff Dashboard</h1>
-          <p className="text-sm text-primary-50 mt-1">Request items and browse inventories available to you</p>
+          <p className="text-sm text-primary-50 mt-1">Request items and view details of items issued to you</p>
         </div>
       </div>
 

@@ -166,16 +166,15 @@ const DepartmentManagement = () => {
 
   return (
     <AdminLayout>
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
+      <div className="gradient-primary py-6 rounded-t">
+        <div className="max-w-7xl mx-auto px-6 flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-text-dark">Department Management</h1>
-            <p className="text-text-light mt-2">Manage departments and assign users/inventories</p>
+            <h1 className="text-3xl font-bold text-white">Department Management</h1>
+            <p className="text-sm text-primary-50 mt-1">Manage departments and assign users/inventories</p>
           </div>
           <Button
             icon="add_circle"
-            variant="primary"
+            className="bg-white text-primary-800 hover:bg-primary-50"
             onClick={() => {
               setModalMode("create");
               setFormData({ name: "", code: "", head: "", description: "" });
@@ -185,6 +184,9 @@ const DepartmentManagement = () => {
             Add Department
           </Button>
         </div>
+      </div>
+
+      <div className="p-6 space-y-6">
 
         {/* Search */}
         <SearchBox

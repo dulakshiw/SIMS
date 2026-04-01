@@ -11,6 +11,7 @@ import ResetPassword from './Pages/Login/ResetPassword'
 
 // Admin Pages
 import AdminDashboard from './Pages/Admin/AdminDashboard'
+import AdminPendingTasks from './Pages/Admin/AdminPendingTasks'
 import UserManagement from './Pages/Admin/UserManagement'
 import Reports from './Pages/Admin/Reports'
 import Profile from './Pages/Admin/Profile'
@@ -91,6 +92,10 @@ const router = createBrowserRouter([
       {
         path: "inventory",
         element: <InventoryManagement />
+      },
+      {
+        path: "pending-tasks",
+        element: <AdminPendingTasks />
       }
     ]
   },

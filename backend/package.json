@@ -1,0 +1,19 @@
+{
+  "name": "httpserver",
+  "version": "1.0.0",
+  "description": "SIMS Project",
+  "license": "ISC",
+  "author": "Dulakshi Wageeshani",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^5.2.1",
+    "http": "^0.0.1-security",
+    "mysql2": "^3.15.2"
+  }
+}
