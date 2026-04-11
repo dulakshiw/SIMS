@@ -1,8 +1,7 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import AdminLayout from "../../Components/Layouts/AdminLayout";
 import { Card, Button, SearchBox, Table, Badge, Modal, FormInput, Select, EntityDetailsModal } from "../../Components/UI";
-import { ROLES, ROLE_HIERARCHY, ACCOUNT_REQUEST_STATUS } from "../../utils/constants";
-import { getAssignableRoles, canApproveAccountCreation } from "../../utils/permissionUtils";
+import { ROLE_HIERARCHY, ACCOUNT_REQUEST_STATUS } from "../../utils/constants";
 
 const UserManagement = () => {
   const [searchTerm, setSearchTerm] = useState("");
@@ -28,50 +27,9 @@ const UserManagement = () => {
     password: "",
     confirmPassword: "",
   });
-
-  const [users, setUsers] = useState([
-    {
-      id: 1,
-      name: "R.D. Wageeshani",
-      email: "dulakshiw@uom.lk",
-      role: "admin",
-      department: "Information Technology",
-      designation: "Senior Lecturer",
-      status: "active",
-      createdDate: "2026-01-15",
-    },
-    {
-      id: 2,
-      name: "M.D.C.N. Abeynayake",
-      email: "charithana@uom.lk",
-      role: "inventory_incharge",
-      department: "Information Technology",
-      designation: "Lecturer",
-      status: "active",
-      createdDate: "2026-01-20",
-    },
-    {
-      id: 3,
-      name: "B.H. Sudantha",
-      email: "dean@uom.lk",
-      role: "Dean",
-      department: "Dean's Office",
-      designation: "Professor",
-      status: "active",
-      createdDate: "2026-01-22",
-    },
-    {
-      id: 4,
-      name: "B.H. Sudantha",
-      email: "sudanthabh@uom.lk",
-      role: "staff",
-      department: "Information Technology",
-      designation: "Assistant Lecturer",
-      status: "active",
-      createdDate: "2026-01-22",
-    },
-   
-  ]);
+  const [users, setUsers] = useState([]);
+  const [usersLoading, setUsersLoading] = useState(true);
+  const [usersError, setUsersError] = useState("");
 
   // Pending account creation requests
   const [accountRequests, setAccountRequests] = useState([
@@ -184,6 +142,43 @@ const UserManagement = () => {
       onClick: (row) => handleRejectAccount(row),
     },
   ];
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadUsers = async () => {
+      try {
+        setUsersLoading(true);
+        setUsersError("");
+        const response = await fetch("/api/users");
+        const data = await response.json();
+
+        if (!response.ok || !data.success) {
+          throw new Error(data.error || "Failed to load users from database.");
+        }
+
+        if (isMounted) {
+          setUsers(data.users || []);
+        }
+      } catch (error) {
+        console.error("Failed to fetch users:", error);
+        if (isMounted) {
+          setUsers([]);
+          setUsersError(error.message || "Unable to load users from the database.");
+        }
+      } finally {
+        if (isMounted) {
+          setUsersLoading(false);
+        }
+      }
+    };
+
+    loadUsers();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -338,8 +333,11 @@ const UserManagement = () => {
 
   const filteredUsers = users.filter(
     (user) =>
-      user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.email.toLowerCase().includes(searchTerm.toLowerCase())
+      user.status === "active" &&
+      (
+        user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        user.email.toLowerCase().includes(searchTerm.toLowerCase())
+      )
   );
 
   const filteredRequests = accountRequests.filter(
@@ -457,16 +455,26 @@ const UserManagement = () => {
           placeholder={activeTab === "active-users" ? "Search users..." : "Search account requests..."}
         />
 
+        {activeTab === "active-users" && usersError && (
+          <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+            {usersError}
+          </div>
+        )}
+
         {/* Users Table or Requests Table */}
         {activeTab === "active-users" ? (
           <Card>
-            <Table
-              columns={columns}
-              data={filteredUsers}
-              actions={actions}
-              onRowClick={handleViewUserDetails}
-              rowsPerPage={10}
-            />
+            {usersLoading ? (
+              <p className="text-sm text-text-light p-4">Loading users from database...</p>
+            ) : (
+              <Table
+                columns={columns}
+                data={filteredUsers}
+                actions={actions}
+                onRowClick={handleViewUserDetails}
+                rowsPerPage={10}
+              />
+            )}
           </Card>
         ) : (
           <Card>

@@ -2,8 +2,10 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { useLocation, useParams } from 'react-router-dom'
 import MainLayout from '../../Components/Layouts/MainLayout'
 import AdminLayout from '../../Components/Layouts/AdminLayout'
-import { MOCK_USER } from '../../utils/constants'
+import { ROLE_HIERARCHY } from '../../utils/constants'
 import { resolveSidebarVariant } from '../../utils/helpers'
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
 
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -25,20 +27,87 @@ const Profile = () => {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [department, setDepartment] = useState('')
+  const [roleLabel, setRoleLabel] = useState('')
+  const [status, setStatus] = useState('')
+  const [mobileNo, setMobileNo] = useState('')
+  const [officeExtNo, setOfficeExtNo] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [currentPassword, setCurrentPassword] = useState('')
 
   const [loading, setLoading] = useState(false)
+  const [profileLoading, setProfileLoading] = useState(true)
   const [message, setMessage] = useState(null)
   const [error, setError] = useState(null)
 
   useEffect(() => {
-    // Prefill with mock user; replace with real user data source when available
-    if (MOCK_USER) {
-      setName(MOCK_USER.name || '')
-      setEmail(MOCK_USER.email || '')
-      setDepartment(MOCK_USER.department || '')
+    let isMounted = true
+
+    const loadProfile = async () => {
+      const storedUserRaw = localStorage.getItem('currentUser')
+
+      if (!storedUserRaw) {
+        if (isMounted) {
+          setProfileLoading(false)
+          setError('No logged-in user found. Please sign in again.')
+        }
+        return
+      }
+
+      try {
+        const storedUser = JSON.parse(storedUserRaw)
+        const searchParams = new URLSearchParams()
+
+        if (storedUser?.email) {
+          searchParams.set('email', storedUser.email)
+        } else if (storedUser?.id) {
+          searchParams.set('userId', storedUser.id)
+        }
+
+        const response = await fetch(`${API_BASE_URL}/api/profile?${searchParams.toString()}`)
+        const responseText = await response.text()
+        let data = {}
+
+        if (responseText) {
+          data = JSON.parse(responseText)
+        }
+
+        if (!response.ok || !data.success) {
+          throw new Error(data.message || 'Failed to load profile details.')
+        }
+
+        const profile = data.profile || {}
+
+        if (isMounted) {
+          setName(profile.name || '')
+          setEmail(profile.email || '')
+          setDepartment(profile.department || '')
+          setRoleLabel(ROLE_HIERARCHY[profile.role]?.label || profile.role || '')
+          setStatus(profile.status || '')
+          setMobileNo(profile.mobileNo ? String(profile.mobileNo) : '')
+          setOfficeExtNo(profile.officeExtNo ? String(profile.officeExtNo) : '')
+
+          const updatedUser = { ...storedUser, ...profile }
+          localStorage.setItem('currentUser', JSON.stringify(updatedUser))
+          if (profile.name) {
+            localStorage.setItem('username', profile.name)
+          }
+        }
+      } catch (err) {
+        if (isMounted) {
+          setError(err.message || 'Failed to load profile details.')
+        }
+      } finally {
+        if (isMounted) {
+          setProfileLoading(false)
+        }
+      }
+    }
+
+    loadProfile()
+
+    return () => {
+      isMounted = false
     }
   }, [])
 
@@ -63,12 +132,15 @@ const Profile = () => {
     setLoading(true)
     try {
       // Send currentPassword + new password for verification/update
+      const storedUser = JSON.parse(localStorage.getItem('currentUser') || '{}')
       const payload = {
+        userId: storedUser.id,
+        email: storedUser.email || email,
         currentPassword,
         password,
       }
 
-      const res = await fetch('/api/profile', {
+      const res = await fetch(`${API_BASE_URL}/api/profile`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -105,7 +177,9 @@ const Profile = () => {
           {message && <div className="mb-4 p-3 bg-green-50 text-green-800 rounded">{message}</div>}
           {error && <div className="mb-4 p-3 bg-red-50 text-red-800 rounded">{error}</div>}
 
-          <p className="text-sm text-gray-600 mb-4">Only password updates are allowed from this page. Other profile fields are view-only; contact an administrator to change them.</p>
+          <p className="text-sm text-gray-600 mb-4">Profile details below are loaded from the database. Only password updates are allowed from this page.</p>
+
+          {profileLoading && <div className="mb-4 p-3 bg-blue-50 text-blue-800 rounded">Loading profile details...</div>}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -132,6 +206,42 @@ const Profile = () => {
               <input
                 className="w-full px-4 py-2.5 border border-border rounded-lg mt-1 bg-gray-50"
                 value={department}
+                readOnly
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Role</label>
+              <input
+                className="w-full px-4 py-2.5 border border-border rounded-lg mt-1 bg-gray-50"
+                value={roleLabel}
+                readOnly
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Status</label>
+              <input
+                className="w-full px-4 py-2.5 border border-border rounded-lg mt-1 bg-gray-50"
+                value={status ? `${status.charAt(0).toUpperCase()}${status.slice(1)}` : ''}
+                readOnly
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Mobile No</label>
+              <input
+                className="w-full px-4 py-2.5 border border-border rounded-lg mt-1 bg-gray-50"
+                value={mobileNo}
+                readOnly
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Office Extension</label>
+              <input
+                className="w-full px-4 py-2.5 border border-border rounded-lg mt-1 bg-gray-50"
+                value={officeExtNo}
                 readOnly
               />
             </div>

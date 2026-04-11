@@ -4,6 +4,8 @@ import MainLayout from "../../Components/Layouts/MainLayout";
 import { Card, Button } from "../../Components/UI";
 import { resolveSidebarVariant } from "../../utils/helpers";
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
+
 const AddNewItem = () => {
   const location = useLocation();
   const { role } = useParams();
@@ -258,7 +260,7 @@ const AddNewItem = () => {
     }
     (async () => {
       try {
-        const res = await fetch('http://localhost:4000/api/items/bulk', {
+        const res = await fetch(`${API_BASE_URL}/api/items/bulk`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(bulkItems.map(it => {
@@ -299,7 +301,7 @@ const AddNewItem = () => {
         }
       } catch (err) {
         console.error(err);
-        alert('Bulk upload failed (network). Ensure mock server is running at http://localhost:4000');
+        alert('Bulk upload failed. Ensure the API server is running and your database connection is configured.');
       }
     })();
   };
@@ -392,14 +394,14 @@ const AddNewItem = () => {
         if (payload.itemImage) payload.itemImage = payload.itemImage.name;
         if (payload.ginfile) payload.ginfile = payload.ginfile.name;
 
-        const res = await fetch('http://localhost:4000/api/items', {
+        const res = await fetch(`${API_BASE_URL}/api/items`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
         });
         const data = await res.json();
         if (res.ok) {
-          alert('Item added successfully (saved to mock server)');
+          alert('Item added successfully');
           // clear
           handleReset();
         } else {
@@ -407,7 +409,7 @@ const AddNewItem = () => {
         }
       } catch (err) {
         console.error(err);
-        alert('Save failed (network). Ensure mock server is running at http://localhost:4000');
+        alert('Save failed. Ensure the API server is running and your database connection is configured.');
       }
     })();
   };

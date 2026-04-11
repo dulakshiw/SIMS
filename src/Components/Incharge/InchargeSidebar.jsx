@@ -1,11 +1,24 @@
 import React, { useState } from "react";
-import { NavLink } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom";
 import "../../Styles/InchargeSidebar.css";
+import { logoutUser } from "../../utils/helpers";
 
 const InchargeSidebar = () => {
   const [inventoryOpen, setInventoryOpen] = useState(false);
   const [UserOpen, setUserOpen] = useState(false);
   const [DeptOpen, setDeptOpen] = useState(false);
+  const navigate = useNavigate();
+
+  const handleLogout = () => {
+    const shouldLogout = window.confirm("Are you sure you want to log out?");
+    if (!shouldLogout) {
+      return;
+    }
+
+    logoutUser();
+    window.alert("You have been logged out successfully.");
+    navigate("/", { replace: true });
+  };
 
   return (
     <div className="sidebar">
@@ -44,7 +57,7 @@ const InchargeSidebar = () => {
         </div>
       )}
        <NavLink to="/incharge/reports" className="menu-item">Reports </NavLink>
-      <NavLink to="/logout" className="menu-item logout"> Logout</NavLink>
+      <button type="button" onClick={handleLogout} className="menu-item logout">Logout</button>
      
     </div>
   );

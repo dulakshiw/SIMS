@@ -219,6 +219,21 @@ export const session = {
 };
 
 /**
+ * Clear persisted auth/session information
+ */
+export const logoutUser = () => {
+  try {
+    localStorage.removeItem("currentUser");
+    localStorage.removeItem("username");
+    localStorage.removeItem("userRole");
+    sessionStorage.removeItem("currentUser");
+    delete window.currentUser;
+  } catch (error) {
+    console.error("Error during logout:", error);
+  }
+};
+
+/**
  * Validation helpers
  */
 export const validation = {
@@ -270,6 +285,7 @@ export default {
   buildQueryString,
   storage,
   session,
+  logoutUser,
   validation,
   getStatusColor,
   calculateDepreciation,

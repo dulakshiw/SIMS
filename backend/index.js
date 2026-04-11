@@ -1,6 +1,9 @@
 import express from "express";
 import mysql from "mysql2";
 import cors from "cors";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 const app = express();
 app.use(cors());
@@ -12,10 +15,11 @@ let isDbConnected = false;
 
 // MySQL connection
 const db = mysql.createConnection({
-  host: "localhost",
-  user: "root",
-  password: "1234",   // 👈 your new password
-  database: "sims_db",
+  host: process.env.DB_HOST || "localhost",
+  port: Number(process.env.DB_PORT) || 3306,
+  user: process.env.DB_USER || "root",
+  password: process.env.DB_PASSWORD || "",
+  database: process.env.DB_NAME || "sims_db",
 });
 
 db.connect(err => {

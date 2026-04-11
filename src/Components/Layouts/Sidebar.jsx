@@ -7,11 +7,13 @@ import {
   INVENTORY_NAV_ITEMS,
   STAFF_NAV_ITEMS,
 } from "../../utils/constants";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { logoutUser } from "../../utils/helpers";
 
 const Sidebar = ({ variant = "inventory", onCollapseChange }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
 
   const handleCollapse = () => {
     const newState = !isCollapsed;
@@ -31,6 +33,17 @@ const Sidebar = ({ variant = "inventory", onCollapseChange }) => {
   };
 
   const navItems = navItemsByVariant[variant] || INVENTORY_NAV_ITEMS;
+
+  const handleLogout = () => {
+    const shouldLogout = window.confirm("Are you sure you want to log out?");
+    if (!shouldLogout) {
+      return;
+    }
+
+    logoutUser();
+    window.alert("You have been logged out successfully.");
+    navigate("/", { replace: true });
+  };
 
   return (
     <aside
@@ -83,6 +96,8 @@ const Sidebar = ({ variant = "inventory", onCollapseChange }) => {
       {/* Footer */}
       <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-primary-700">
         <button
+          type="button"
+          onClick={handleLogout}
           className={`
             flex items-center gap-4 px-4 py-3 rounded-md w-full
             text-primary-100 hover:bg-primary-700 transition-colors

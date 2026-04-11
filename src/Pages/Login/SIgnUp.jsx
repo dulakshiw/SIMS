@@ -1,8 +1,9 @@
 import React, { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Card, Button } from "../../Components/UI";
 
 const SignUp = () => {
+  const navigate = useNavigate();
   const [formData, setFormData] = useState({
     fullName: "",
     email: "",
@@ -10,13 +11,14 @@ const SignUp = () => {
     officeExtNo: "",
     password: "",
     confirmPassword: "",
-    role: "Staff",
+    role: "staff",
     department: "Information Technology",
     designation: ""
   });
 
   const [passwordStrength, setPasswordStrength] = useState(0);
   const [otherDesignation, setOtherDesignation] = useState("");
+  const [loading, setLoading] = useState(false);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -33,7 +35,7 @@ const SignUp = () => {
     }
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
 
     if (formData.password !== formData.confirmPassword) {
@@ -52,8 +54,42 @@ const SignUp = () => {
       designation: formData.designation === "Other" ? otherDesignation : formData.designation
     };
 
-    console.log("Sign Up Data:", finalFormData);
-    alert("Account Created Successfully!");
+    try {
+      setLoading(true);
+      const response = await fetch("/api/auth/signup", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(finalFormData),
+      });
+
+      const responseText = await response.text();
+      let data = {};
+
+      if (responseText) {
+        try {
+          data = JSON.parse(responseText);
+        } catch {
+          throw new Error("The signup service returned an invalid response. Please make sure the API server is running.");
+        }
+      }
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || data.message || "Account creation failed.");
+      }
+
+      alert(data.message || "Account Created Successfully!");
+      navigate("/", { replace: true });
+    } catch (error) {
+      const fallbackMessage = error?.message?.includes("Failed to fetch")
+        ? "Unable to reach the signup service. Please start the API server and try again."
+        : error.message || "Unable to create account right now.";
+
+      alert(fallbackMessage);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const getPasswordStrengthColor = () => {
@@ -161,11 +197,12 @@ const SignUp = () => {
                   className="w-full px-4 py-2.5 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                   style={{ backgroundColor: '#F2F0F0' }}
                 >
-                  <option value="Staff">Staff Member</option>
-                  <option value="hod">Head of Department</option>
+                  <option value="staff">Staff Member</option>
+                  <option value="head_of_department">Head of Department</option>
                   <option value="dean">Dean</option>
                   <option value="registrar">Registrar</option>
-                  <option value="Admin">Admin</option>
+                  <option value="inventory_incharge">Inventory Incharge</option>
+                  <option value="admin">Admin</option>
                 </select>
               </div>
 
@@ -301,8 +338,9 @@ const SignUp = () => {
               type="submit"
               variant="primary"
               className="w-full"
+              disabled={loading}
             >
-              Create Account
+              {loading ? "Creating Account..." : "Create Account"}
             </Button>
           </form>
 

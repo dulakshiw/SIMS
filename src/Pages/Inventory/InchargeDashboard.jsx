@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import MainLayout from '../../Components/Layouts/MainLayout'
 import { Card, Button } from '../../Components/UI'
@@ -6,12 +6,55 @@ import { Card, Button } from '../../Components/UI'
 const InchargeDashboard = () => {
     const location = useLocation()
     const sidebarVariant = location.pathname.startsWith('/incharge') ? 'incharge' : 'inventory'
+    const [summary, setSummary] = useState({
+        totalAssets: 0,
+        available: 0,
+        inUse: 0,
+        pendingRequests: 0,
+    })
+    const [loading, setLoading] = useState(true)
+    const [error, setError] = useState('')
 
-    const mockStats = [
-        { title: 'Total Assets', value: '425', icon: 'inventory_2', color: 'primary-800' },
-        { title: 'Available', value: '320', icon: 'check_circle', color: 'success' },
-        { title: 'In Use', value: '95', icon: 'assignment', color: 'info' },
-        { title: 'Pending Requests', value: '12', icon: 'request_quote', color: 'warning' },
+    useEffect(() => {
+        let isMounted = true
+
+        const loadSummary = async () => {
+            try {
+                setLoading(true)
+                setError('')
+                const response = await fetch('/api/dashboard/summary')
+                const data = await response.json()
+
+                if (!response.ok || !data.success) {
+                    throw new Error(data.error || 'Failed to load inventory dashboard summary.')
+                }
+
+                if (isMounted) {
+                    setSummary(data.inventorySummary || {})
+                }
+            } catch (fetchError) {
+                console.error('Failed to load inventory dashboard summary:', fetchError)
+                if (isMounted) {
+                    setError(fetchError.message || 'Unable to load inventory dashboard summary.')
+                }
+            } finally {
+                if (isMounted) {
+                    setLoading(false)
+                }
+            }
+        }
+
+        loadSummary()
+        return () => {
+            isMounted = false
+        }
+    }, [])
+
+    const dashboardStats = [
+        { title: 'Total Assets', value: summary.totalAssets ?? 0, icon: 'inventory_2', colorClass: 'text-primary-800' },
+        { title: 'Available', value: summary.available ?? 0, icon: 'check_circle', colorClass: 'text-success' },
+        { title: 'In Use', value: summary.inUse ?? 0, icon: 'assignment', colorClass: 'text-info' },
+        { title: 'Pending Requests', value: summary.pendingRequests ?? 0, icon: 'request_quote', colorClass: 'text-warning' },
     ]
 
     const mockRecentActivity = [
@@ -30,11 +73,17 @@ const InchargeDashboard = () => {
             </div>
 
             <div className="p-6">
+                {error && (
+                    <div className="mb-4 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+                        {error}
+                    </div>
+                )}
+
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                    {mockStats.map((stat, index) => (
+                    {dashboardStats.map((stat, index) => (
                         <Card key={index} icon={stat.icon}>
                             <p className="text-sm text-text-light">{stat.title}</p>
-                            <p className={`text-3xl font-bold ${stat.color === 'success' ? 'text-success' : stat.color === 'info' ? 'text-info' : 'text-primary-800'} mt-2`}>{stat.value}</p>
+                            <p className={`text-3xl font-bold mt-2 ${stat.colorClass}`}>{loading ? '...' : stat.value}</p>
                         </Card>
                     ))}
                 </div>

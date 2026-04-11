@@ -1,8 +1,20 @@
-import React, { useState } from "react";
-import { Link } from "react-router-dom";
+import React, { useEffect, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { Card, Button } from "../../Components/UI";
 
+const DASHBOARD_BY_ROLE = {
+  admin: "/admin/dashboard",
+  registrar: "/admin/pending-tasks",
+  staff: "/staff/dashboard",
+  inventory_incharge: "/incharge/dashboard",
+  head_of_department: "/hod/dashboard",
+  dean: "/dean/dashboard",
+};
+
+const getDashboardPath = (role) => DASHBOARD_BY_ROLE[role] || "/";
+
 const Login = () => {
+  const navigate = useNavigate();
   const [formData, setFormData] = useState({
     email: "",
     password: ""
@@ -13,27 +25,82 @@ const Login = () => {
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState("");
 
+  useEffect(() => {
+    const storedUser = localStorage.getItem("currentUser");
+    if (!storedUser) {
+      return;
+    }
+
+    try {
+      window.currentUser = JSON.parse(storedUser);
+    } catch {
+      localStorage.removeItem("currentUser");
+    }
+  }, []);
+
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData({ ...formData, [name]: value });
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     setMessage("");
 
-    // Simulate API call
-    setTimeout(() => {
-      console.log("Login Data:", formData);
-      setMessage("Login successful! Redirecting...");
+    try {
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: formData.email.trim(),
+          password: formData.password,
+        }),
+      });
+
+      const responseText = await response.text();
+      let data = {};
+
+      if (responseText) {
+        try {
+          data = JSON.parse(responseText);
+        } catch {
+          throw new Error("The login service returned an invalid response. Please make sure the API server is running.");
+        }
+      }
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || data.message || "Login failed.");
+      }
+
+      const user = data.user;
+      localStorage.setItem("username", user.name);
+      localStorage.setItem("userRole", user.role);
+      localStorage.setItem("currentUser", JSON.stringify(user));
+      window.currentUser = user;
+
+      setMessage(data.message || "Login successful! Redirecting...");
       setMessageType("success");
-      // In a real app, you would redirect to dashboard here
+
       setTimeout(() => {
-        // window.location.href = "/inventory/dashboard";
-      }, 1500);
+        navigate(getDashboardPath(user.role), { replace: true });
+      }, 600);
+    } catch (error) {
+      localStorage.removeItem("currentUser");
+      localStorage.removeItem("username");
+      localStorage.removeItem("userRole");
+
+      const fallbackMessage = error?.message?.includes("Failed to fetch")
+        ? "Unable to reach the login service. Please start the API server and try again."
+        : error.message || "Unable to sign in right now.";
+
+      setMessage(fallbackMessage);
+      setMessageType("error");
+    } finally {
       setLoading(false);
-    }, 1000);
+    }
   };
 
   return (
@@ -53,17 +120,17 @@ const Login = () => {
             <div className="text-center space-y-2">
               <h1 className="text-3xl font-bold text-text-dark">Inventory Management System</h1>
               <p className="text-text-light text-sm">
-                
+                Sign in with a user account stored in the SIMS database.
               </p>
             </div>
 
             {/* Message Alert */}
             {message && (
               <div
-                className={`p-3 rounded-lg text-sm ${
+                className={`p-3 rounded-lg text-sm text-center ${
                   messageType === "success"
                     ? "bg-success-50 text-success-700 border border-success-200"
-                    : "bg-danger-50 text-danger-700 border border-danger-200"
+                    : "bg-red-50 text-red-700 border border-red-300 border-l-4 border-l-red-600 font-bold"
                 }`}
               >
                 {message}

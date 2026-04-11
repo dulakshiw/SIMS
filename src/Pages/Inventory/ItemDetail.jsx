@@ -4,6 +4,8 @@ import MainLayout from "../../Components/Layouts/MainLayout";
 import { Card, Button } from "../../Components/UI";
 import { resolveSidebarVariant } from "../../utils/helpers";
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+
 const ItemDetail = () => {
   const { id, role } = useParams();
   const location = useLocation();
@@ -15,7 +17,7 @@ const ItemDetail = () => {
     let mounted = true;
     (async () => {
       try {
-        const res = await fetch(`http://localhost:4000/api/items/${id}`);
+        const res = await fetch(`${API_BASE_URL}/api/items/${id}`);
         const data = await res.json();
         if (!mounted) return;
         if (res.ok) setItem(data.item);
