@@ -2,6 +2,8 @@ import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Card, Button } from "../../Components/UI";
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
+
 const SignUp = () => {
   const navigate = useNavigate();
   const [formData, setFormData] = useState({
@@ -56,7 +58,7 @@ const SignUp = () => {
 
     try {
       setLoading(true);
-      const response = await fetch("/api/auth/signup", {
+      const response = await fetch(`${API_BASE_URL}/api/auth/signup`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

@@ -2,6 +2,8 @@ import React, { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Card, Button } from "../../Components/UI";
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
+
 const DASHBOARD_BY_ROLE = {
   admin: "/admin/dashboard",
   registrar: "/admin/pending-tasks",
@@ -49,7 +51,7 @@ const Login = () => {
     setMessage("");
 
     try {
-      const response = await fetch("/api/auth/login", {
+      const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
