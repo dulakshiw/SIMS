@@ -23,10 +23,6 @@ const AddNewItem = () => {
     serialNo: "",
     serialNo2: "",
     model: "",
-    QRCode: "",
-    QRCode2: "",
-    pageno: "",
-    itemImage: null,
     value: "",
     purchaseDate: "",
     ginNo: "",
@@ -39,7 +35,11 @@ const AddNewItem = () => {
     warranty: "",
     warrantyOther: "",
     location: "",
-    remarks: ""
+    remarks: "",
+    funding: "",
+    fundingOther: "",
+    warranty: "",
+    warrantyOther: ""
   });
 
   const handleChange = (e) => {
@@ -442,618 +442,184 @@ const AddNewItem = () => {
   };
 
   return (
-    <MainLayout variant={sidebarVariant}>
-      <div className="space-y-6">
-        {/* Header */}
-        <div>
-          <h1 className="text-3xl font-bold text-text-dark">Add New Inventory Item</h1>
-          <p className="text-text-light mt-2">Create and register inventory items individually or in bulk</p>
-        </div>
+    <div>
+        <Header />
+        <div className="dashboard-layout">
+            <InchargeSidebar />       
+       
+            <div className="add-item-container">
+                <div className="add-item-card">
+                    <h1>Add New Inventory Item</h1>
 
-        {/* Mode Selection */}
-        <Card>
-          <div className="flex gap-4">
-            <button
-              onClick={() => {
-                setUploadMode("single");
-                setBulkFile(null);
-                setBulkItems([]);
-              }}
-              className={`flex-1 py-3 px-4 rounded-lg font-semibold transition-all ${
-                uploadMode === "single"
-                  ? "bg-primary-500 text-white shadow-lg"
-                  : "bg-gray-200 text-text-dark hover:bg-gray-300"
-              }`}
-            >
-              Single Item
-            </button>
-            <button
-              onClick={() => setUploadMode("bulk")}
-              className={`flex-1 py-3 px-4 rounded-lg font-semibold transition-all ${
-                uploadMode === "bulk"
-                  ? "bg-primary-500 text-white shadow-lg"
-                  : "bg-gray-200 text-text-dark hover:bg-gray-300"
-              }`}
-            >
-              Bulk Upload
-            </button>
-          </div>
-        </Card>
-
-        {/* Single Item Form */}
-        {uploadMode === "single" && (
-        <Card>
-          <form onSubmit={handleSubmit} className="space-y-8">
-            {/* ==================== ITEM DETAILS SECTION ==================== */}
-            <div className="space-y-4">
-              <div className="pb-4 border-b-2 border-primary-500">
-                <h2 className="text-xl font-bold text-text-dark">Item Details</h2>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Item Name */}
-                <div className="space-y-2">
-                  <label className="block text-sm font-semibold text-text-dark">
-                    Item Name <span className="text-danger">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    name="itemName"
-                    value={itemData.itemName}
-                    onChange={handleChange}
-                    required
-                    placeholder="Enter item name"
-                    style={{ backgroundColor: '#F2F0F0' }}
-                    className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  />
-                </div>
-
-                {/* Item Code */}
-                <div className="space-y-2">
-                  <label className="block text-sm font-semibold text-text-dark">Item Code</label>
-                  <input
-                    type="text"
-                    name="itemCode"
-                    value={itemData.itemCode}
-                    onChange={handleChange}
-                    placeholder="Enter item code"
-                    style={{ backgroundColor: '#F2F0F0' }}
-                    className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  />
-                </div>
-
-                {/* Serial Number */}
-                <div className="space-y-2">
-                  <label className="block text-sm font-semibold text-text-dark">Serial Number</label>
-                  <input
-                    type="text"
-                    name="serialNo"
-                    value={itemData.serialNo}
-                    onChange={handleChange}
-                    placeholder="Enter serial number"
-                    style={{ backgroundColor: '#F2F0F0' }}
-                    className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  />
-                </div>
-
-                {/* Serial Number 2 */}
-                <div className="space-y-2">
-                  <label className="block text-sm font-semibold text-text-dark">Serial Number 2 (For Computer Items)</label>
-                  <input
-                    type="text"
-                    name="serialNo2"
-                    value={itemData.serialNo2}
-                    onChange={handleChange}
-                    placeholder="Enter serial number 2"
-                    style={{ backgroundColor: '#F2F0F0' }}
-                    className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  />
-                </div>
-
-                {/* Brand/Model */}
-                <div className="space-y-2">
-                  <label className="block text-sm font-semibold text-text-dark">Brand/Model</label>
-                  <input
-                    type="text"
-                    name="model"
-                    value={itemData.model}
-                    onChange={handleChange}
-                    placeholder="Enter brand or model"
-                    style={{ backgroundColor: '#F2F0F0' }}
-                    className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  />
-                </div>
-
-                {/* QR Code */}
-                <div className="space-y-2">
-                  <label className="block text-sm font-semibold text-text-dark">QR Code</label>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      name="QRCode"
-                      value={itemData.QRCode}
-                      onChange={handleChange}
-                      placeholder="Enter QR code"
-                      style={{ backgroundColor: '#F2F0F0' }}
-                      className="flex-1 px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => generateAndSetQRCode(false)}
-                      className="px-3 py-2 bg-gray-200 rounded-lg hover:bg-gray-300"
-                    >
-                      Auto-generate
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => generateAndSetQRCode(true)}
-                      className="px-3 py-2 bg-gray-200 rounded-lg hover:bg-gray-300"
-                    >
-                      Force generate
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handlePrintQr}
-                      className="px-3 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600"
-                    >
-                      Print QR
-                    </button>
-                  </div>
-
-                  {itemData.QRCode && (
-                    <div className="mt-3 flex items-center gap-4">
-                      <img src={getQrImageUrl(itemData.QRCode, 120)} alt="QR preview" />
-                      <div className="text-sm">
-                        <div className="font-semibold">{itemData.QRCode}</div>
-                        <div className="text-text-light">Scan to view item</div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Inventory Page Number */}
-                <div className="space-y-2">
-                  <label className="block text-sm font-semibold text-text-dark">Inventory Page No</label>
-                  <input
-                    type="number"
-                    name="pageno"
-                    value={itemData.pageno}
-                    onChange={handleChange}
-                    placeholder="Enter Inventory page number"
-                    style={{ backgroundColor: '#F2F0F0' }}
-                    className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  />
-                </div>
-
-                {/* QR Code (Serial No 2) */}
-                <div className="space-y-2">
-                  <label className="block text-sm font-semibold text-text-dark">QR Code (Serial No 2)</label>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      name="QRCode2"
-                      value={itemData.QRCode2}
-                      onChange={handleChange}
-                      placeholder="Enter QR code for serial no 2"
-                      style={{ backgroundColor: '#F2F0F0' }}
-                      className="flex-1 px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => generateAndSetQRCode(false)}
-                      className="px-3 py-2 bg-gray-200 rounded-lg hover:bg-gray-300"
-                    >
-                      Auto-generate
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => generateAndSetQRCode(true)}
-                      className="px-3 py-2 bg-gray-200 rounded-lg hover:bg-gray-300"
-                    >
-                      Force generate
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handlePrintQr}
-                      className="px-3 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600"
-                    >
-                      Print QR
-                    </button>
-                  </div>
-
-                  {itemData.QRCode2 && (
-                    <div className="mt-3 flex items-center gap-4">
-                      <img src={getQrImageUrl(itemData.QRCode2, 120)} alt="QR preview" />
-                      <div className="text-sm">
-                        <div className="font-semibold">{itemData.QRCode2}</div>
-                        <div className="text-text-light">Scan to view item</div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Item Image */}
-                <div className="space-y-2">
-                  <label className="block text-sm font-semibold text-text-dark">Item Image</label>
-                  <input
-                    type="file"
-                    name="itemImage"
-                    onChange={handleImageChange}
-                    accept="image/*"
-                    style={{ backgroundColor: '#F2F0F0' }}
-                    className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  />
-                  {itemData.itemImage && (
-                    <p className="text-sm text-success mt-2">✓ {itemData.itemImage.name}</p>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* ==================== PURCHASE DETAILS SECTION ==================== */}
-            <div className="space-y-4">
-              <div className="pb-4 border-b-2 border-primary-500">
-                <h2 className="text-xl font-bold text-text-dark">Purchase Details</h2>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Item Value */}
-                <div className="space-y-2">
-                  <label className="block text-sm font-semibold text-text-dark">Item Value (Rs.)</label>
-                  <input
-                    type="number"
-                    name="value"
-                    value={itemData.value}
-                    onChange={handleChange}
-                    placeholder="0.00"
-                    style={{ backgroundColor: '#F2F0F0' }}
-                    className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  />
-                </div>
-
-                {/* Purchase Date */}
-                <div className="space-y-2">
-                  <label className="block text-sm font-semibold text-text-dark">Purchase Date</label>
-                  <input
-                    type="date"
-                    name="purchaseDate"
-                    value={itemData.purchaseDate}
-                    onChange={handleChange}
-                    style={{ backgroundColor: '#F2F0F0' }}
-                    className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  />
-                </div>
-
-                {/* Purchase Order No */}
-                <div className="space-y-2">
-                  <label className="block text-sm font-semibold text-text-dark">Purchase Order No</label>
-                  <input
-                    type="number"
-                    name="poNo"
-                    value={itemData.poNo}
-                    onChange={handleChange}
-                    placeholder="Enter PO number"
-                    style={{ backgroundColor: '#F2F0F0' }}
-                    className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  />
-                </div>
-
-                {/* Supplier */}
-                <div className="space-y-2">
-                  <label className="block text-sm font-semibold text-text-dark">Supplier</label>
-                  <input
-                    type="text"
-                    name="supplier"
-                    value={itemData.supplier}
-                    onChange={handleChange}
-                    placeholder="Enter supplier name"
-                    style={{ backgroundColor: '#F2F0F0' }}
-                    className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  />
-                </div>
-
-                {/* GIN No */}
-                <div className="space-y-2">
-                  <label className="block text-sm font-semibold text-text-dark">GIN No</label>
-                  <input
-                    type="number"
-                    name="ginNo"
-                    value={itemData.ginNo}
-                    onChange={handleChange}
-                    placeholder="Enter GIN number"
-                    style={{ backgroundColor: '#F2F0F0' }}
-                    className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  />
-                </div>
-
-                {/* GIN PDF */}
-                <div className="space-y-2">
-                  <label className="block text-sm font-semibold text-text-dark">GIN PDF</label>
-                  <input
-                    type="file"
-                    name="ginfile"
-                    onChange={handleGinFileChange}
-                    accept=".pdf"
-                    style={{ backgroundColor: '#F2F0F0' }}
-                    className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  />
-                  {itemData.ginfile && (
-                    <p className="text-sm text-success mt-2">✓ {itemData.ginfile.name}</p>
-                  )}
-                </div>
-
-                {/* Funding Source */}
-                <div className="space-y-2">
-                  <label className="block text-sm font-semibold text-text-dark">Funding Source</label>
-                  <select
-                    name="funding"
-                    value={itemData.funding}
-                    onChange={handleChange}
-                    style={{ backgroundColor: '#F2F0F0' }}
-                    className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  >
-                    <option value="capital">Capital Fund</option>
-                    <option value="unidevfund">University Development Fund</option>
-                    <option value="facdevfund">Faculty Development Fund</option>
-                    <option value="deptdevfund">Department Development Fund</option>
-                    <option value="other">Other (please specify)</option>
-                  </select>
-                  {itemData.funding === "other" && (
-                    <input
-                      type="text"
-                      name="fundingOther"
-                      value={itemData.fundingOther}
-                      onChange={handleChange}
-                      required
-                      placeholder="Specify funding source"
-                      style={{ backgroundColor: '#F2F0F0' }}
-                      className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                    />
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* ==================== LOGISTICS & LOCATION SECTION ==================== */}
-            <div className="space-y-4">
-              <div className="pb-4 border-b-2 border-primary-500">
-                <h2 className="text-xl font-bold text-text-dark">Logistics & Location</h2>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Location */}
-                <div className="space-y-2">
-                  <label className="block text-sm font-semibold text-text-dark">
-                    Location <span className="text-danger">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    name="location"
-                    value={itemData.location}
-                    onChange={handleChange}
-                    required
-                    placeholder="Enter location"
-                    style={{ backgroundColor: '#F2F0F0' }}
-                    className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  />
-                </div>
-
-                {/* Received/Transferred From */}
-                <div className="space-y-2">
-                  <label className="block text-sm font-semibold text-text-dark">Received/Transferred From</label>
-                  <input
-                    type="text"
-                    name="receivedfrom"
-                    value={itemData.receivedfrom}
-                    onChange={handleChange}
-                    placeholder="Enter source"
-                    style={{ backgroundColor: '#F2F0F0' }}
-                    className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  />
-                </div>
-
-                {/* Warranty Period */}
-                <div className="space-y-2">
-                  <label className="block text-sm font-semibold text-text-dark">Warranty Period</label>
-                  <select
-                    name="warranty"
-                    value={itemData.warranty}
-                    onChange={handleChange}
-                    style={{ backgroundColor: '#F2F0F0' }}
-                    className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  >
-                    <option value="1year">1 Year</option>
-                    <option value="2years">2 Years</option>
-                    <option value="3years">3 Years</option>
-                    <option value="5years">5 Years</option>
-                    <option value="other">Other (please specify)</option>
-                  </select>
-                  {itemData.warranty === "other" && (
-                    <input
-                      type="text"
-                      name="warrantyOther"
-                      value={itemData.warrantyOther}
-                      onChange={handleChange}
-                      required
-                      placeholder="Specify warranty period"
-                      style={{ backgroundColor: '#F2F0F0' }}
-                      className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                    />
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* ==================== ADDITIONAL REMARKS SECTION ==================== */}
-            <div className="space-y-4">
-              <div className="pb-4 border-b-2 border-primary-500">
-                <h2 className="text-xl font-bold text-text-dark">Additional Remarks</h2>
-              </div>
-              <div className="space-y-2">
-                <label className="block text-sm font-semibold text-text-dark">Remarks</label>
-                <textarea
-                  name="remarks"
-                  value={itemData.remarks}
-                  onChange={handleChange}
-                  placeholder="Enter any additional remarks"
-                  rows="4"
-                  style={{ backgroundColor: '#F2F0F0' }}
-                  className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 resize-none"
-                />
-              </div>
-            </div>
-
-            {/* Action Buttons */}
-            <div className="flex gap-3 justify-end pt-6 border-t border-border">
-              <Button
-                type="button"
-                onClick={handleReset}
-                variant="secondary"
-              >
-                Reset
-              </Button>
-              <Button
-                type="button"
-                onClick={() => window.history.back()}
-                variant="tertiary"
-              >
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                variant="primary"
-                icon="save"
-              >
-                Save Item
-              </Button>
-            </div>
-          </form>
-        </Card>
-        )}
-
-        {/* Bulk Upload Form */}
-        {uploadMode === "bulk" && (
-        <Card>
-          <div className="space-y-6">
-            {/* Section Header */}
-            <div className="pb-4 border-b-2 border-primary-500">
-              <h2 className="text-xl font-bold text-text-dark">Bulk Item Upload</h2>
-              <p className="text-text-light text-sm mt-2">Upload multiple items at once using a CSV file</p>
-            </div>
-
-            {/* Download Template */}
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <p className="text-sm text-text-dark mb-3">
-                <strong>Need a template?</strong> Download the CSV template to get started with the correct format.
-              </p>
-              <button
-                type="button"
-                onClick={downloadTemplate}
-                className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors text-sm font-semibold"
-              >
-                Download CSV Template
-              </button>
-            </div>
-
-            {/* File Upload Section */}
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <label className="block text-sm font-semibold text-text-dark">
-                  Select CSV File <span className="text-danger">*</span>
-                </label>
-                <input
-                  type="file"
-                  onChange={handleBulkFileChange}
-                  accept=".csv"
-                  style={{ backgroundColor: '#F2F0F0' }}
-                  className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                />
-                {bulkFile && (
-                  <p className="text-sm text-success mt-2">✓ {bulkFile.name}</p>
-                )}
-              </div>
-            </div>
-
-            {/* Bulk controls: layout + select all */}
-            {bulkItems.length > 0 && (
-              <div className="flex items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <label className="text-sm font-semibold">Label Layout:</label>
-                  <select value={labelLayout} onChange={e => setLabelLayout(e.target.value)} className="px-3 py-2 border rounded-lg bg-white">
-                    <option value="grid">Grid (large)</option>
-                    <option value="avery">Avery (small labels)</option>
-                  </select>
-                </div>
-                <div className="flex items-center gap-3">
-                  <label className="text-sm">Select All</label>
-                  <input type="checkbox" checked={selectAllBulk} onChange={(e) => {
-                    const checked = e.target.checked;
-                    setSelectAllBulk(checked);
-                    if (checked) {
-                      const obj = {};
-                      bulkItems.forEach((it, i) => { obj[i] = true; });
-                      setSelectedBulk(obj);
-                    } else {
-                      setSelectedBulk({});
-                    }
-                  }} />
-                </div>
-              </div>
-            )}
-
-            {/* Preview Section */}
-            {bulkItems.length > 0 && (
-              <div className="space-y-3">
-                <div className="bg-success-50 border border-success-200 rounded-lg p-4">
-                  <p className="text-sm font-semibold text-success">
-                    ✓ Ready to upload: {bulkItems.length} items
-                  </p>
-                </div>
-
-                {/* Items Preview Table */}
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                              <tr className="bg-gray-100 border-b">
-                                <th className="px-3 py-2 text-left font-semibold"><input type="checkbox" checked={selectAllBulk} onChange={(e)=>{
-                                  const checked = e.target.checked;
-                                  setSelectAllBulk(checked);
-                                  if (checked) {
-                                    const obj = {};
-                                    bulkItems.forEach((it, i) => { obj[i] = true; });
-                                    setSelectedBulk(obj);
-                                  } else {
-                                    setSelectedBulk({});
-                                  }
-                                }} /></th>
-                              <th className="px-3 py-2 text-left font-semibold">Item Name</th>
-                              <th className="px-3 py-2 text-left font-semibold">Item Code</th>
-                              <th className="px-3 py-2 text-left font-semibold">Serial No</th>
-                              <th className="px-3 py-2 text-left font-semibold">Value</th>
-                              <th className="px-3 py-2 text-left font-semibold">Location</th>
-                            </tr>
-                    </thead>
-                    <tbody>
-                      {bulkItems.slice(0, 5).map((item, index) => (
-                        <tr key={index} className="border-b hover:bg-gray-50">
-                          <td className="px-3 py-2">
-                            <input type="checkbox" checked={!!selectedBulk[index]} onChange={(e) => {
-                              const obj = { ...selectedBulk };
-                              if (e.target.checked) obj[index] = true; else delete obj[index];
-                              setSelectedBulk(obj);
-                              // keep selectAll in sync
-                              setSelectAllBulk(Object.keys(obj).length === bulkItems.length);
-                            }} />
-                          </td>
-                          <td className="px-3 py-2">{item.itemname || item.itemName || '-'}</td>
-                          <td className="px-3 py-2">{item.itemcode || item.itemCode || '-'}</td>
-                          <td className="px-3 py-2">{item.serialno || item.serialNo || '-'}</td>
-                          <td className="px-3 py-2">{item.value || '-'}</td>
-                          <td className="px-3 py-2">{item.location || '-'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  {bulkItems.length > 5 && (
-                    <p className="text-xs text-text-light mt-2">... and {bulkItems.length - 5} more items</p>
-                  )}
+                    <form onSubmit={handleSubmit} className="Item-form">
+                        <div className="form-grid">
+                    
+                            <div className="form-row">
+                                <label>Item Name<span className="required">*</span></label>
+                                <input
+                                    type="text"
+                                    name="itemName"
+                                    value={itemData.itemName}
+                                    onChange={handleChange}
+                                    required
+                                />
+                            </div>
+                            <div className="form-row">
+                                <label>Item Code</label>
+                                <input
+                                    type="text"
+                                    name="itemCode"
+                                    value={itemData.itemCode}
+                                    onChange={handleChange}
+                                />
+                            </div>
+                            <div className="form-row">
+                                <label>Serial Number</label>
+                                <input
+                                    type="text"
+                                    name="SerialNo"
+                                    value={itemData.serialNo}
+                                    onChange={handleChange}
+                                />
+                            </div>
+                            <div className="form-row">
+                                <label>Serial Number 2 (For Computer Items)</label>
+                                <input
+                                    type="text"
+                                    name="SerialNo2"
+                                    value={itemData.serialNo2}
+                                    onChange={handleChange}
+                                />
+                            </div>
+                            <div className="form-row">
+                                <label>Brand/ Model</label>
+                                <input
+                                    type="text"
+                                    name="Model"
+                                    value={itemData.model}
+                                    onChange={handleChange}
+                                />
+                            </div>
+                            <div className="form-row">
+                                <label>QR Code</label>
+                                <input
+                                    type="text"
+                                    name="QRCode"
+                                    value={itemData.QRCode}
+                                    onChange={handleChange}
+                                />
+                            </div>
+                            <div className="form-row">
+                                <label>Item Value (Rs.)</label>
+                                <input
+                                    type="number"
+                                    name="value"
+                                    value={itemData.value}
+                                    onChange={handleChange}
+                                    />
+                            </div>
+                            <div className="form-row">
+                                <label>Purchased Date</label>
+                                <input
+                                    type="date"
+                                    name="purchaseDate"
+                                    value={itemData.purchaseDate}
+                                    onChange={handleChange}
+                                />
+                            </div>
+                            <div className="form-row">
+                                <label>GIN No</label>
+                                <input
+                                    type="number"
+                                    name="ginNo"
+                                    value={itemData.ginNo}
+                                    onChange={handleChange}
+                                    />
+                            </div>
+                            <div className="form-row">
+                                <label>GIN PDF</label>
+                                <input
+                                    type="text"
+                                    name="ginfile"
+                                    value={itemData.ginfile}
+                                    onChange={handleChange}
+                                    />
+                            </div>                        
+                            <div className="form-row">
+                                <label>Purchase Order No</label>
+                                <input
+                                    type="number"
+                                    name="poNo"
+                                    value={itemData.poNo}
+                                    onChange={handleChange}
+                                />
+                            </div>
+                            <div className="form-row">
+                                <label>Supplier</label>
+                                <input
+                                    type="text"
+                                    name="supplier"
+                                    value={itemData.supplier}
+                                    onChange={handleChange}
+                                    />
+                            </div>
+                             <div className="form-row">
+                                <label>Funding Source</label>
+                                <input
+                                    type="text"
+                                    name="funding"
+                                    value={itemData.funding}
+                                    onChange={handleChange}
+                                    />
+                            </div>
+                             <div className="form-row">
+                                <label>Recieved/ Transferred From</label>
+                                <input
+                                    type="text"
+                                    name="receivedfrom"
+                                    value={itemData.receivedfrom}
+                                    onChange={handleChange}
+                                    />
+                            </div>
+                            <div className="form-row">
+                                <label>Warranty Period</label>
+                                <input
+                                    type="text"
+                                    name="warranty"
+                                    value={itemData.warranty}
+                                    onChange={handleChange}
+                                    />
+                            </div>
+                            <div className="form-row">
+                                <label>Location<span className="required">*</span></label>
+                                <input
+                                    type="text"
+                                    name="location"
+                                    value={itemData.location}
+                                    onChange={handleChange}
+                                />
+                            </div>
+                            <div className="form-row">
+                                <label>Remarks</label>
+                                    <textarea
+                                    name="remarks"
+                                    value={itemData.remarks}
+                                    onChange={handleChange}
+                                />
+                            </div>
+                            <div className="form-row">
+                                <label></label>
+                                <div className="button-row">
+                                    <button type="submit" className="btn submit-btn"> Save Item </button>
+                                    <button type="reset" className="btn reset-btn"> Reset</button>
+                                    <button type="button" className="btn cancel-btn"> Cancel</button>
+                                </div> 
+                            </div>
+                            <div className="form-row">
+                                
+                            </div>
+                        </div>                         
+                    </form>
                 </div>
               </div>
             )}
