@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import AdminLayout from "../../Components/Layouts/AdminLayout";
-import { Card, Button, SearchBox, Table, Badge, Modal, FormInput, Select, EntityDetailsModal } from "../../Components/UI";
+import { Card, Button, SearchBox, Table, Badge, Modal, FormInput, Select, EntityDetailsModal, PageHeader } from "../../Components/UI";
 
 const DepartmentManagement = () => {
   const [searchTerm, setSearchTerm] = useState("");
@@ -166,15 +166,12 @@ const DepartmentManagement = () => {
 
   return (
     <AdminLayout>
-      <div className="gradient-primary py-6 rounded-t">
-        <div className="max-w-7xl mx-auto px-6 flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-white">Department Management</h1>
-            <p className="text-sm text-primary-50 mt-1">Manage departments and assign users/inventories</p>
-          </div>
+      <PageHeader
+        title="Department Management"
+        subtitle="Manage departments and assign users and inventories"
+        actions={
           <Button
             icon="add_circle"
-            className="bg-white text-primary-800 hover:bg-primary-50"
             onClick={() => {
               setModalMode("create");
               setFormData({ name: "", code: "", head: "", description: "" });
@@ -183,8 +180,8 @@ const DepartmentManagement = () => {
           >
             Add Department
           </Button>
-        </div>
-      </div>
+        }
+      />
 
       <div className="p-6 space-y-6">
 

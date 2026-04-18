@@ -1,8 +1,8 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import AdminLayout from "../../Components/Layouts/AdminLayout";
-import { Card, Button, Table, Badge, Modal, SearchBox } from "../../Components/UI";
-import { ACCOUNT_REQUEST_STATUS, INVENTORY_REQUEST_STATUS, ROLE_HIERARCHY } from "../../utils/constants";
+import { Card, Button, Table, Badge, Modal, SearchBox, PageHeader } from "../../Components/UI";
+import { ACCOUNT_REQUEST_STATUS, INVENTORY_REQUEST_STATUS, INVENTORY_REQUEST_TYPE, ROLE_HIERARCHY } from "../../utils/constants";
 
 const AdminPendingTasks = () => {
   const navigate = useNavigate();
@@ -70,7 +70,8 @@ const AdminPendingTasks = () => {
       department: "Physical Education",
       requestedBy: "Grace Lee",
       requestedDate: "2026-01-25",
-      approvalStatus: INVENTORY_REQUEST_STATUS.APPROVED_BY_HOD,
+      requestType: INVENTORY_REQUEST_TYPE.CREATE_NEW,
+      approvalStatus: INVENTORY_REQUEST_STATUS.PENDING_ADMIN,
       hodApprovedDate: "2026-01-26",
       hodApprovedBy: "PE Department Head",
       reason: "Sports facilities expansion",
@@ -81,7 +82,8 @@ const AdminPendingTasks = () => {
       department: "Health Sciences",
       requestedBy: "Dr. Nimal Silva",
       requestedDate: "2026-02-01",
-      approvalStatus: INVENTORY_REQUEST_STATUS.APPROVED_BY_HOD,
+      requestType: INVENTORY_REQUEST_TYPE.CREATE_NEW,
+      approvalStatus: INVENTORY_REQUEST_STATUS.PENDING_ADMIN,
       hodApprovedDate: "2026-02-02",
       hodApprovedBy: "HS Department Head",
       reason: "New clinic setup",
@@ -119,7 +121,7 @@ const AdminPendingTasks = () => {
     } else if (type === "approve-inventory") {
       setInventoryRequests((prev) =>
         prev.map((r) =>
-          r.id === item.id ? { ...r, approvalStatus: INVENTORY_REQUEST_STATUS.APPROVED_BY_REGISTRAR } : r
+          r.id === item.id ? { ...r, approvalStatus: INVENTORY_REQUEST_STATUS.APPROVED_BY_ADMIN } : r
         )
       );
     } else if (type === "reject-inventory") {
@@ -219,6 +221,17 @@ const AdminPendingTasks = () => {
 
   const inventoryRequestColumns = [
     { field: "name", label: "Inventory Name", sortable: true },
+    {
+      field: "requestType",
+      label: "Request Type",
+      render: (value) => (
+        <Badge
+          label={value === INVENTORY_REQUEST_TYPE.ADD_EXISTING ? "Add Inventory" : "New Inventory Creation"}
+          variant={value === INVENTORY_REQUEST_TYPE.ADD_EXISTING ? "info" : "primary"}
+          size="sm"
+        />
+      ),
+    },
     { field: "department", label: "Department", sortable: true },
     { field: "requestedBy", label: "Requested By" },
     { field: "hodApprovedBy", label: "HOD Approved By" },
@@ -229,7 +242,9 @@ const AdminPendingTasks = () => {
       label: "Status",
       render: (value) => {
         const map = {
-          approved_by_hod: { label: "Pending Admin Approval", variant: "warning" },
+          pending_admin: { label: "Pending Admin Approval", variant: "warning" },
+          approved_by_hod: { label: "HOD Approved", variant: "info" },
+          approved_by_admin: { label: "Approved", variant: "success" },
           approved_by_registrar: { label: "Approved", variant: "success" },
           rejected: { label: "Rejected", variant: "error" },
         };
@@ -257,7 +272,7 @@ const AdminPendingTasks = () => {
     (r) => r.approvalStatus === ACCOUNT_REQUEST_STATUS.APPROVED_BY_DEPT_HEAD
   );
   const pendingInventoryRequests = inventoryRequests.filter(
-    (r) => r.approvalStatus === INVENTORY_REQUEST_STATUS.APPROVED_BY_HOD
+    (r) => r.requestType === INVENTORY_REQUEST_TYPE.CREATE_NEW && r.approvalStatus === INVENTORY_REQUEST_STATUS.PENDING_ADMIN
   );
   const inactiveUsers = users.filter((u) => u.status === "inactive");
 
@@ -325,20 +340,16 @@ const AdminPendingTasks = () => {
 
   return (
     <AdminLayout>
-      <div className="gradient-primary py-6 rounded-t">
-        <div className="max-w-7xl mx-auto px-6 flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-white">Pending Tasks</h1>
-            <p className="text-sm text-primary-50 mt-1">Actions requiring admin approval or intervention</p>
-          </div>
-          {totalPending > 0 && (
-            <span className="inline-flex items-center gap-2 px-4 py-2 bg-white/20 border border-white/30 rounded-lg text-white font-semibold text-sm">
-              <span className="material-symbols-outlined text-base">schedule</span>
-              {totalPending} task{totalPending !== 1 ? "s" : ""} pending
-            </span>
-          )}
-        </div>
-      </div>
+      <PageHeader
+        title="Pending Tasks"
+        subtitle="Actions requiring admin approval or intervention"
+        actions={totalPending > 0 ? (
+          <span className="inline-flex items-center gap-2 rounded-lg border border-white/30 bg-white/15 px-4 py-2 text-sm font-semibold text-white">
+            <span className="material-symbols-outlined text-base">schedule</span>
+            {totalPending} task{totalPending !== 1 ? "s" : ""} pending
+          </span>
+        ) : null}
+      />
 
       <div className="p-6 space-y-6">
         {/* Summary Cards */}

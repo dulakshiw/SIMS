@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
 import AdminLayout from "../../Components/Layouts/AdminLayout";
-import { Card, Button, SearchBox, Table, Badge, Modal, FormInput, Select, EntityDetailsModal } from "../../Components/UI";
+import { Card, Button, SearchBox, Table, Badge, Modal, FormInput, Select, EntityDetailsModal, PageHeader } from "../../Components/UI";
 import { ROLE_HIERARCHY, ACCOUNT_REQUEST_STATUS } from "../../utils/constants";
 
 const UserManagement = () => {
+  const location = useLocation();
   const [searchTerm, setSearchTerm] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isChangeRoleModalOpen, setIsChangeRoleModalOpen] = useState(false);
@@ -352,6 +354,7 @@ const UserManagement = () => {
   const pendingRequests = accountRequests.filter(
     (r) => r.approvalStatus !== ACCOUNT_REQUEST_STATUS.APPROVED_BY_ADMIN && r.approvalStatus !== ACCOUNT_REQUEST_STATUS.REJECTED
   ).length;
+  const hideSummaryCards = location.state?.hideSummaryCards === true;
 
   const modalFooter = (
     <div className="flex gap-3 justify-end">
@@ -388,39 +391,35 @@ const UserManagement = () => {
 
   return (
     <AdminLayout>
-      <div className="gradient-primary py-6 rounded-t">
-        <div className="max-w-7xl mx-auto px-6 flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-white">User Management</h1>
-            <p className="text-sm text-primary-50 mt-1">Manage system users, roles, and account approvals</p>
-          </div>
-          <Button
-            icon="add_circle"
-            className="bg-white text-primary-800 hover:bg-primary-50"
-            onClick={() => setIsModalOpen(true)}
-          >
+      <PageHeader
+        title="User Management"
+        subtitle="Manage system users, roles, and account approvals"
+        actions={
+          <Button icon="add_circle" onClick={() => setIsModalOpen(true)}>
             Create User
           </Button>
-        </div>
-      </div>
+        }
+      />
 
       <div className="p-6 space-y-6">
 
         {/* Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <Card title="Total Users" icon="people">
-            <p className="text-3xl font-bold text-primary-800">{totalUsers}</p>
-          </Card>
-          <Card title="Active" icon="check_circle">
-            <p className="text-3xl font-bold text-success">{activeUsers}</p>
-          </Card>
-          <Card title="Inactive" icon="person_off">
-            <p className="text-3xl font-bold text-warning">{inactiveUsers}</p>
-          </Card>
-          <Card title="Pending Approvals" icon="hourglass_empty">
-            <p className="text-3xl font-bold text-info">{pendingRequests}</p>
-          </Card>
-        </div>
+        {!hideSummaryCards && (
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <Card title="Total Users" icon="people">
+              <p className="text-3xl font-bold text-primary-800">{totalUsers}</p>
+            </Card>
+            <Card title="Active" icon="check_circle">
+              <p className="text-3xl font-bold text-success">{activeUsers}</p>
+            </Card>
+            <Card title="Inactive" icon="person_off">
+              <p className="text-3xl font-bold text-warning">{inactiveUsers}</p>
+            </Card>
+            <Card title="Pending Approvals" icon="hourglass_empty">
+              <p className="text-3xl font-bold text-info">{pendingRequests}</p>
+            </Card>
+          </div>
+        )}
 
         {/* Tabs */}
         <div className="border-b border-border-light">

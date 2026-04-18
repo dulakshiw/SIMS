@@ -1,7 +1,7 @@
 import React from "react";
 import { useLocation, useParams } from "react-router-dom";
 import MainLayout from "../../../Components/Layouts/MainLayout";
-import { Card, Button } from "../../../Components/UI";
+import { Card, Button, PageHeader } from "../../../Components/UI";
 import { resolveSidebarVariant } from "../../../utils/helpers";
 
 const DisposalReports = () => {
@@ -17,17 +17,17 @@ const DisposalReports = () => {
 
   return (
     <MainLayout variant={sidebarVariant}>
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-text-dark">Disposal Reports</h1>
-            <p className="text-text-light mt-2">Analytics and reports on item disposals</p>
-          </div>
+      <PageHeader
+        title="Disposal Reports"
+        subtitle="Analytics and reports on item disposals"
+        actions={
           <Button icon="download" variant="primary">
             Export Report
           </Button>
-        </div>
+        }
+      />
+
+      <div className="p-6 space-y-6">
 
         {/* Stats */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

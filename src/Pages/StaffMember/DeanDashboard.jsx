@@ -1,6 +1,6 @@
 import React from 'react'
 import MainLayout from '../../Components/Layouts/MainLayout'
-import { Card, Button } from '../../Components/UI'
+import { Card, Button, PageHeader } from '../../Components/UI'
 
 const DeanDashboard = () => {
   const stats = [
@@ -11,11 +11,12 @@ const DeanDashboard = () => {
 
   return (
     <MainLayout variant="dean">
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold text-text-dark">Dean Dashboard</h1>
-          <p className="text-text-light mt-2">Faculty-wide overview and approvals</p>
-        </div>
+      <PageHeader
+        title="Dean Dashboard"
+        subtitle="Faculty-wide overview and approvals"
+      />
+
+      <div className="p-6 space-y-6">
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {stats.map((stat, index) => (

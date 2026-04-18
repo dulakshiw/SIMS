@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useLocation, useParams } from "react-router-dom";
 import MainLayout from "../../../Components/Layouts/MainLayout";
-import { Card, Button, SearchBox, Table, Badge } from "../../../Components/UI";
+import { Card, Button, SearchBox, Table, Badge, PageHeader } from "../../../Components/UI";
 import { REQUEST_PRIORITY } from "../../../utils/constants";
 import { resolveSidebarVariant } from "../../../utils/helpers";
 
@@ -73,17 +73,17 @@ const RequestList = () => {
 
   return (
     <MainLayout variant={sidebarVariant}>
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-text-dark">Item Requests</h1>
-            <p className="text-text-light mt-2">Manage item requests</p>
-          </div>
+      <PageHeader
+        title="Item Requests"
+        subtitle="Manage item requests"
+        actions={
           <Button icon="add_circle" variant="primary">
             Create Request
           </Button>
-        </div>
+        }
+      />
+
+      <div className="p-6 space-y-6">
 
         {/* Stats */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

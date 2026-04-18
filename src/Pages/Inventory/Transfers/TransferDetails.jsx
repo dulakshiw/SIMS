@@ -1,6 +1,6 @@
 import React from "react";
 import MainLayout from "../../../Components/Layouts/MainLayout";
-import { Card, Button, Badge, Tabs } from "../../../Components/UI";
+import { Card, Button, Badge, Tabs, PageHeader } from "../../../Components/UI";
 import { useLocation, useParams } from "react-router-dom";
 import { resolveSidebarVariant } from "../../../utils/helpers";
 
@@ -101,15 +101,13 @@ const TransferDetails = () => {
 
   return (
     <MainLayout variant={sidebarVariant}>
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-text-dark">{transfer.item}</h1>
-            <p className="text-text-light mt-2">Transfer Request #{transfer.id}</p>
-          </div>
-          <Badge label={transfer.status.toUpperCase()} variant={transfer.status} size="lg" />
-        </div>
+      <PageHeader
+        title={transfer.item}
+        subtitle={`Transfer Request #${transfer.id}`}
+        actions={<Badge label={transfer.status.toUpperCase()} variant={transfer.status} size="lg" />}
+      />
+
+      <div className="p-6 space-y-6">
 
         {/* Actions */}
         <div className="flex gap-4">

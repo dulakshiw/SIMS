@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useLocation, useParams } from "react-router-dom";
 import MainLayout from "../../Components/Layouts/MainLayout";
-import { Card, Button, Badge, Tabs } from "../../Components/UI";
+import { Card, Button, Badge, Tabs, PageHeader } from "../../Components/UI";
 import { resolveSidebarVariant } from "../../utils/helpers";
 
 const ItemRequest = () => {
@@ -115,7 +115,13 @@ const ItemRequest = () => {
 
   return (
     <MainLayout variant={sidebarVariant}>
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <PageHeader
+        title={currentRequest.item}
+        subtitle={`#${currentRequest.id}`}
+        actions={<Badge label={currentRequest.status.toUpperCase()} variant={currentRequest.status} size="lg" />}
+      />
+
+      <div className="p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Requests List */}
         <div className="lg:col-span-1">
           <Card title="Requests" icon="request_quote">
@@ -142,15 +148,6 @@ const ItemRequest = () => {
         {/* Request Details */}
         <div className="lg:col-span-2">
           <div className="space-y-6">
-            {/* Header */}
-            <div className="flex items-center justify-between">
-              <div>
-                <h1 className="text-2xl font-bold text-text-dark">{currentRequest.item}</h1>
-                <p className="text-text-light mt-1">#{currentRequest.id}</p>
-              </div>
-              <Badge label={currentRequest.status.toUpperCase()} variant={currentRequest.status} size="lg" />
-            </div>
-
             {/* Actions */}
             <div className="flex gap-4">
               <Button variant="primary" icon="check_circle">

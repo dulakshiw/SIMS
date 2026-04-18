@@ -35,6 +35,16 @@ export const canApproveInventory = (userRole) => {
 };
 
 /**
+ * Check if user can create a new inventory record
+ * Allowed roles: admin, registrar, inventory in-charge
+ * @param {string} userRole - The user's role
+ * @returns {boolean} - True if user can create inventories
+ */
+export const canCreateInventory = (userRole) => {
+  return hasPermission(userRole, "create_inventory");
+};
+
+/**
  * Check if user can manage transfers and disposals
  * @param {string} userRole - The user's role
  * @returns {boolean} - True if user can manage

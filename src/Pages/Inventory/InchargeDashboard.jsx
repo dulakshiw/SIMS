@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import MainLayout from '../../Components/Layouts/MainLayout'
-import { Card, Button } from '../../Components/UI'
+import { Card, Button, PageHeader } from '../../Components/UI'
 
 const InchargeDashboard = () => {
     const location = useLocation()
@@ -65,12 +65,10 @@ const InchargeDashboard = () => {
 
     return (
         <MainLayout variant={sidebarVariant}>
-            <div className="gradient-primary py-6 rounded-t">
-                <div className="max-w-7xl mx-auto px-6">
-                    <h1 className="text-3xl font-bold text-white">Inventory Dashboard</h1>
-                    <p className="text-sm text-primary-50 mt-1">Overview of your inventory management system</p>
-                </div>
-            </div>
+            <PageHeader
+                title="Inventory Dashboard"
+                subtitle="Overview of your inventory management system"
+            />
 
             <div className="p-6">
                 {error && (

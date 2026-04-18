@@ -65,13 +65,13 @@ export const ROLE_HIERARCHY = {
     label: "System Administrator",
     description: "Full system access and control",
     superclass: null,
-    permissions: ["manage_users", "manage_departments", "manage_inventories", "approve_accounts", "view_all_data"],
+    permissions: ["manage_users", "manage_departments", "manage_inventories", "create_inventory", "approve_accounts", "view_all_data"],
   },
   registrar: {
     label: "Registrar",
     description: "Approves inventory creation and user account activations",
     superclass: null,
-    permissions: ["approve_inventory", "activate_accounts", "view_all_data", "manage_departments"],
+    permissions: ["approve_inventory", "create_inventory", "activate_accounts", "view_all_data", "manage_departments"],
   },
   staff: {
     label: "Staff Member",
@@ -91,6 +91,7 @@ export const ROLE_HIERARCHY = {
     description: "Manages inventory items, transfers, and disposals",
     superclass: "staff",
     permissions: [
+      "create_inventory",
       "add_items",
       "update_items",
       "delete_items",
@@ -117,7 +118,6 @@ export const ROLE_HIERARCHY = {
       "view_department_users",
       "manage_department_staff",
       "approve_staff_accounts",
-      "recommend_inventory_creation",
       "request_items",
       "view_request_status",
       "view_issued_items",
@@ -154,11 +154,20 @@ export const ACCOUNT_REQUEST_STATUS = {
 
 // Inventory Creation Request Status
 export const INVENTORY_REQUEST_STATUS = {
-  PENDING_STAFF: "pending_staff",
+  PENDING_HOD: "pending_hod",
   APPROVED_BY_HOD: "approved_by_hod",
   PENDING_REGISTRAR: "pending_registrar",
   APPROVED_BY_REGISTRAR: "approved_by_registrar",
+  PENDING_ADMIN: "pending_admin",
+  APPROVED_BY_ADMIN: "approved_by_admin",
+  COMPLETED: "completed",
+  PENDING_STAFF: "pending_hod",
   REJECTED: "rejected",
+};
+
+export const INVENTORY_REQUEST_TYPE = {
+  ADD_EXISTING: "add_inventory",
+  CREATE_NEW: "new_inventory_creation",
 };
 
 // Item Transfer/Disposal Status

@@ -18,7 +18,9 @@ const AdminLayout = ({ children }) => {
 
         {/* Page Content */}
         <main className="flex-1 overflow-y-auto">
-          {children}
+          <div className="mx-auto w-full max-w-7xl p-6">
+            {children}
+          </div>
         </main>
 
         {/* Footer */}

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation, useParams } from 'react-router-dom';
 import MainLayout from "../../Components/Layouts/MainLayout";
-import { Card, Button } from "../../Components/UI";
+import { Card, Button, PageHeader } from "../../Components/UI";
 import { resolveSidebarVariant } from "../../utils/helpers";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
@@ -50,18 +50,18 @@ const ItemDetail = () => {
 
   return (
     <MainLayout variant={sidebarVariant}>
-      <div className="p-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold">{item.itemName || item.name || 'Item Details'}</h1>
-            <p className="text-sm text-text-light">ID: {item.id}</p>
-          </div>
-          <div className="flex gap-2">
-            <Button onClick={() => window.history.back()} variant="tertiary">Back</Button>
+      <PageHeader
+        title={item.itemName || item.name || 'Item Details'}
+        subtitle={`ID: ${item.id}`}
+        actions={
+          <>
+            <Button onClick={() => window.history.back()} variant="secondary">Back</Button>
             <Button onClick={() => window.print()} variant="primary">Print</Button>
-          </div>
-        </div>
+          </>
+        }
+      />
 
+      <div className="p-6">
         <Card>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">

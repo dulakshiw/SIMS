@@ -1,9 +1,14 @@
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import AdminLayout from "../../Components/Layouts/AdminLayout";
-import { Card, Button, SearchBox, Table, Badge, Modal, FormInput, Select, EntityDetailsModal } from "../../Components/UI";
-import { INVENTORY_REQUEST_STATUS } from "../../utils/constants";
+import { Card, Button, SearchBox, Table, Badge, Modal, FormInput, Select, EntityDetailsModal, PageHeader } from "../../Components/UI";
+import { INVENTORY_REQUEST_STATUS, INVENTORY_REQUEST_TYPE } from "../../utils/constants";
+import { canCreateInventory } from "../../utils/permissionUtils";
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
+const ALLOWED_INCHARGE_DESIGNATIONS = new Set(["Technical Officer", "Management Assistant"]);
 
 const InventoryManagement = () => {
+  const currentUserRole = localStorage.getItem("userRole") || "admin";
   const [searchTerm, setSearchTerm] = useState("");
   const [activeTab, setActiveTab] = useState("inventories"); // inventories or requests
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -11,8 +16,10 @@ const InventoryManagement = () => {
   const [modalMode, setModalMode] = useState("create");
   const [selectedInventoryId, setSelectedInventoryId] = useState(null);
   const [selectedInventoryDetails, setSelectedInventoryDetails] = useState(null);
+  const [inventories, setInventories] = useState([]);
   const [formData, setFormData] = useState({
     name: "",
+    location: "",
     department: "",
     incharge: "",
     Hod: "",
@@ -22,64 +29,13 @@ const InventoryManagement = () => {
   const [assignInchargeModalOpen, setAssignInchargeModalOpen] = useState(false);
   const [selectedInventory, setSelectedInventory] = useState(null);
   const [selectedIncharge, setSelectedIncharge] = useState("");
-
-  const mockInventories = [
-    {
-      id: 1,
-      name: "Server Room",
-      department: "Information Technology",
-      incharge: "Alice Johnson",
-      hod: "Dr. N. Perera",
-      status: "active",
-      createdDate: "2026-01-10",
-      lastUpdated: "2026-01-25",
-      itemCount: 45,
-    },
-    {
-      id: 2,
-      name: "IT Equipment",
-      department: "Information Technology",
-      incharge: "Bob Smith",
-      hod: "Dr. N. Perera",
-      status: "active",
-      createdDate: "2026-01-15",
-      lastUpdated: "2026-01-24",
-      itemCount: 120,
-    },
-    {
-      id: 3,
-      name: "Office Supplies",
-      department: "Operations",
-      incharge: "Carol White",
-      hod: "Prof. S. Jayasinghe",
-      status: "inactive",
-      createdDate: "2026-01-20",
-      lastUpdated: "2026-01-20",
-      itemCount: 250,
-    },
-    {
-      id: 4,
-      name: "Machinery",
-      department: "Operations",
-      incharge: "David Brown",
-      hod: "Prof. S. Jayasinghe",
-      status: "active",
-      createdDate: "2026-02-01",
-      lastUpdated: "2026-01-26",
-      itemCount: 15,
-    },
-    {
-      id: 5,
-      name: "HR Equipment",
-      department: "Human Resources",
-      incharge: "Emma Davis",
-      hod: "Dr. P. Fernando",
-      status: "active",
-      createdDate: "2026-02-05",
-      lastUpdated: "2026-01-26",
-      itemCount: 30,
-    },
-  ];
+  const [departments, setDepartments] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [inchargeCandidates, setInchargeCandidates] = useState([]);
+  const [optionsError, setOptionsError] = useState("");
+  const [inventoryError, setInventoryError] = useState("");
+  const [submitError, setSubmitError] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
 
   // Pending inventory creation requests
   const [inventoryRequests, setInventoryRequests] = useState([
@@ -89,10 +45,11 @@ const InventoryManagement = () => {
       department: "Science",
       requestedBy: "Frank Wilson",
       requestedDate: "2026-01-24",
-      approvalStatus: INVENTORY_REQUEST_STATUS.PENDING_STAFF,
+      requestType: INVENTORY_REQUEST_TYPE.ADD_EXISTING,
+      approvalStatus: INVENTORY_REQUEST_STATUS.PENDING_HOD,
       hodApprovedDate: null,
       hodApprovedBy: null,
-      reason: "New lab setup for chemistry department",
+      reason: "Existing faculty inventory to be added to the system",
     },
     {
       id: 202,
@@ -100,31 +57,147 @@ const InventoryManagement = () => {
       department: "Physical Education",
       requestedBy: "Grace Lee",
       requestedDate: "2026-01-25",
-      approvalStatus: INVENTORY_REQUEST_STATUS.APPROVED_BY_HOD,
+      requestType: INVENTORY_REQUEST_TYPE.CREATE_NEW,
+      approvalStatus: INVENTORY_REQUEST_STATUS.PENDING_ADMIN,
       hodApprovedDate: "2026-01-26",
       hodApprovedBy: "PE Department Head",
+      registrarApprovedDate: "2026-01-27",
       reason: "Sports facilities expansion",
     },
   ]);
 
-  const mockDepartments = [
-    { id: 1, name: "Information Technology" },
-    { id: 2, name: "Operations" },
-    { id: 3, name: "Human Resources" },
-    { id: 4, name: "Finance" },
-    { id: 5, name: "Marketing" },
-  ];
+  useEffect(() => {
+    let isMounted = true;
 
-  const mockIncharges = [
-    { id: 1, name: "Alice Johnson", email: "alice@example.com" },
-    { id: 2, name: "Bob Smith", email: "bob@example.com" },
-    { id: 3, name: "Carol White", email: "carol@example.com" },
-    { id: 4, name: "David Brown", email: "david@example.com" },
-    { id: 5, name: "Emma Davis", email: "emma@example.com" },
-  ];
+    const loadPageData = async () => {
+      try {
+        setOptionsError("");
+        setInventoryError("");
+
+        const [departmentsResponse, usersResponse] = await Promise.all([
+          fetch(`${API_BASE_URL}/api/departments`),
+          fetch(`${API_BASE_URL}/api/users`),
+        ]);
+
+        const [departmentsData, usersData] = await Promise.all([
+          departmentsResponse.json(),
+          usersResponse.json(),
+        ]);
+
+        if (!departmentsResponse.ok || !departmentsData.success) {
+          throw new Error(departmentsData.error || departmentsData.message || "Failed to load departments.");
+        }
+
+        if (!usersResponse.ok || !usersData.success) {
+          throw new Error(usersData.error || usersData.message || "Failed to load users.");
+        }
+
+        if (!isMounted) {
+          return;
+        }
+
+        setDepartments(departmentsData.departments || []);
+        setUsers(usersData.users || []);
+        setInchargeCandidates(
+          (usersData.users || []).filter(
+            (user) =>
+              user.role === "staff" &&
+              user.status === "active" &&
+              ALLOWED_INCHARGE_DESIGNATIONS.has(String(user.designation || "").trim())
+          )
+        );
+      } catch (error) {
+        if (isMounted) {
+          setDepartments([]);
+          setUsers([]);
+          setInchargeCandidates([]);
+          setOptionsError(error.message || "Failed to load inventory form options.");
+        }
+      }
+
+      try {
+        const inventoriesResponse = await fetch(`${API_BASE_URL}/api/inventories`);
+        const inventoriesData = await inventoriesResponse.json();
+
+        if (!inventoriesResponse.ok || !inventoriesData.success) {
+          throw new Error(inventoriesData.error || inventoriesData.message || "Failed to load inventories.");
+        }
+
+        if (isMounted) {
+          setInventories(inventoriesData.inventories || []);
+        }
+      } catch (error) {
+        if (isMounted) {
+          setInventories([]);
+          setInventoryError(error.message || "Failed to load inventories.");
+        }
+      }
+    };
+
+    loadPageData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const departmentOptions = useMemo(
+    () => departments.map((department) => ({ value: department.name, label: department.name })),
+    [departments]
+  );
+
+  const departmentHodLookup = useMemo(
+    () =>
+      users.reduce((lookup, user) => {
+        if (user.role === "head_of_department" && user.department) {
+          lookup[user.department] = {
+            id: user.id,
+            name: user.name,
+          };
+        }
+
+        return lookup;
+      }, {}),
+    [users]
+  );
+
+  const filteredInchargeCandidates = useMemo(() => {
+    if (!formData.department) {
+      return [];
+    }
+
+    return inchargeCandidates.filter((person) => person.department === formData.department);
+  }, [formData.department, inchargeCandidates]);
+
+  const inchargeOptions = useMemo(
+    () => filteredInchargeCandidates.map((person) => ({ value: String(person.id), label: person.name })),
+    [filteredInchargeCandidates]
+  );
+
+  useEffect(() => {
+    if (!formData.incharge) {
+      return;
+    }
+
+    const inchargeStillValid = filteredInchargeCandidates.some((person) => String(person.id) === String(formData.incharge));
+
+    if (!inchargeStillValid) {
+      setFormData((prev) => ({ ...prev, incharge: "" }));
+    }
+  }, [filteredInchargeCandidates, formData.incharge]);
+
+  useEffect(() => {
+    const departmentHod = departmentHodLookup[formData.department];
+    const nextHodName = departmentHod?.name || "";
+
+    if (formData.Hod !== nextHodName) {
+      setFormData((prev) => ({ ...prev, Hod: nextHodName }));
+    }
+  }, [departmentHodLookup, formData.Hod, formData.department]);
 
   const columns = [
     { field: "name", label: "Inventory Name", sortable: true },
+    { field: "location", label: "Location", sortable: true },
     { field: "department", label: "Department", sortable: true },
     { field: "hod", label: "HOD", sortable: true },
     { field: "incharge", label: "In-Charge", sortable: true },
@@ -143,18 +216,27 @@ const InventoryManagement = () => {
   ];
 
   const actions = [
-    { label: "Edit", icon: "edit", onClick: (row) => handleEdit(row) },
     { label: "Assign In-Charge", icon: "person_add", onClick: (row) => handleAssignIncharge(row) },
     {
       label: "Toggle Status",
       icon: "toggle_on",
       onClick: (row) => console.log("Toggle status", row),
     },
-    { label: "Delete", icon: "delete", onClick: (row) => console.log("Delete", row) },
   ];
 
   const requestColumns = [
     { field: "name", label: "Inventory Name", sortable: true },
+    {
+      field: "requestType",
+      label: "Request Type",
+      render: (value) => (
+        <Badge
+          label={value === INVENTORY_REQUEST_TYPE.ADD_EXISTING ? "Add Inventory" : "New Inventory Creation"}
+          variant={value === INVENTORY_REQUEST_TYPE.ADD_EXISTING ? "info" : "primary"}
+          size="sm"
+        />
+      ),
+    },
     { field: "department", label: "Department", sortable: true },
     { field: "requestedBy", label: "Requested By", sortable: true },
     { field: "requestedDate", label: "Request Date" },
@@ -163,10 +245,14 @@ const InventoryManagement = () => {
       label: "Status",
       render: (value) => {
         const statusConfig = {
+          pending_hod: { label: "Pending HOD Review", variant: "warning" },
           pending_staff: { label: "Pending HOD Review", variant: "warning" },
-          approved_by_hod: { label: "Pending Registrar Approval", variant: "info" },
+          approved_by_hod: { label: "HOD Approved", variant: "info" },
           pending_registrar: { label: "Awaiting Registrar", variant: "info" },
+          pending_admin: { label: "Awaiting Admin", variant: "warning" },
+          approved_by_admin: { label: "Approved", variant: "success" },
           approved_by_registrar: { label: "Approved", variant: "success" },
+          completed: { label: "Completed", variant: "success" },
           rejected: { label: "Rejected", variant: "error" },
         };
         const config = statusConfig[value] || { label: value, variant: "secondary" };
@@ -188,15 +274,16 @@ const InventoryManagement = () => {
     },
   ];
 
-  const filteredInventories = mockInventories.filter((inv) =>
+  const filteredInventories = inventories.filter((inv) =>
     inv.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     inv.department.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const filteredRequests = inventoryRequests.filter((req) =>
+    req.requestType !== INVENTORY_REQUEST_TYPE.ADD_EXISTING && (
     req.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     req.department.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+    ));
 
   const handleApproveRequest = (request) => {
     // Update approval status
@@ -206,10 +293,14 @@ const InventoryManagement = () => {
           ? {
               ...r,
               approvalStatus:
+                request.approvalStatus === INVENTORY_REQUEST_STATUS.PENDING_HOD ||
                 request.approvalStatus === INVENTORY_REQUEST_STATUS.PENDING_STAFF
                   ? INVENTORY_REQUEST_STATUS.APPROVED_BY_HOD
-                  : INVENTORY_REQUEST_STATUS.APPROVED_BY_REGISTRAR,
+                  : request.approvalStatus === INVENTORY_REQUEST_STATUS.PENDING_REGISTRAR
+                    ? INVENTORY_REQUEST_STATUS.APPROVED_BY_REGISTRAR
+                    : INVENTORY_REQUEST_STATUS.APPROVED_BY_ADMIN,
               hodApprovedDate:
+                request.approvalStatus === INVENTORY_REQUEST_STATUS.PENDING_HOD ||
                 request.approvalStatus === INVENTORY_REQUEST_STATUS.PENDING_STAFF
                   ? new Date().toISOString().split("T")[0]
                   : r.hodApprovedDate,
@@ -236,29 +327,83 @@ const InventoryManagement = () => {
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
+  const resetForm = () => {
+    setFormData({ name: "", department: "", incharge: "", Hod: "", location: "", description: "" });
+    setSubmitError("");
+    setModalMode("create");
+    setSelectedInventoryId(null);
+  };
+
+  const refreshInventories = async () => {
+    const response = await fetch(`${API_BASE_URL}/api/inventories`);
+    const data = await response.json();
+
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || data.message || "Failed to refresh inventories.");
+    }
+
+    setInventories(data.inventories || []);
+  };
+
+  const handleSelectChange = (name) => (value) => {
+    setFormData((prev) => ({ ...prev, [name]: value }));
+  };
+
   const handleEdit = (inventory) => {
     setModalMode("edit");
     setSelectedInventoryId(inventory.id);
+    setSubmitError("");
     setFormData({
       name: inventory.name,
       department: inventory.department,
-      incharge: inventory.incharge,
-      description: "",
+      incharge: inventory.inchargeId ? String(inventory.inchargeId) : "",
+      Hod: inventory.hod || "",
+      location: inventory.location || "",
+      description: inventory.description || "",
     });
     setIsModalOpen(true);
   };
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (modalMode === "create") {
-      console.log("New inventory:", formData);
-    } else {
-      console.log("Updated inventory:", selectedInventoryId, formData);
+  const handleSubmit = async (e) => {
+    e?.preventDefault();
+
+    try {
+      setIsSaving(true);
+      setSubmitError("");
+
+      const payload = {
+        name: formData.name.trim(),
+        department: formData.department,
+        inchargeId: Number(formData.incharge),
+        hodUserId: departmentHodLookup[formData.department]?.id || null,
+        location: formData.location,
+        description: formData.description.trim(),
+      };
+      const endpoint = modalMode === "create"
+        ? `${API_BASE_URL}/api/inventories`
+        : `${API_BASE_URL}/api/inventories/${selectedInventoryId}`;
+      const method = modalMode === "create" ? "POST" : "PUT";
+      const response = await fetch(endpoint, {
+        method,
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || data.message || "Failed to save inventory.");
+      }
+
+      await refreshInventories();
+      setIsModalOpen(false);
+      resetForm();
+    } catch (error) {
+      setSubmitError(error.message || "Failed to save inventory.");
+    } finally {
+      setIsSaving(false);
     }
-    setIsModalOpen(false);
-    setFormData({ name: "", department: "", incharge: "", description: "" });
-    setModalMode("create");
-    setSelectedInventoryId(null);
   };
 
   const handleAssignIncharge = (inventory) => {
@@ -281,10 +426,13 @@ const InventoryManagement = () => {
  
   const modalFooter = (
     <div className="flex gap-3 justify-end">
-      <Button variant="secondary" onClick={() => setIsModalOpen(false)}>
+      <Button variant="secondary" onClick={() => {
+        setIsModalOpen(false);
+        resetForm();
+      }}>
         Cancel
       </Button>
-      <Button variant="primary" onClick={handleSubmit}>
+      <Button variant="primary" onClick={handleSubmit} disabled={isSaving}>
         {modalMode === "create" ? "Create Inventory" : "Update Inventory"}
       </Button>
     </div>
@@ -303,27 +451,29 @@ const InventoryManagement = () => {
 
   return (
     <AdminLayout>
-      <div className="gradient-primary py-6 rounded-t">
-        <div className="max-w-7xl mx-auto px-6 flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-white">Inventory Management</h1>
-            <p className="text-sm text-primary-50 mt-1">Manage inventories, approve creation requests, and assign in-charge persons</p>
-          </div>
+      <PageHeader
+        title="Inventory Management"
+        subtitle="Manage inventories, approve creation requests, and assign in-charge persons"
+        actions={canCreateInventory(currentUserRole) ? (
           <Button
             icon="add_circle"
-            className="bg-white text-primary-800 hover:bg-primary-50"
             onClick={() => {
-              setModalMode("create");
-              setFormData({ name: "", department: "", incharge: "", hod: "", description: "" });
+              resetForm();
               setIsModalOpen(true);
             }}
           >
             Create Inventory
           </Button>
-        </div>
-      </div>
+        ) : null}
+      />
 
       <div className="p-6 space-y-6">
+        {optionsError && (
+          <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+            {optionsError}
+          </div>
+        )}
+
         {/* Tabs */}
         <div className="border-b border-border-light">
           <div className="flex gap-2">
@@ -361,6 +511,7 @@ const InventoryManagement = () => {
         {/* Inventories Table or Requests Table */}
         {activeTab === "inventories" ? (
           <Card title="All Inventories" icon="inventory_2">
+            {inventoryError && <p className="mb-4 rounded bg-error/10 px-3 py-2 text-sm text-error">{inventoryError}</p>}
             <Table
               columns={columns}
               data={filteredInventories}
@@ -373,7 +524,7 @@ const InventoryManagement = () => {
           <Card title="Inventory Creation Requests" icon="request_quote">
             <div className="space-y-4">
               <p className="text-sm text-text-light bg-background-light p-3 rounded">
-                Review and approve inventory creation requests from staff members. Requests go through HOD approval, then Registrar approval before inventory is created.
+                New inventory creation requests appear here after earlier approvals. Existing inventory additions are completed with HOD approval and do not require admin approval again.
               </p>
               <Table
                 columns={requestColumns}
@@ -396,6 +547,7 @@ const InventoryManagement = () => {
             { label: "Department", value: selectedInventoryDetails?.department },
             { label: "In-Charge", value: selectedInventoryDetails?.incharge },
             { label: "HOD", value: selectedInventoryDetails?.hod },
+            { label: "Inventory Location", value: selectedInventoryDetails?.location },
             { label: "Item Count", value: selectedInventoryDetails?.itemCount },
             {
               label: "Status",
@@ -418,6 +570,9 @@ const InventoryManagement = () => {
           size="md"
         >
           <form onSubmit={handleSubmit} className="space-y-4">
+            {submitError && <p className="rounded bg-error/10 px-3 py-2 text-sm text-error">{submitError}</p>}
+            {optionsError && <p className="rounded bg-warning/10 px-3 py-2 text-sm text-warning">{optionsError}</p>}
+
             <FormInput
               label="Inventory Name"
               name="name"
@@ -426,28 +581,43 @@ const InventoryManagement = () => {
               placeholder="Enter inventory name"
               required
             />
+            
+            <FormInput
+              label="Inventory Location (Office/Lab)"
+              name="location"
+              value={formData.location}
+              onChange={handleInputChange}
+              placeholder="Enter inventory location"
+              required
+            />
 
             <Select
               label="Department"
               name="department"
               value={formData.department}
-              onChange={handleInputChange}
-              options={mockDepartments.map((dept) => ({
-                value: dept.name,
-                label: dept.name,
-              }))}
+              onChange={handleSelectChange("department")}
+              options={departmentOptions}
+              placeholder="Select a department"
               required
+            />
+
+            <FormInput
+              label="HOD"
+              name="Hod"
+              value={formData.Hod}
+              onChange={handleInputChange}
+              placeholder="Select a department first"
+              disabled
             />
 
             <Select
               label="In-Charge Person"
               name="incharge"
               value={formData.incharge}
-              onChange={handleInputChange}
-              options={mockIncharges.map((person) => ({
-                value: person.name,
-                label: person.name,
-              }))}
+              onChange={handleSelectChange("incharge")}
+              options={inchargeOptions}
+              placeholder={formData.department ? "Select an in-charge person" : "Select a department first"}
+              disabled={!formData.department}
               required
             />
 
@@ -479,7 +649,7 @@ const InventoryManagement = () => {
             <div className="space-y-2">
               <label className="block text-sm font-semibold text-text-dark">Select New In-Charge:</label>
               <div className="space-y-2 max-h-64 overflow-y-auto">
-                {mockIncharges.map((person) => (
+                {inchargeCandidates.map((person) => (
                   <label
                     key={person.id}
                     className={`flex items-center gap-3 p-3 border rounded cursor-pointer transition ${

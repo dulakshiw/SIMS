@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useLocation, useParams } from "react-router-dom";
 import MainLayout from "../../../Components/Layouts/MainLayout";
-import { Card, Button, FormInput, Select } from "../../../Components/UI";
+import { Card, Button, FormInput, Select, PageHeader } from "../../../Components/UI";
 import { REQUEST_PRIORITY } from "../../../utils/constants";
 import { resolveSidebarVariant } from "../../../utils/helpers";
 
@@ -29,12 +29,12 @@ const CreateRequest = () => {
 
   return (
     <MainLayout variant={sidebarVariant}>
-      <div className="space-y-6">
-        {/* Header */}
-        <div>
-          <h1 className="text-3xl font-bold text-text-dark">Create Item Request</h1>
-          <p className="text-text-light mt-2">Submit a new item request</p>
-        </div>
+      <PageHeader
+        title="Create Item Request"
+        subtitle="Submit a new item request"
+      />
+
+      <div className="p-6 space-y-6">
 
         {/* Form Card */}
         <Card>

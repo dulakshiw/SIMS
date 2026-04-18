@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useLocation, useParams } from "react-router-dom";
 import MainLayout from "../../../Components/Layouts/MainLayout";
-import { Card, Button, SearchBox, Table, Badge } from "../../../Components/UI";
+import { Card, Button, SearchBox, Table, Badge, PageHeader } from "../../../Components/UI";
 import { DISPOSAL_STATUS } from "../../../utils/constants";
 import { resolveSidebarVariant } from "../../../utils/helpers";
 
@@ -63,17 +63,17 @@ const DisposalList = () => {
 
   return (
     <MainLayout variant={sidebarVariant}>
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-text-dark">Disposal Management</h1>
-            <p className="text-text-light mt-2">Manage item disposals</p>
-          </div>
+      <PageHeader
+        title="Disposal Management"
+        subtitle="Manage item disposals"
+        actions={
           <Button icon="add_circle" variant="primary">
             Create Disposal
           </Button>
-        </div>
+        }
+      />
+
+      <div className="p-6 space-y-6">
 
         {/* Stats */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

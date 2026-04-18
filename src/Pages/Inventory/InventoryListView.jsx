@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import MainLayout from "../../Components/Layouts/MainLayout";
-import { Card, Button, SearchBox, Table, Badge } from "../../Components/UI";
+import { Card, Button, SearchBox, Table, Badge, PageHeader } from "../../Components/UI";
 import { ITEM_STATUS } from "../../utils/constants";
 import { resolveSidebarVariant } from "../../utils/helpers";
 
@@ -64,17 +64,17 @@ const InventoryListView = () => {
 
   return (
     <MainLayout variant={sidebarVariant}>
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-text-dark">Inventory Items</h1>
-            <p className="text-text-light mt-2">Manage your inventory items</p>
-          </div>
+      <PageHeader
+        title="Inventory Items"
+        subtitle="Manage your inventory items"
+        actions={
           <Button icon="add_circle" variant="primary">
             Add New Item
           </Button>
-        </div>
+        }
+      />
+
+      <div className="p-6 space-y-6">
 
         {/* Search and Filter */}
         <div className="flex gap-4">

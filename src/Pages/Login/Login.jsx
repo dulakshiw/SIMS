@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Card, Button } from "../../Components/UI";
+import fitLogo from "../../assets/fit logo.png";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
 
@@ -119,9 +120,11 @@ const Login = () => {
         <Card className="shadow-2xl">
           <div className="space-y-6">
             {/* Header */}
-            <div className="text-center space-y-2">
-              <h1 className="text-3xl font-bold text-text-dark">Inventory Management System</h1>
-              <p className="text-text-light text-sm">
+            <div className="text-center space-y-3">
+              <div className="flex items-center justify-center gap-3">
+                <h1 className="text-2xl font-bold text-text-dark sm:text-3xl">Inventory Management System</h1>
+              </div>
+              <p className="mx-auto max-w-sm text-sm text-text-light">
                 Sign in with a user account stored in the SIMS database.
               </p>
             </div>

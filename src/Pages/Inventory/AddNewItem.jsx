@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useLocation, useParams } from "react-router-dom";
 import MainLayout from "../../Components/Layouts/MainLayout";
-import { Card, Button } from "../../Components/UI";
+import { Card, Button, PageHeader } from "../../Components/UI";
 import { resolveSidebarVariant } from "../../utils/helpers";
 
 const AddNewItem = () => {
@@ -441,24 +441,11 @@ const AddNewItem = () => {
 
   return (
     <MainLayout variant={sidebarVariant}>
-      <div className="space-y-6">
-        <div className="flex flex-wrap items-center gap-2 text-sm text-text-light">
-          <span>Home</span>
-          <span>/</span>
-          <span>Inventory</span>
-          <span>/</span>
-          <span className="font-semibold text-primary-800">Create Asset</span>
-        </div>
-
-        <div className="flex flex-col gap-4 rounded-xl border border-border-lighter bg-white p-5 shadow-sm md:flex-row md:items-end md:justify-between">
-          <div>
-            <h1 className="text-3xl font-black tracking-tight text-primary-800">Add New Inventory Item</h1>
-            <p className="mt-2 text-sm text-text-light">
-              Register a new physical asset and generate QR labels from the same screen.
-            </p>
-          </div>
-
-          <div className="inline-flex rounded-xl border border-border-lighter bg-background-light p-1">
+      <PageHeader
+        title="Add New Inventory Item"
+        subtitle="Register a new physical asset and generate QR labels from the same screen."
+        actions={
+          <div className="inline-flex rounded-xl border border-white/20 bg-white/10 p-1">
             <button
               type="button"
               onClick={() => {
@@ -468,8 +455,8 @@ const AddNewItem = () => {
               }}
               className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${
                 uploadMode === "single"
-                  ? "bg-primary-800 text-white shadow-sm"
-                  : "text-text-light hover:bg-primary-50 hover:text-primary-800"
+                  ? "bg-white text-primary-800 shadow-sm"
+                  : "text-white/85 hover:bg-white/10 hover:text-white"
               }`}
             >
               Single Item
@@ -479,13 +466,23 @@ const AddNewItem = () => {
               onClick={() => setUploadMode("bulk")}
               className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${
                 uploadMode === "bulk"
-                  ? "bg-primary-800 text-white shadow-sm"
-                  : "text-text-light hover:bg-primary-50 hover:text-primary-800"
+                  ? "bg-white text-primary-800 shadow-sm"
+                  : "text-white/85 hover:bg-white/10 hover:text-white"
               }`}
             >
               Bulk Upload
             </button>
           </div>
+        }
+      />
+
+      <div className="p-6 space-y-6">
+        <div className="flex flex-wrap items-center gap-2 text-sm text-text-light">
+          <span>Home</span>
+          <span>/</span>
+          <span>Inventory</span>
+          <span>/</span>
+          <span className="font-semibold text-primary-800">Create Asset</span>
         </div>
 
         {/* Single Item Form */}

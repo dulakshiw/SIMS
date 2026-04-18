@@ -3,7 +3,7 @@ import { useLocation, useParams } from "react-router-dom";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import MainLayout from "../../Components/Layouts/MainLayout";
-import { Card, SearchBox, Table, Badge, EntityDetailsModal, Button } from "../../Components/UI";
+import { Card, SearchBox, Table, Badge, EntityDetailsModal, Button, PageHeader } from "../../Components/UI";
 import { resolveSidebarVariant } from "../../utils/helpers";
 
 const MyRequests = () => {
@@ -213,11 +213,12 @@ const MyRequests = () => {
 
   return (
     <MainLayout variant={sidebarVariant}>
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold text-text-dark">My Requests</h1>
-          <p className="text-text-light mt-2">Track your item requests and their approval status</p>
-        </div>
+      <PageHeader
+        title="My Requests"
+        subtitle="Track your item requests and their approval status"
+      />
+
+      <div className="p-6 space-y-6">
 
         <Card>
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">

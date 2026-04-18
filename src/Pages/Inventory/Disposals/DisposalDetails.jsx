@@ -1,7 +1,7 @@
 import React from "react";
 import { useLocation, useParams } from "react-router-dom";
 import MainLayout from "../../../Components/Layouts/MainLayout";
-import { Card, Button, Badge, Tabs } from "../../../Components/UI";
+import { Card, Button, Badge, Tabs, PageHeader } from "../../../Components/UI";
 import { resolveSidebarVariant } from "../../../utils/helpers";
 
 const DisposalDetails = () => {
@@ -107,15 +107,13 @@ const DisposalDetails = () => {
 
   return (
     <MainLayout variant={sidebarVariant}>
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-text-dark">{disposal.itemName}</h1>
-            <p className="text-text-light mt-2">Disposal Request #{disposal.id}</p>
-          </div>
-          <Badge label={disposal.status.toUpperCase()} variant={disposal.status} size="lg" />
-        </div>
+      <PageHeader
+        title={disposal.itemName}
+        subtitle={`Disposal Request #${disposal.id}`}
+        actions={<Badge label={disposal.status.toUpperCase()} variant={disposal.status} size="lg" />}
+      />
+
+      <div className="p-6 space-y-6">
 
         {/* Actions */}
         <div className="flex gap-4">

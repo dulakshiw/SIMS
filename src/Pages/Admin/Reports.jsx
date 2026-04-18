@@ -4,7 +4,7 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import AdminLayout from "../../Components/Layouts/AdminLayout";
 import MainLayout from "../../Components/Layouts/MainLayout";
-import { Card, Button, Table, Badge } from "../../Components/UI";
+import { Card, Button, Table, Badge, PageHeader } from "../../Components/UI";
 
 const Reports = ({ layoutVariant = "admin", sidebarVariant }) => {
   const params = useParams();
@@ -453,15 +453,13 @@ const Reports = ({ layoutVariant = "admin", sidebarVariant }) => {
 
   return (
     <Layout {...(layoutVariant === "admin" ? {} : { variant: resolvedSidebarVariant })}>
-      <div className="gradient-primary py-6 rounded-t">
-        <div className="max-w-7xl mx-auto px-6 flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-white">Reports & Analytics</h1>
-            <p className="text-sm text-primary-50 mt-1">System analytics and performance metrics</p>
-          </div>
+      <PageHeader
+        title="Reports & Analytics"
+        subtitle="System analytics and performance metrics"
+        actions={
           <div className="relative" ref={exportDropdownRef}>
             <Button
-              className="bg-white text-primary-800 hover:bg-primary-50 min-w-[180px] justify-between"
+              className="min-w-[180px] justify-between bg-white text-primary-800 hover:bg-primary-50"
               onClick={() => setIsExportDropdownOpen((prev) => !prev)}
             >
               <span className="flex items-center gap-2">
@@ -472,10 +470,10 @@ const Reports = ({ layoutVariant = "admin", sidebarVariant }) => {
             </Button>
 
             {isExportDropdownOpen && (
-              <div className="absolute right-0 mt-2 w-48 bg-white border border-border-light rounded-md shadow-lg z-50 overflow-hidden">
+              <div className="absolute right-0 mt-2 w-48 overflow-hidden rounded-md border border-border-light bg-white shadow-lg z-50">
                 <button
                   type="button"
-                  className="w-full text-left px-4 py-2 text-sm text-text-dark hover:bg-background-light transition-colors"
+                  className="w-full px-4 py-2 text-left text-sm text-text-dark transition-colors hover:bg-background-light"
                   onClick={() => {
                     handleExportReport(activeTab, "csv");
                     setIsExportDropdownOpen(false);
@@ -485,7 +483,7 @@ const Reports = ({ layoutVariant = "admin", sidebarVariant }) => {
                 </button>
                 <button
                   type="button"
-                  className="w-full text-left px-4 py-2 text-sm text-text-dark hover:bg-background-light transition-colors"
+                  className="w-full px-4 py-2 text-left text-sm text-text-dark transition-colors hover:bg-background-light"
                   onClick={() => {
                     handleExportReport(activeTab, "pdf");
                     setIsExportDropdownOpen(false);
@@ -496,8 +494,8 @@ const Reports = ({ layoutVariant = "admin", sidebarVariant }) => {
               </div>
             )}
           </div>
-        </div>
-      </div>
+        }
+      />
 
       <div className="p-6 space-y-6">
         {/* KPI Cards */}

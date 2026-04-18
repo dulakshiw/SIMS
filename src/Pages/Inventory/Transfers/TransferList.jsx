@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useLocation, useParams } from "react-router-dom";
 import MainLayout from "../../../Components/Layouts/MainLayout";
-import { Card, Button, SearchBox, Table, Badge } from "../../../Components/UI";
+import { Card, Button, SearchBox, Table, Badge, PageHeader } from "../../../Components/UI";
 import { resolveSidebarVariant } from "../../../utils/helpers";
 import { TRANSFER_STATUS } from "../../../utils/constants";
 
@@ -64,17 +64,17 @@ const TransferList = () => {
 
   return (
     <MainLayout variant={sidebarVariant}>
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-text-dark">Item Transfers</h1>
-            <p className="text-text-light mt-2">Manage item transfers between locations</p>
-          </div>
+      <PageHeader
+        title="Item Transfers"
+        subtitle="Manage item transfers between locations"
+        actions={
           <Button icon="add_circle" variant="primary">
             Create Transfer
           </Button>
-        </div>
+        }
+      />
+
+      <div className="p-6 space-y-6">
 
         {/* Stats */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

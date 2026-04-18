@@ -1,6 +1,7 @@
 import React from 'react';
 import { useLocation, useParams } from 'react-router-dom';
 import MainLayout from "../../Components/Layouts/MainLayout";
+import { PageHeader } from "../../Components/UI";
 import { resolveSidebarVariant } from "../../utils/helpers";
 
 // Very small client-side QR view helper. In a real app this should
@@ -34,11 +35,10 @@ const ItemView = () => {
 
   return (
     <MainLayout variant={sidebarVariant}>
-      <div className="p-6">
-        <h1 className="text-2xl font-bold">Scanned Item</h1>
-        <p className="text-sm text-text-light mt-2">QR payload: {q}</p>
+      <PageHeader title="Scanned Item" subtitle={`QR payload: ${q || '-'}`} />
 
-        <div className="mt-6 bg-white p-4 rounded-lg border">
+      <div className="p-6">
+        <div className="bg-white p-4 rounded-lg border">
           <h2 className="text-lg font-semibold">{item.itemName}</h2>
           <p className="text-sm text-text-light">Incharge: {item.incharge}</p>
 

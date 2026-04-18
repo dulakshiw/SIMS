@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { useLocation, useParams } from 'react-router-dom'
 import MainLayout from '../../Components/Layouts/MainLayout'
 import AdminLayout from '../../Components/Layouts/AdminLayout'
+import { PageHeader } from '../../Components/UI'
 import { ROLE_HIERARCHY } from '../../utils/constants'
 import { resolveSidebarVariant } from '../../utils/helpers'
 
@@ -27,6 +28,7 @@ const Profile = () => {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [department, setDepartment] = useState('')
+  const [designation, setDesignation] = useState('')
   const [roleLabel, setRoleLabel] = useState('')
   const [status, setStatus] = useState('')
   const [mobileNo, setMobileNo] = useState('')
@@ -36,6 +38,7 @@ const Profile = () => {
   const [currentPassword, setCurrentPassword] = useState('')
 
   const [loading, setLoading] = useState(false)
+  const [deactivationLoading, setDeactivationLoading] = useState(false)
   const [profileLoading, setProfileLoading] = useState(true)
   const [message, setMessage] = useState(null)
   const [error, setError] = useState(null)
@@ -82,6 +85,7 @@ const Profile = () => {
           setName(profile.name || '')
           setEmail(profile.email || '')
           setDepartment(profile.department || '')
+          setDesignation(profile.designation || storedUser.designation || '')
           setRoleLabel(ROLE_HIERARCHY[profile.role]?.label || profile.role || '')
           setStatus(profile.status || '')
           setMobileNo(profile.mobileNo ? String(profile.mobileNo) : '')
@@ -162,14 +166,59 @@ const Profile = () => {
     }
   }
 
+  const handleDeactivationRequest = async () => {
+    setMessage(null)
+    setError(null)
+
+    const storedUser = JSON.parse(localStorage.getItem('currentUser') || '{}')
+
+    if (!storedUser?.id && !storedUser?.email) {
+      setError('No logged-in user found. Please sign in again.')
+      return
+    }
+
+    const confirmed = window.confirm('Submit a deactivation request for your account? This will be sent to your Head of Department for review first, then to admin.')
+
+    if (!confirmed) {
+      return
+    }
+
+    setDeactivationLoading(true)
+    try {
+      const payload = {
+        userId: storedUser.id,
+        email: storedUser.email || email,
+        name: storedUser.name || name,
+        role: storedUser.role || roleLabel,
+        department,
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/account-requests/deactivation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+
+      const data = await response.json().catch(() => ({}))
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || 'Failed to submit deactivation request')
+      }
+
+      setMessage(data.message || 'Deactivation request submitted successfully')
+    } catch (err) {
+      setError(err.message || 'Failed to submit deactivation request')
+    } finally {
+      setDeactivationLoading(false)
+    }
+  }
+
   return (
     <Layout {...(isAdminRoute ? {} : { variant: sidebarVariant })}>
-      <div className="gradient-primary py-6 rounded-t">
-        <div className="max-w-7xl mx-auto px-6">
-          <h1 className="text-3xl font-bold text-white">Profile Settings</h1>
-          <p className="text-sm text-primary-50 mt-1">View your profile and update your password</p>
-        </div>
-      </div>
+      <PageHeader
+        title="Profile Settings"
+        subtitle="View your profile and update your password"
+      />
 
       <div className="p-6">
 
@@ -177,7 +226,7 @@ const Profile = () => {
           {message && <div className="mb-4 p-3 bg-green-50 text-green-800 rounded">{message}</div>}
           {error && <div className="mb-4 p-3 bg-red-50 text-red-800 rounded">{error}</div>}
 
-          <p className="text-sm text-gray-600 mb-4">Profile details below are loaded from the database. Only password updates are allowed from this page.</p>
+          <p className="text-sm text-gray-600 mb-4">Profile details below are loaded from the database. You can update your password or submit an account deactivation request from this page.</p>
 
           {profileLoading && <div className="mb-4 p-3 bg-blue-50 text-blue-800 rounded">Loading profile details...</div>}
 
@@ -220,6 +269,15 @@ const Profile = () => {
             </div>
 
             <div>
+              <label className="block text-sm font-medium text-gray-700">Designation</label>
+              <input
+                className="w-full px-4 py-2.5 border border-border rounded-lg mt-1 bg-gray-50"
+                value={designation}
+                readOnly
+              />
+            </div>
+
+            <div>
               <label className="block text-sm font-medium text-gray-700">Status</label>
               <input
                 className="w-full px-4 py-2.5 border border-border rounded-lg mt-1 bg-gray-50"
@@ -248,7 +306,7 @@ const Profile = () => {
 
             <div></div>
 
-            <div>
+            <div className="md:col-span-2">
               <label className="block text-sm font-medium text-gray-700">Current Password</label>
               <input
                 type="password"
@@ -257,8 +315,6 @@ const Profile = () => {
                 onChange={(e) => setCurrentPassword(e.target.value)}
               />
             </div>
-
-            <div></div>
 
             <div>
               <label className="block text-sm font-medium text-gray-700">New Password</label>
@@ -293,7 +349,7 @@ const Profile = () => {
             </div>
           </div>
 
-          <div className="mt-6 flex gap-3">
+          <div className="mt-6 flex flex-wrap gap-3">
             <button
               type="submit"
               disabled={!canSave}
@@ -314,6 +370,15 @@ const Profile = () => {
               }}
             >
               Reset Password Fields
+            </button>
+
+            <button
+              type="button"
+              disabled={deactivationLoading || status.toLowerCase() === 'inactive'}
+              className={`px-4 py-2 rounded-md text-white ${(deactivationLoading || status.toLowerCase() === 'inactive') ? 'bg-gray-300 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700'}`}
+              onClick={handleDeactivationRequest}
+            >
+              {deactivationLoading ? 'Submitting Request...' : 'Request for Deactivation'}
             </button>
           </div>
         </form>

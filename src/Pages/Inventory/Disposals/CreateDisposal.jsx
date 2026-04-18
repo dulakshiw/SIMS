@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useLocation, useParams } from "react-router-dom";
 import MainLayout from "../../../Components/Layouts/MainLayout";
-import { Card, Button, FormInput, Select, Tabs } from "../../../Components/UI";
+import { Card, Button, FormInput, Select, Tabs, PageHeader } from "../../../Components/UI";
 import { DISPOSAL_REASONS, CONDITION_ASSESSMENT } from "../../../utils/constants";
 import { resolveSidebarVariant } from "../../../utils/helpers";
 
@@ -157,12 +157,12 @@ const CreateDisposal = () => {
 
   return (
     <MainLayout variant={sidebarVariant}>
-      <div className="space-y-6">
-        {/* Header */}
-        <div>
-          <h1 className="text-3xl font-bold text-text-dark">Create Disposal Request</h1>
-          <p className="text-text-light mt-2">Submit a new item for disposal</p>
-        </div>
+      <PageHeader
+        title="Create Disposal Request"
+        subtitle="Submit a new item for disposal"
+      />
+
+      <div className="p-6 space-y-6">
 
         {/* Form Card */}
         <Card>

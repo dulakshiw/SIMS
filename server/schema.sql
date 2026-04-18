@@ -1,3 +1,15 @@
+CREATE TABLE IF NOT EXISTS inventories (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  name VARCHAR(255) NOT NULL,
+  department_id INT NOT NULL,
+  incharge_id INT NOT NULL,
+  description TEXT,
+  location VARCHAR(100) DEFAULT '',
+  status ENUM('active', 'inactive') DEFAULT 'active',
+  created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS inventory_items (
   id INT PRIMARY KEY AUTO_INCREMENT,
   itemName VARCHAR(255) NOT NULL,
