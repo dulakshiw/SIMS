@@ -2,7 +2,9 @@ import React, { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import AdminLayout from "../../Components/Layouts/AdminLayout";
 import { Card, Button, SearchBox, Table, Badge, Modal, FormInput, Select, EntityDetailsModal, PageHeader } from "../../Components/UI";
-import { ROLE_HIERARCHY, ACCOUNT_REQUEST_STATUS } from "../../utils/constants";
+import { ROLE_HIERARCHY, ACCOUNT_REQUEST_STATUS, ACCOUNT_REQUEST_STATUS_META } from "../../utils/constants";
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
 
 const UserManagement = () => {
   const location = useLocation();
@@ -32,32 +34,57 @@ const UserManagement = () => {
   const [users, setUsers] = useState([]);
   const [usersLoading, setUsersLoading] = useState(true);
   const [usersError, setUsersError] = useState("");
+  const [accountRequestsLoading, setAccountRequestsLoading] = useState(true);
+  const [accountRequestsError, setAccountRequestsError] = useState("");
+  const [submitError, setSubmitError] = useState("");
 
-  // Pending account creation requests
-  const [accountRequests, setAccountRequests] = useState([
-    {
-      id: 101,
-      name: "A.S. Liyanagoda",
-      email: "alokal@uom.lk",
-      requestedRole: "staff",
-      department: "Information Technology",
-      designation: "Lecturer",
-      requestedDate: "2026-01-25",
-      requestedByDeptHead: "",
-      approvalStatus: ACCOUNT_REQUEST_STATUS.PENDING_DEPT_HEAD,
-    },
-    {
-      id: 102,
-      name: "S.T.K. Gamhewage",
-      email: "sampathg@uom.lk",
-      requestedRole: "inventory_incharge",
-      department: "Interdisciplinary Studies",
-      designation: "Senior Lecturer",
-      requestedDate: "2026-01-26",
-      requestedByDeptHead: "",
-      approvalStatus: ACCOUNT_REQUEST_STATUS.APPROVED_BY_DEPT_HEAD,
-    },
-  ]);
+  const [accountRequests, setAccountRequests] = useState([]);
+
+  const loadUsers = async () => {
+    try {
+      setUsersLoading(true);
+      setUsersError("");
+      const response = await fetch(`${API_BASE_URL}/api/users`);
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || "Failed to load users from database.");
+      }
+
+      setUsers(data.users || []);
+    } catch (error) {
+      console.error("Failed to fetch users:", error);
+      setUsers([]);
+      setUsersError(error.message || "Unable to load users from the database.");
+    } finally {
+      setUsersLoading(false);
+    }
+  };
+
+  const loadAccountRequests = async () => {
+    try {
+      setAccountRequestsLoading(true);
+      setAccountRequestsError("");
+      const response = await fetch(`${API_BASE_URL}/api/account-requests?requestType=account_creation`);
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || data.error || "Failed to load account requests.");
+      }
+
+      setAccountRequests(data.requests || []);
+    } catch (error) {
+      setAccountRequests([]);
+      setAccountRequestsError(error.message || "Unable to load account requests.");
+    } finally {
+      setAccountRequestsLoading(false);
+    }
+  };
+
+  const refreshAdminData = () => {
+    loadUsers();
+    loadAccountRequests();
+  };
 
   const columns = [
     { field: "name", label: "Name", sortable: true },
@@ -108,13 +135,7 @@ const UserManagement = () => {
       field: "approvalStatus",
       label: "Status",
       render: (value) => {
-        const statusConfig = {
-          pending_dept_head: { label: "Pending HOD Approval", variant: "warning" },
-          approved_by_dept_head: { label: "Pending Admin Approval", variant: "info" },
-          approved_by_admin: { label: "Approved", variant: "success" },
-          rejected: { label: "Rejected", variant: "error" },
-        };
-        const config = statusConfig[value] || { label: value, variant: "secondary" };
+        const config = ACCOUNT_REQUEST_STATUS_META[value] || { label: value, variant: "secondary" };
         return <Badge label={config.label} variant={config.variant} size="sm" />;
       },
     },
@@ -146,41 +167,33 @@ const UserManagement = () => {
   ];
 
   useEffect(() => {
-    let isMounted = true;
+    loadUsers();
+  }, []);
 
-    const loadUsers = async () => {
-      try {
-        setUsersLoading(true);
-        setUsersError("");
-        const response = await fetch("/api/users");
-        const data = await response.json();
+  useEffect(() => {
+    loadAccountRequests();
+  }, []);
 
-        if (!response.ok || !data.success) {
-          throw new Error(data.error || "Failed to load users from database.");
-        }
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      loadAccountRequests();
+    }, 15000);
 
-        if (isMounted) {
-          setUsers(data.users || []);
-        }
-      } catch (error) {
-        console.error("Failed to fetch users:", error);
-        if (isMounted) {
-          setUsers([]);
-          setUsersError(error.message || "Unable to load users from the database.");
-        }
-      } finally {
-        if (isMounted) {
-          setUsersLoading(false);
-        }
-      }
+    const handleFocus = () => {
+      refreshAdminData();
     };
 
-    loadUsers();
+    window.addEventListener("focus", handleFocus);
 
     return () => {
-      isMounted = false;
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", handleFocus);
     };
   }, []);
+
+  const handleSelectChange = (name) => (value) => {
+    setFormData((prev) => ({ ...prev, [name]: value }));
+  };
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -203,8 +216,9 @@ const UserManagement = () => {
     return "bg-success";
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
+    setSubmitError("");
 
     // Validate passwords
     if (formData.password !== formData.confirmPassword) {
@@ -220,44 +234,76 @@ const UserManagement = () => {
     // If "Other" is selected, use the custom designation
     const finalDesignation = formData.designation === "Other" ? otherDesignation : formData.designation;
     
-    const newUser = {
-      id: users.length + 1,
-      ...formData,
-      designation: finalDesignation,
-      status: "inactive", // New users start inactive, need admin activation
-      createdDate: new Date().toISOString().split("T")[0],
-    };
-    // Create an account request that needs approval
-    const newRequest = {
-      id: accountRequests.length + 101,
-      name: formData.name,
-      email: formData.email,
-      mobileNo: formData.mobileNo,
-      officeExtNo: formData.officeExtNo,
-      requestedRole: formData.role,
-      department: formData.department,
-      designation: finalDesignation,
-      requestedDate: new Date().toISOString().split("T")[0],
-      requestedByDeptHead: "Department Head", // In real app, get current user's dept head
-      approvalStatus: ACCOUNT_REQUEST_STATUS.PENDING_DEPT_HEAD,
-    };
-    setAccountRequests([...accountRequests, newRequest]);
-    console.log("New account request created:", newRequest);
-    setIsModalOpen(false);
-    setFormData({ name: "", email: "", mobileNo: "", officeExtNo: "", role: "staff", department: "", designation: "", password: "", confirmPassword: "" });
-    setOtherDesignation("");
-    setPasswordStrength(0);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/auth/signup`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fullName: formData.name,
+          email: formData.email,
+          mobileNo: formData.mobileNo,
+          officeExtNo: formData.officeExtNo,
+          password: formData.password,
+          role: formData.role,
+          createdByRole: "admin",
+          department: formData.department,
+          designation: finalDesignation,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || data.message || "Failed to submit account request.");
+      }
+
+      setAccountRequests((prev) => [
+        {
+          id: data.request?.id || Date.now(),
+          name: formData.name,
+          email: formData.email,
+          requestedRole: formData.role,
+          department: formData.department,
+          designation: finalDesignation,
+          requestedDate: new Date().toISOString().split("T")[0],
+          requestedByDeptHead: "-",
+          approvalStatus: ["head_of_department", "registrar", "admin"].includes(formData.role)
+            ? ACCOUNT_REQUEST_STATUS.PENDING_DEAN
+            : ACCOUNT_REQUEST_STATUS.PENDING_DEPT_HEAD,
+        },
+        ...prev,
+      ]);
+      setIsModalOpen(false);
+      setFormData({ name: "", email: "", mobileNo: "", officeExtNo: "", role: "staff", department: "", designation: "", password: "", confirmPassword: "" });
+      setOtherDesignation("");
+      setPasswordStrength(0);
+    } catch (error) {
+      setSubmitError(error.message || "Failed to submit account request.");
+    }
   };
 
-  const handleToggleStatus = (user) => {
-    setUsers((prevUsers) =>
-      prevUsers.map((u) =>
-        u.id === user.id
-          ? { ...u, status: u.status === "active" ? "inactive" : "active" }
-          : u
-      )
-    );
-    console.log("Toggled status for user:", user.name);
+  const handleToggleStatus = async (user) => {
+    const nextStatus = user.status === "active" ? "inactive" : "active";
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/users/${user.id}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || data.error || "Failed to update user status.");
+      }
+
+      setUsers((prevUsers) =>
+        prevUsers.map((u) =>
+          u.id === user.id ? { ...u, status: nextStatus } : u
+        )
+      );
+    } catch (error) {
+      window.alert(error.message || "Failed to update user status.");
+    }
   };
 
   const handleChangeRole = (user) => {
@@ -272,17 +318,31 @@ const UserManagement = () => {
     setIsUserDetailsModalOpen(true);
   };
 
-  const handleRoleChangeSubmit = () => {
-    setUsers((prevUsers) =>
-      prevUsers.map((u) =>
-        u.id === selectedUserId ? { ...u, role: newRole } : u
-      )
-    );
-    console.log(`Changed ${selectedUserName}'s role to ${newRole}`);
-    setIsChangeRoleModalOpen(false);
-    setSelectedUserId(null);
-    setSelectedUserName("");
-    setNewRole("");
+  const handleRoleChangeSubmit = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/users/${selectedUserId}/role`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role: newRole }),
+      });
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || data.error || "Failed to update user role.");
+      }
+
+      setUsers((prevUsers) =>
+        prevUsers.map((u) =>
+          u.id === selectedUserId ? { ...u, role: newRole } : u
+        )
+      );
+      setIsChangeRoleModalOpen(false);
+      setSelectedUserId(null);
+      setSelectedUserName("");
+      setNewRole("");
+    } catch (error) {
+      window.alert(error.message || "Failed to update user role.");
+    }
   };
 
   const handleApproveAccount = (request) => {
@@ -292,45 +352,85 @@ const UserManagement = () => {
   };
 
   const handleRejectAccount = (request) => {
-    setAccountRequests((prev) =>
-      prev.map((r) =>
-        r.id === request.id
-          ? { ...r, approvalStatus: ACCOUNT_REQUEST_STATUS.REJECTED }
-          : r
-      )
-    );
-    console.log("Rejected account request for:", request.name);
+    fetch(`${API_BASE_URL}/api/account-requests/${request.id}/reject`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason: "Rejected from admin user management" }),
+    })
+      .then((response) => response.json().then((data) => ({ ok: response.ok, data })))
+      .then(({ ok, data }) => {
+        if (!ok || !data.success) {
+          throw new Error(data.message || data.error || "Failed to reject account request.");
+        }
+
+        setAccountRequests((prev) =>
+          prev.map((r) =>
+            r.id === request.id ? { ...r, approvalStatus: ACCOUNT_REQUEST_STATUS.REJECTED } : r
+          )
+        );
+      })
+      .catch((error) => {
+        window.alert(error.message || "Failed to reject account request.");
+      });
   };
 
-  const handleApproveAccountSubmit = () => {
-    setAccountRequests((prev) =>
-      prev.map((r) =>
-        r.id === selectedUserId
-          ? { ...r, approvalStatus: ACCOUNT_REQUEST_STATUS.APPROVED_BY_ADMIN }
-          : r
-      )
-    );
-    // Add user to active users list
-    const request = accountRequests.find((r) => r.id === selectedUserId);
-    if (request) {
-      const newUser = {
-        id: Math.max(...users.map((u) => u.id), 0) + 1,
-        name: request.name,
-        email: request.email,
-        mobileNo: request.mobileNo || "",
-        officeExtNo: request.officeExtNo || "",
-        role: request.requestedRole,
-        department: request.department,
-        designation: request.designation || "",
-        status: "active",
-        createdDate: new Date().toISOString().split("T")[0],
-      };
-      setUsers([...users, newUser]);
+  const handleApproveAccountSubmit = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/account-requests/${selectedUserId}/approve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ approverRole: "admin" }),
+      });
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || data.error || "Failed to approve account request.");
+      }
+
+      setAccountRequests((prev) =>
+        prev.map((r) =>
+          r.id === selectedUserId ? { ...r, approvalStatus: ACCOUNT_REQUEST_STATUS.APPROVED_BY_ADMIN } : r
+        )
+      );
+
+      const request = accountRequests.find((r) => r.id === selectedUserId);
+      if (request && data.user) {
+        setUsers((prev) => {
+          const existingIndex = prev.findIndex((user) => user.email === request.email);
+          const nextUser = {
+            ...(existingIndex >= 0 ? prev[existingIndex] : {}),
+            id: data.user.id,
+            name: data.user.name || request.name,
+            email: data.user.email || request.email,
+            role: data.user.role || (["head_of_department", "dean", "registrar", "admin"].includes(request.requestedRole)
+              ? request.requestedRole
+              : "staff"),
+            department: request.department,
+            designation: data.user.designation || request.designation || "",
+            status: "active",
+          };
+
+          if (existingIndex >= 0) {
+            return prev.map((user, index) => (index === existingIndex ? { ...user, ...nextUser } : user));
+          }
+
+          return [
+            {
+              id: request.userId || Math.max(...prev.map((user) => Number(user.id) || 0), 0) + 1,
+              createdDate: new Date().toISOString().split("T")[0],
+              ...nextUser,
+            },
+            ...prev,
+          ];
+        });
+      }
+
+      setIsApproveAccountModalOpen(false);
+      setSelectedUserId(null);
+      setSelectedUserName("");
+    } catch (error) {
+      window.alert(error.message || "Failed to approve account request.");
     }
-    console.log("Approved account request for:", selectedUserName);
-    setIsApproveAccountModalOpen(false);
-    setSelectedUserId(null);
-    setSelectedUserName("");
   };
 
   const filteredUsers = users.filter(
@@ -344,15 +444,26 @@ const UserManagement = () => {
 
   const filteredRequests = accountRequests.filter(
     (request) =>
-      request.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      request.email.toLowerCase().includes(searchTerm.toLowerCase())
+      request.approvalStatus === ACCOUNT_REQUEST_STATUS.PENDING_ADMIN &&
+      (
+        request.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        request.email.toLowerCase().includes(searchTerm.toLowerCase())
+      )
+  );
+  const blockedAccountUserIds = new Set(
+    accountRequests
+      .filter((request) => request.approvalStatus !== ACCOUNT_REQUEST_STATUS.APPROVED_BY_ADMIN)
+      .map((request) => Number(request.userId))
+      .filter((userId) => Number.isInteger(userId) && userId > 0)
   );
 
   const totalUsers = users.length;
   const activeUsers = users.filter((u) => u.status === "active").length;
-  const inactiveUsers = users.filter((u) => u.status === "inactive").length;
+  const inactiveUsers = users.filter(
+    (u) => u.status === "inactive" && !blockedAccountUserIds.has(Number(u.id))
+  ).length;
   const pendingRequests = accountRequests.filter(
-    (r) => r.approvalStatus !== ACCOUNT_REQUEST_STATUS.APPROVED_BY_ADMIN && r.approvalStatus !== ACCOUNT_REQUEST_STATUS.REJECTED
+    (r) => r.approvalStatus === ACCOUNT_REQUEST_STATUS.PENDING_ADMIN
   ).length;
   const hideSummaryCards = location.state?.hideSummaryCards === true;
 
@@ -395,9 +506,14 @@ const UserManagement = () => {
         title="User Management"
         subtitle="Manage system users, roles, and account approvals"
         actions={
-          <Button icon="add_circle" onClick={() => setIsModalOpen(true)}>
-            Create User
-          </Button>
+          <>
+            <Button variant="secondary" icon="refresh" onClick={refreshAdminData}>
+              Refresh
+            </Button>
+            <Button icon="add_circle" onClick={() => setIsModalOpen(true)}>
+              Create User
+            </Button>
+          </>
         }
       />
 
@@ -460,6 +576,12 @@ const UserManagement = () => {
           </div>
         )}
 
+        {activeTab === "pending-approvals" && accountRequestsError && (
+          <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+            {accountRequestsError}
+          </div>
+        )}
+
         {/* Users Table or Requests Table */}
         {activeTab === "active-users" ? (
           <Card>
@@ -477,7 +599,11 @@ const UserManagement = () => {
           </Card>
         ) : (
           <Card>
-            <Table columns={accountRequestColumns} data={filteredRequests} actions={requestActions} rowsPerPage={10} />
+            {accountRequestsLoading ? (
+              <p className="text-sm text-text-light p-4">Loading account requests...</p>
+            ) : (
+              <Table columns={accountRequestColumns} data={filteredRequests} actions={requestActions} rowsPerPage={10} />
+            )}
           </Card>
         )}
       </div>
@@ -516,8 +642,9 @@ const UserManagement = () => {
         size="md"
       >
         <form className="space-y-4">
+          {submitError && <p className="rounded bg-error/10 px-3 py-2 text-sm text-error">{submitError}</p>}
           <p className="text-sm text-text-light bg-background-light p-3 rounded">
-            Note: New account requests will be sent to your Department Head for approval, then to Admin for activation.
+            Note: New non-admin accounts are created as inactive staff accounts first. Requested HOD and dean roles are assigned during approval.
           </p>
           <FormInput
             label="Full Name"
@@ -557,11 +684,12 @@ const UserManagement = () => {
               label="Requested Role"
               name="role"
               value={formData.role}
-              onChange={handleInputChange}
+              onChange={handleSelectChange("role")}
               options={[
                 { value: "staff", label: ROLE_HIERARCHY.staff.label },
                 { value: "head_of_department", label: ROLE_HIERARCHY.head_of_department.label },
                 { value: "dean", label: ROLE_HIERARCHY.dean.label },
+                { value: "registrar", label: ROLE_HIERARCHY.registrar.label },
               ]}
               required
             />
@@ -569,7 +697,7 @@ const UserManagement = () => {
               label="Department"
               name="department"
               value={formData.department}
-              onChange={handleInputChange}
+              onChange={handleSelectChange("department")}
               options={[
                 { value: "Dean's Office", label: "Dean's Office" },
                 { value: "Information Technology", label: "Information Technology" },
@@ -585,7 +713,7 @@ const UserManagement = () => {
             label="Designation"
             name="designation"
             value={formData.designation}
-            onChange={handleInputChange}
+            onChange={handleSelectChange("designation")}
             options={[
               { value: "Lecturer", label: "Lecturer" },
               { value: "Instructor", label: "Instructor" },
@@ -681,7 +809,7 @@ const UserManagement = () => {
             <label className="block text-sm font-semibold text-text-dark">Select New Role:</label>
             <div className="space-y-2">
               {Object.entries(ROLE_HIERARCHY)
-                .filter(([key]) => key !== "admin" && key !== "registrar")
+                .filter(([key]) => ["staff", "head_of_department", "dean"].includes(key))
                 .map(([role, data]) => (
                   <label
                     key={role}

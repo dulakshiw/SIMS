@@ -33,6 +33,7 @@ app.use(cors({ origin: CLIENT_ORIGIN, credentials: true }));
 app.use(express.json({ limit: "2mb" }));
 
 const itemColumns = [
+  "inventory_id",
   "itemName",
   "itemCode",
   "serialNo",
@@ -58,6 +59,9 @@ const itemColumns = [
 ];
 
 const normalizeItemPayload = (payload = {}) => ({
+  inventory_id: Number(payload.inventoryId ?? payload.inventory_id ?? 0) > 0
+    ? Number(payload.inventoryId ?? payload.inventory_id)
+    : null,
   itemName: payload.itemName ?? payload.itemname ?? "",
   itemCode: payload.itemCode ?? payload.itemcode ?? "",
   serialNo: payload.serialNo ?? payload.serialno ?? "",
@@ -89,6 +93,7 @@ const createInventoryItemsTable = async () => {
     `
       CREATE TABLE IF NOT EXISTS ${DB_ITEMS_TABLE} (
         id INT PRIMARY KEY AUTO_INCREMENT,
+        inventory_id INT NULL,
         itemName VARCHAR(255) NOT NULL,
         itemCode VARCHAR(255) DEFAULT '',
         serialNo VARCHAR(255) DEFAULT '',
@@ -118,6 +123,24 @@ const createInventoryItemsTable = async () => {
   );
 };
 
+const ensureInventoryItemsInventoryColumn = async () => {
+  const [tableRows] = await pool.query("SHOW TABLES");
+  const tableNames = new Set(tableRows.map((row) => Object.values(row)[0]));
+
+  if (!tableNames.has(DB_ITEMS_TABLE)) {
+    return new Set();
+  }
+
+  const inventoryItemColumns = await getTableColumns(DB_ITEMS_TABLE);
+
+  if (!inventoryItemColumns.has("inventory_id")) {
+    await pool.query(`ALTER TABLE ${DB_ITEMS_TABLE} ADD COLUMN inventory_id INT NULL AFTER id`);
+    inventoryItemColumns.add("inventory_id");
+  }
+
+  return inventoryItemColumns;
+};
+
 const createAccountRequestsTable = async () => {
   await pool.query(
     `
@@ -128,10 +151,16 @@ const createAccountRequestsTable = async () => {
         email VARCHAR(255) NOT NULL,
         requested_role VARCHAR(50) NOT NULL,
         requested_department_id INT NULL,
+        requested_password VARCHAR(255) NULL,
+        requested_designation VARCHAR(255) NULL,
+        requested_mobile_no VARCHAR(50) NULL,
+        requested_off_ext VARCHAR(50) NULL,
         approval_status VARCHAR(50) DEFAULT 'pending_admin',
         requested_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         dept_head_approved_date TIMESTAMP NULL,
         dept_head_approved_by_id INT NULL,
+        dean_approved_date TIMESTAMP NULL,
+        dean_approved_by_id INT NULL,
         admin_approved_date TIMESTAMP NULL,
         admin_approved_by_id INT NULL,
         rejection_reason VARCHAR(500),
@@ -249,16 +278,78 @@ const getAuthSchema = async () => {
   return authSchema;
 };
 
-const buildUserResponse = (user) => ({
+const buildUserResponse = (user, options = {}) => ({
   id: user.id ?? user.user_id ?? null,
   name: user.name ?? user.full_name ?? "",
   email: user.email,
-  role: normalizeUserRole(user.role ?? user.user_role),
+  role: normalizeUserRole(options.role ?? user.role ?? user.user_role),
   status: String(user.status ?? "").toLowerCase(),
   departmentId: user.department_id ?? null,
   departmentName: user.department_name ?? null,
   designation: user.designation ?? "",
+  assignedInventoryCount: Number(options.assignedInventoryCount ?? user.assigned_inventory_count ?? 0),
 });
+
+const getInventoryAssignmentCounts = async () => {
+  const [tableRows] = await pool.query("SHOW TABLES");
+  const tableNames = new Set(tableRows.map((row) => Object.values(row)[0]));
+
+  if (!tableNames.has("inventories")) {
+    return new Map();
+  }
+
+  const inventoryColumns = await getTableColumns("inventories");
+  const inventoryInchargeColumn = getInventoryInchargeColumn(inventoryColumns);
+
+  if (!inventoryInchargeColumn) {
+    return new Map();
+  }
+
+  const [rows] = await pool.execute(
+    `
+      SELECT ${inventoryInchargeColumn} AS user_id, COUNT(*) AS inventory_count
+      FROM inventories
+      WHERE ${inventoryInchargeColumn} IS NOT NULL
+      GROUP BY ${inventoryInchargeColumn}
+    `
+  );
+
+  return new Map(rows.map((row) => [Number(row.user_id), Number(row.inventory_count ?? 0)]));
+};
+
+const resolveEffectiveRole = (roleValue, assignedInventoryCount = 0) => {
+  const normalizedRole = normalizeUserRole(roleValue);
+  const normalizedInventoryCount = Number(assignedInventoryCount ?? 0);
+
+  if (normalizedRole === "staff" && normalizedInventoryCount > 0) {
+    return "inventory_incharge";
+  }
+
+  if (normalizedRole === "inventory_incharge" && normalizedInventoryCount <= 0) {
+    return "staff";
+  }
+
+  return normalizedRole;
+};
+
+const getEffectiveUserRoleDetails = async (userId, roleValue, assignmentCounts = null) => {
+  const normalizedUserId = Number(userId ?? 0);
+
+  if (!Number.isInteger(normalizedUserId) || normalizedUserId <= 0) {
+    return {
+      assignedInventoryCount: 0,
+      role: resolveEffectiveRole(roleValue, 0),
+    };
+  }
+
+  const resolvedAssignmentCounts = assignmentCounts ?? await getInventoryAssignmentCounts();
+  const assignedInventoryCount = Number(resolvedAssignmentCounts.get(normalizedUserId) ?? 0);
+
+  return {
+    assignedInventoryCount,
+    role: resolveEffectiveRole(roleValue, assignedInventoryCount),
+  };
+};
 
 const getDesignationQueryParts = (schema, userAlias = "u", designationAlias = "dg") => {
   if (schema.userColumns.has("designation")) {
@@ -337,12 +428,69 @@ const resolveDesignationId = async (schema, designationValue) => {
 
 const normalizeRoleForStorage = (roleValue) => normalizeUserRole(roleValue);
 
+const getSignupStoredRole = (requestedRole) => {
+  const normalizedRole = normalizeRoleForStorage(requestedRole);
+
+  return normalizedRole === "admin" ? "admin" : "staff";
+};
+
+const getSignupStoredStatus = (schema, requestedRole) => {
+  const normalizedRole = normalizeRoleForStorage(requestedRole);
+  const isActive = normalizedRole === "admin";
+
+  if (schema.hasUserRolesTable) {
+    return isActive ? "Active" : "Inactive";
+  }
+
+  return isActive ? "active" : "inactive";
+};
+
 const resolveRoleId = async (roleValue) => {
   const [roleRows] = await pool.query("SELECT role_id, user_role FROM user_roles");
   const matchedRole = roleRows.find(
     (roleRow) => normalizeUserRole(roleRow.user_role) === normalizeRoleForStorage(roleValue)
   );
   return matchedRole?.role_id ?? null;
+};
+
+const updateStoredUserRole = async (schema, userId, roleValue) => {
+  const normalizedRole = normalizeRoleForStorage(roleValue);
+  const normalizedUserId = Number(userId);
+
+  if (!Number.isInteger(normalizedUserId) || normalizedUserId <= 0 || !normalizedRole) {
+    return false;
+  }
+
+  const idColumnName = schema.userColumns.has("id") ? "id" : "user_id";
+
+  if (schema.userColumns.has("role")) {
+    await pool.execute(`UPDATE users SET role = ? WHERE ${idColumnName} = ?`, [normalizedRole, normalizedUserId]);
+    return true;
+  }
+
+  if (schema.hasUserRolesTable) {
+    const roleId = await resolveRoleId(normalizedRole);
+
+    if (!roleId) {
+      return false;
+    }
+
+    await pool.execute(`UPDATE users SET role_id = ? WHERE ${idColumnName} = ?`, [roleId, normalizedUserId]);
+    return true;
+  }
+
+  return false;
+};
+
+const updateStoredUserStatus = async (schema, userId, nextStatus) => {
+  const normalizedUserId = Number(userId);
+
+  if (!Number.isInteger(normalizedUserId) || normalizedUserId <= 0 || !schema.userColumns.has("status")) {
+    return;
+  }
+
+  const idColumnName = schema.userColumns.has("id") ? "id" : "user_id";
+  await pool.execute(`UPDATE users SET status = ? WHERE ${idColumnName} = ?`, [nextStatus, normalizedUserId]);
 };
 
 const resolveDepartmentId = async (schema, departmentName) => {
@@ -392,6 +540,68 @@ const resolveDepartmentHeadUserId = async (schema, departmentId) => {
   return matchedHod?.id ?? null;
 };
 
+const resolveDeanUserId = async (schema) => {
+  const userIdColumn = schema.userColumns.has("id") ? "u.id" : "u.user_id";
+  const roleSelection = schema.userColumns.has("role")
+    ? "u.role AS role"
+    : schema.hasUserRolesTable
+      ? "ur.user_role AS role"
+      : "NULL AS role";
+  const roleJoin = !schema.userColumns.has("role") && schema.hasUserRolesTable
+    ? "LEFT JOIN user_roles ur ON ur.role_id = u.role_id"
+    : "";
+
+  const [rows] = await pool.execute(
+    `
+      SELECT ${userIdColumn} AS id, ${roleSelection}
+      FROM users u
+      ${roleJoin}
+      WHERE LOWER(COALESCE(u.status, '')) = 'active'
+      ORDER BY ${userIdColumn} ASC
+    `
+  );
+
+  const matchedDean = rows.find((row) => normalizeUserRole(row.role) === "dean");
+  return matchedDean?.id ?? null;
+};
+
+const getPendingAccountStatusMessage = (approvalStatus, requestedRole) => {
+  const normalizedStatus = String(approvalStatus || "").toLowerCase();
+  const normalizedRole = normalizeRoleForStorage(requestedRole || "staff");
+
+  const statusMessages = {
+    pending_dept_head: `Your ${normalizedRole.replace(/_/g, " ")} request is waiting for HOD approval.`,
+    pending_dean: `Your ${normalizedRole.replace(/_/g, " ")} request is waiting for dean approval.`,
+    pending_admin: `Your ${normalizedRole.replace(/_/g, " ")} request is waiting for admin activation.`,
+  };
+
+  return statusMessages[normalizedStatus] || "Your account is not active yet. Please contact the administrator.";
+};
+
+const hasPendingRoleRequest = async (userId, requestedRole) => {
+  const normalizedUserId = Number(userId);
+  const normalizedRole = normalizeRoleForStorage(requestedRole);
+
+  if (!Number.isInteger(normalizedUserId) || normalizedUserId <= 0 || !normalizedRole) {
+    return false;
+  }
+
+  const [rows] = await pool.execute(
+    `
+      SELECT id
+      FROM account_requests
+      WHERE user_id = ?
+        AND LOWER(COALESCE(request_type, 'account_creation')) = 'account_creation'
+        AND LOWER(COALESCE(requested_role, '')) = ?
+        AND LOWER(COALESCE(approval_status, '')) NOT IN ('approved_by_admin', 'rejected')
+      LIMIT 1
+    `,
+    [normalizedUserId, normalizedRole]
+  );
+
+  return rows.length > 0;
+};
+
 const getCountValue = async (sql) => {
   const [rows] = await pool.query(sql);
   return Number(rows[0]?.count ?? 0);
@@ -404,7 +614,39 @@ const getTableColumns = async (tableName) => {
 
 const ensureAccountRequestsTable = async () => {
   await createAccountRequestsTable();
-  return getTableColumns("account_requests");
+  const accountRequestColumns = await getTableColumns("account_requests");
+
+  if (!accountRequestColumns.has("requested_password")) {
+    await pool.query("ALTER TABLE account_requests ADD COLUMN requested_password VARCHAR(255) NULL AFTER requested_department_id");
+    accountRequestColumns.add("requested_password");
+  }
+
+  if (!accountRequestColumns.has("requested_designation")) {
+    await pool.query("ALTER TABLE account_requests ADD COLUMN requested_designation VARCHAR(255) NULL AFTER requested_password");
+    accountRequestColumns.add("requested_designation");
+  }
+
+  if (!accountRequestColumns.has("requested_mobile_no")) {
+    await pool.query("ALTER TABLE account_requests ADD COLUMN requested_mobile_no VARCHAR(50) NULL AFTER requested_designation");
+    accountRequestColumns.add("requested_mobile_no");
+  }
+
+  if (!accountRequestColumns.has("requested_off_ext")) {
+    await pool.query("ALTER TABLE account_requests ADD COLUMN requested_off_ext VARCHAR(50) NULL AFTER requested_mobile_no");
+    accountRequestColumns.add("requested_off_ext");
+  }
+
+  if (!accountRequestColumns.has("dean_approved_date")) {
+    await pool.query("ALTER TABLE account_requests ADD COLUMN dean_approved_date TIMESTAMP NULL AFTER dept_head_approved_by_id");
+    accountRequestColumns.add("dean_approved_date");
+  }
+
+  if (!accountRequestColumns.has("dean_approved_by_id")) {
+    await pool.query("ALTER TABLE account_requests ADD COLUMN dean_approved_by_id INT NULL AFTER dean_approved_date");
+    accountRequestColumns.add("dean_approved_by_id");
+  }
+
+  return accountRequestColumns;
 };
 
 const ensureInventoryCreationRequestsTable = async () => {
@@ -442,6 +684,92 @@ const ensureInventoryCreationRequestsTable = async () => {
   }
 
   return inventoryRequestColumns;
+};
+
+const getOutstandingReturnSummary = async (userId) => {
+  if (!Number.isInteger(userId) || userId <= 0) {
+    return { count: 0, sampleItems: [] };
+  }
+
+  const [tableRows] = await pool.query("SHOW TABLES");
+  const tableNames = new Set(tableRows.map((row) => Object.values(row)[0]));
+
+  if (!tableNames.has("item_requests")) {
+    return { count: 0, sampleItems: [] };
+  }
+
+  const itemRequestColumns = await getTableColumns("item_requests");
+
+  if (!itemRequestColumns.has("requested_by_id")) {
+    return { count: 0, sampleItems: [] };
+  }
+
+  const returnDateColumns = ["returned_date", "return_date", "returned_at", "actual_return_date"];
+  const returnStatusColumns = ["return_status", "issue_status", "status"];
+  const existingReturnDateColumns = returnDateColumns.filter((column) => itemRequestColumns.has(column));
+  const existingReturnStatusColumns = returnStatusColumns.filter((column) => itemRequestColumns.has(column));
+
+  const outstandingConditions = ["requested_by_id = ?"];
+  const queryParams = [userId];
+
+  if (itemRequestColumns.has("approval_status")) {
+    outstandingConditions.push("LOWER(COALESCE(approval_status, '')) = 'approved'");
+  }
+
+  if (itemRequestColumns.has("allocated_date")) {
+    outstandingConditions.push("allocated_date IS NOT NULL");
+  } else if (itemRequestColumns.has("allocated_quantity")) {
+    outstandingConditions.push("COALESCE(allocated_quantity, 0) > 0");
+  } else if (itemRequestColumns.has("allocated_inventory_id")) {
+    outstandingConditions.push("allocated_inventory_id IS NOT NULL");
+  }
+
+  if (existingReturnDateColumns.length > 0) {
+    outstandingConditions.push(
+      existingReturnDateColumns.map((column) => `${column} IS NULL`).join(" AND ")
+    );
+  }
+
+  if (existingReturnStatusColumns.length > 0) {
+    outstandingConditions.push(
+      existingReturnStatusColumns
+        .map((column) => `LOWER(COALESCE(${column}, '')) NOT IN ('returned', 'completed', 'closed')`)
+        .join(" AND ")
+    );
+  }
+
+  const itemNameSelection = itemRequestColumns.has("item_name") ? "item_name" : "CAST(id AS CHAR)";
+  const orderingColumns = ["allocated_date", "created_date", "requested_date"].filter((column) =>
+    itemRequestColumns.has(column)
+  );
+  const orderByClause = orderingColumns.length > 0
+    ? `${orderingColumns.map((column) => `${column} DESC`).join(", ")}, id DESC`
+    : "id DESC";
+  const whereClause = outstandingConditions.join(" AND ");
+
+  const [countRows] = await pool.execute(
+    `
+      SELECT COUNT(*) AS count
+      FROM item_requests
+      WHERE ${whereClause}
+    `,
+    queryParams
+  );
+  const [rows] = await pool.execute(
+    `
+      SELECT id, ${itemNameSelection} AS item_name
+      FROM item_requests
+      WHERE ${whereClause}
+      ORDER BY ${orderByClause}
+      LIMIT 5
+    `,
+    queryParams
+  );
+
+  return {
+    count: Number(countRows[0]?.count ?? 0),
+    sampleItems: rows.map((row) => String(row.item_name ?? row.id ?? "Item")).filter(Boolean),
+  };
 };
 
 const ensureInventoriesLocationColumn = async () => {
@@ -541,6 +869,63 @@ const resolveUserId = async (userValue) => {
   return userRows[0]?.id ?? null;
 };
 
+const syncInventoryInchargeRole = async (userId, assignmentCounts = null) => {
+  const normalizedUserId = Number(userId ?? 0);
+
+  if (!Number.isInteger(normalizedUserId) || normalizedUserId <= 0) {
+    return null;
+  }
+
+  const schema = await getAuthSchema();
+  const userIdColumn = schema.userColumns.has("id") ? "id" : "user_id";
+  const roleSelection = schema.userColumns.has("role")
+    ? "role"
+    : schema.hasUserRolesTable
+      ? "role_id"
+      : null;
+
+  if (!roleSelection) {
+    return null;
+  }
+
+  const roleQuerySelection = schema.userColumns.has("role")
+    ? "role AS role"
+    : "role_id AS role";
+  const [rows] = await pool.execute(
+    `SELECT ${roleQuerySelection} FROM users WHERE ${userIdColumn} = ? LIMIT 1`,
+    [normalizedUserId]
+  );
+
+  if (rows.length === 0) {
+    return null;
+  }
+
+  let currentRole = rows[0].role;
+  if (!schema.userColumns.has("role") && schema.hasUserRolesTable) {
+    const [roleRows] = await pool.execute("SELECT user_role FROM user_roles WHERE role_id = ? LIMIT 1", [currentRole]);
+    currentRole = roleRows[0]?.user_role ?? null;
+  }
+
+  const roleDetails = await getEffectiveUserRoleDetails(normalizedUserId, currentRole, assignmentCounts);
+  const nextRole = roleDetails.role;
+  const normalizedCurrentRole = normalizeUserRole(currentRole);
+
+  if (nextRole === normalizedCurrentRole) {
+    return roleDetails;
+  }
+
+  if (schema.userColumns.has("role")) {
+    await pool.execute(`UPDATE users SET role = ? WHERE ${userIdColumn} = ?`, [nextRole, normalizedUserId]);
+  } else if (schema.hasUserRolesTable) {
+    const nextRoleId = await resolveRoleId(nextRole);
+    if (nextRoleId) {
+      await pool.execute(`UPDATE users SET role_id = ? WHERE ${userIdColumn} = ?`, [nextRoleId, normalizedUserId]);
+    }
+  }
+
+  return roleDetails;
+};
+
 const withDatabase = (handler) => async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({
@@ -633,20 +1018,463 @@ app.get(
       `
     );
 
-    const users = rows.map((row) => ({
+    const assignmentCounts = await getInventoryAssignmentCounts();
+    const users = rows.map((row) => {
+      const roleDetails = {
+        assignedInventoryCount: Number(assignmentCounts.get(Number(row.id)) ?? 0),
+      };
+      roleDetails.role = resolveEffectiveRole(row.role, roleDetails.assignedInventoryCount);
+
+      return {
       id: row.id,
       name: row.name,
       email: row.email,
-      role: normalizeUserRole(row.role),
+        role: roleDetails.role,
       department: row.department_name ?? "-",
       designation: row.designation ?? "",
       status: String(row.status ?? "").toLowerCase(),
       mobileNo: row.mobile_no ?? "",
       officeExtNo: row.off_ext ?? "",
+      assignedInventoryCount: roleDetails.assignedInventoryCount,
       createdDate: row.created_date ? new Date(row.created_date).toISOString().split("T")[0] : "",
-    }));
+      };
+    });
 
     return res.json({ success: true, users });
+  })
+);
+
+app.get(
+  "/api/account-requests",
+  withDatabase(async (req, res) => {
+    const accountRequestColumns = await ensureAccountRequestsTable();
+    const schema = await getAuthSchema();
+    const requestType = String(req.query?.requestType ?? "account_creation").trim().toLowerCase();
+    const requestedRoleFilter = String(req.query?.requestedRole ?? "").trim().toLowerCase();
+    const statusFilter = String(req.query?.status ?? "").trim().toLowerCase();
+    const userIdColumn = schema.userColumns.has("id") ? "u.id" : "u.user_id";
+    const userNameColumn = schema.userColumns.has("name") ? "u.name" : "u.full_name";
+    const roleSelection = schema.userColumns.has("role")
+      ? "u.role AS role"
+      : schema.hasUserRolesTable
+        ? "ur.user_role AS role"
+        : "NULL AS role";
+    const roleJoin = !schema.userColumns.has("role") && schema.hasUserRolesTable
+      ? "LEFT JOIN user_roles ur ON ur.role_id = u.role_id"
+      : "";
+    const departmentNameColumn = schema.departmentColumns.has("name")
+      ? "d.name"
+      : schema.departmentColumns.has("department_name")
+        ? "d.department_name"
+        : "NULL";
+    const { designationSelection, designationJoin } = getDesignationQueryParts(schema);
+    const departmentJoin = schema.hasDepartmentsTable
+      ? `LEFT JOIN departments d ON d.${schema.departmentColumns.has("id") ? "id" : "department_id"} = ar.requested_department_id`
+      : "";
+    const userJoin = accountRequestColumns.has("user_id")
+      ? `LEFT JOIN users u ON u.${schema.userColumns.has("id") ? "id" : "user_id"} = ar.user_id`
+      : "LEFT JOIN users u ON LOWER(u.email) = LOWER(ar.email)";
+    const createdDateColumn = accountRequestColumns.has("created_date") ? "ar.created_date" : "ar.requested_date";
+    const requestTypeCondition = accountRequestColumns.has("request_type")
+      ? "LOWER(COALESCE(ar.request_type, 'account_creation')) = ?"
+      : "? = 'account_creation'";
+    const whereClauses = [requestTypeCondition];
+    const queryParams = [requestType];
+
+    if (requestedRoleFilter && accountRequestColumns.has("requested_role")) {
+      whereClauses.push("LOWER(COALESCE(ar.requested_role, '')) = ?");
+      queryParams.push(requestedRoleFilter);
+    }
+
+    if (statusFilter && accountRequestColumns.has("approval_status")) {
+      whereClauses.push("LOWER(COALESCE(ar.approval_status, '')) = ?");
+      queryParams.push(statusFilter);
+    }
+
+    const [rows] = await pool.execute(
+      `
+        SELECT
+          ar.id,
+          ${accountRequestColumns.has("requested_by_name") ? "ar.requested_by_name" : "NULL"} AS requested_by_name,
+          ${accountRequestColumns.has("email") ? "ar.email" : "u.email"} AS email,
+          ${accountRequestColumns.has("requested_role") ? "ar.requested_role" : "NULL"} AS requested_role,
+          ${accountRequestColumns.has("approval_status") ? "ar.approval_status" : "'pending_dept_head'"} AS approval_status,
+          ${accountRequestColumns.has("requested_date") ? "ar.requested_date" : createdDateColumn} AS requested_date,
+          ${accountRequestColumns.has("requested_designation") ? "ar.requested_designation" : "NULL"} AS requested_designation,
+          ${accountRequestColumns.has("requested_mobile_no") ? "ar.requested_mobile_no" : "NULL"} AS requested_mobile_no,
+          ${accountRequestColumns.has("requested_off_ext") ? "ar.requested_off_ext" : "NULL"} AS requested_off_ext,
+          ${accountRequestColumns.has("user_id") ? "ar.user_id" : "NULL"} AS user_id,
+          ${userIdColumn} AS linked_user_id,
+          ${userNameColumn} AS linked_user_name,
+          ${roleSelection},
+          ${departmentNameColumn} AS department_name,
+          ${designationSelection},
+          u.status
+        FROM account_requests ar
+        ${userJoin}
+        ${roleJoin}
+        ${departmentJoin}
+        ${designationJoin}
+        WHERE ${whereClauses.join(" AND ")}
+        ORDER BY ${createdDateColumn} DESC, ar.id DESC
+      `,
+      queryParams
+    );
+
+    return res.json({
+      success: true,
+      requests: rows.map((row) => ({
+        id: row.id,
+        userId: row.user_id ?? row.linked_user_id ?? null,
+        name: row.linked_user_name || row.requested_by_name || row.email,
+        email: row.email || "",
+        requestedRole: normalizeRoleForStorage(row.requested_role || "staff"),
+        role: normalizeUserRole(row.role || "staff"),
+        department: row.department_name || "-",
+        designation: row.designation || row.requested_designation || "",
+        mobileNo: row.requested_mobile_no || "",
+        officeExtNo: row.requested_off_ext || "",
+        approvalStatus: String(row.approval_status || "pending_dept_head").toLowerCase(),
+        requestedDate: row.requested_date ? new Date(row.requested_date).toISOString().split("T")[0] : "",
+        requestedByDeptHead: "-",
+        userStatus: String(row.status || "inactive").toLowerCase(),
+      })),
+    });
+  })
+);
+
+app.post(
+  "/api/account-requests/:id/approve",
+  withDatabase(async (req, res) => {
+    const requestId = Number(req.params.id);
+    const approverRole = normalizeRoleForStorage(req.body?.approverRole || "admin");
+    const approverUserId = Number(req.body?.approverUserId ?? 0);
+
+    if (!Number.isInteger(requestId) || requestId <= 0) {
+      return res.status(400).json({ success: false, message: "A valid account request id is required." });
+    }
+
+    const accountRequestColumns = await ensureAccountRequestsTable();
+    const schema = await getAuthSchema();
+    const [requestRows] = await pool.execute(
+      `
+        SELECT id, request_type, requested_role, approval_status, user_id, requested_by_name, email, requested_department_id,
+               ${accountRequestColumns.has("requested_password") ? "requested_password" : "NULL AS requested_password"},
+               ${accountRequestColumns.has("requested_designation") ? "requested_designation" : "NULL AS requested_designation"},
+               ${accountRequestColumns.has("requested_mobile_no") ? "requested_mobile_no" : "NULL AS requested_mobile_no"},
+               ${accountRequestColumns.has("requested_off_ext") ? "requested_off_ext" : "NULL AS requested_off_ext"}
+        FROM account_requests
+        WHERE id = ?
+        LIMIT 1
+      `,
+      [requestId]
+    );
+
+    if (requestRows.length === 0) {
+      return res.status(404).json({ success: false, message: "Account request not found." });
+    }
+
+    const request = requestRows[0];
+    const requestType = String(request.request_type || "account_creation").toLowerCase();
+
+    if (requestType !== "account_creation") {
+      return res.status(400).json({ success: false, message: "This approval route only supports account creation requests." });
+    }
+
+    const currentStatus = String(request.approval_status || "pending_dept_head").toLowerCase();
+    const targetUserId = Number(request.user_id ?? 0);
+
+    if (approverRole === "admin") {
+      if (currentStatus !== "pending_admin") {
+        return res.status(409).json({ success: false, message: "This account request is not ready for admin approval." });
+      }
+
+      const finalRole = normalizeRoleForStorage(request.requested_role || "staff");
+      const appliedRole = ["head_of_department", "dean", "admin", "registrar"].includes(finalRole) ? finalRole : "staff";
+
+      let resolvedUserId = targetUserId > 0 ? targetUserId : null;
+
+      if (resolvedUserId) {
+        await updateStoredUserRole(schema, resolvedUserId, appliedRole);
+        await updateStoredUserStatus(schema, resolvedUserId, schema.hasUserRolesTable ? "Active" : "active");
+      } else {
+        const normalizedEmail = String(request.email || "").trim().toLowerCase();
+        const [existingUserRows] = await pool.execute(
+          "SELECT 1 FROM users WHERE LOWER(email) = ? LIMIT 1",
+          [normalizedEmail]
+        );
+
+        if (existingUserRows.length > 0) {
+          return res.status(409).json({ success: false, message: "A user account with this email already exists." });
+        }
+
+        const userNameColumn = schema.userColumns.has("name") ? "name" : "full_name";
+        const insertColumns = [userNameColumn, "email", "password", "department_id", "status"];
+        const insertValues = [
+          String(request.requested_by_name || request.email || "").trim(),
+          normalizedEmail,
+          String(request.requested_password || ""),
+          request.requested_department_id ?? null,
+          schema.hasUserRolesTable ? "Active" : "active",
+        ];
+
+        if (schema.userColumns.has("role")) {
+          insertColumns.push("role");
+          insertValues.push(appliedRole);
+        } else if (schema.hasUserRolesTable) {
+          const roleId = await resolveRoleId(appliedRole);
+
+          if (!roleId) {
+            return res.status(400).json({ success: false, message: "Unable to resolve the approved role for this account." });
+          }
+
+          insertColumns.push("role_id");
+          insertValues.push(roleId);
+        }
+
+        const requestedDesignation = String(request.requested_designation || "").trim();
+        const designationId = await resolveDesignationId(schema, requestedDesignation);
+        if (requestedDesignation && schema.userColumns.has("designation_id") && designationId) {
+          insertColumns.push("designation_id");
+          insertValues.push(designationId);
+        } else if (requestedDesignation && schema.userColumns.has("designation")) {
+          insertColumns.push("designation");
+          insertValues.push(requestedDesignation);
+        }
+
+        const mobileNo = Number(String(request.requested_mobile_no || "").trim());
+        if (schema.userColumns.has("mobile_no") && !Number.isNaN(mobileNo) && mobileNo > 0) {
+          insertColumns.push("mobile_no");
+          insertValues.push(mobileNo);
+        }
+
+        const officeExtNo = Number(String(request.requested_off_ext || "").trim());
+        if (schema.userColumns.has("off_ext") && !Number.isNaN(officeExtNo) && officeExtNo > 0) {
+          insertColumns.push("off_ext");
+          insertValues.push(officeExtNo);
+        }
+
+        const placeholders = insertColumns.map(() => "?").join(", ");
+        const [insertResult] = await pool.execute(
+          `INSERT INTO users (${insertColumns.join(", ")}) VALUES (${placeholders})`,
+          insertValues
+        );
+
+        resolvedUserId = Number(insertResult.insertId);
+      }
+
+      const updateAssignments = [];
+      const updateValues = [];
+
+      if (accountRequestColumns.has("approval_status")) {
+        updateAssignments.push("approval_status = ?");
+        updateValues.push("approved_by_admin");
+      }
+
+      if (accountRequestColumns.has("admin_approved_date")) {
+        updateAssignments.push("admin_approved_date = CURRENT_TIMESTAMP");
+      }
+
+      if (accountRequestColumns.has("admin_approved_by_id")) {
+        updateAssignments.push("admin_approved_by_id = ?");
+        updateValues.push(approverUserId > 0 ? approverUserId : null);
+      }
+
+      if (accountRequestColumns.has("user_id")) {
+        updateAssignments.push("user_id = ?");
+        updateValues.push(resolvedUserId);
+      }
+
+      updateValues.push(requestId);
+      await pool.execute(`UPDATE account_requests SET ${updateAssignments.join(", ")} WHERE id = ?`, updateValues);
+
+      return res.json({
+        success: true,
+        message: appliedRole === "staff"
+          ? "Account approved and activated with staff access."
+          : `Account approved and activated with ${appliedRole.replace(/_/g, " ")} access.`,
+        user: {
+          id: resolvedUserId,
+          name: String(request.requested_by_name || request.email || "").trim(),
+          email: String(request.email || "").trim().toLowerCase(),
+          role: appliedRole,
+          status: "active",
+          departmentId: request.requested_department_id ?? null,
+          designation: String(request.requested_designation || "").trim(),
+        },
+      });
+    }
+
+    if (approverRole === "dean") {
+      if (currentStatus !== "pending_dean") {
+        return res.status(409).json({ success: false, message: "This account request is not awaiting dean approval." });
+      }
+
+      const updateAssignments = [];
+      const updateValues = [];
+
+      if (accountRequestColumns.has("approval_status")) {
+        updateAssignments.push("approval_status = ?");
+        updateValues.push("pending_admin");
+      }
+
+      if (accountRequestColumns.has("dean_approved_date")) {
+        updateAssignments.push("dean_approved_date = CURRENT_TIMESTAMP");
+      }
+
+      if (accountRequestColumns.has("dean_approved_by_id")) {
+        updateAssignments.push("dean_approved_by_id = ?");
+        updateValues.push(approverUserId > 0 ? approverUserId : null);
+      }
+
+      updateValues.push(requestId);
+      await pool.execute(`UPDATE account_requests SET ${updateAssignments.join(", ")} WHERE id = ?`, updateValues);
+
+      return res.json({
+        success: true,
+        message: "Account request approved by the dean and forwarded for admin activation.",
+      });
+    }
+
+    if (currentStatus !== "pending_dept_head") {
+      return res.status(409).json({ success: false, message: "This account request is not awaiting department-level approval." });
+    }
+
+    const updateAssignments = [];
+    const updateValues = [];
+
+    if (accountRequestColumns.has("approval_status")) {
+      updateAssignments.push("approval_status = ?");
+      updateValues.push("pending_admin");
+    }
+
+    if (accountRequestColumns.has("dept_head_approved_date")) {
+      updateAssignments.push("dept_head_approved_date = CURRENT_TIMESTAMP");
+    }
+
+    if (accountRequestColumns.has("dept_head_approved_by_id")) {
+      updateAssignments.push("dept_head_approved_by_id = ?");
+      updateValues.push(approverUserId > 0 ? approverUserId : null);
+    }
+
+    updateValues.push(requestId);
+    await pool.execute(`UPDATE account_requests SET ${updateAssignments.join(", ")} WHERE id = ?`, updateValues);
+
+    return res.json({
+      success: true,
+      message: "Account request approved by the HOD and forwarded for admin activation.",
+    });
+  })
+);
+
+app.post(
+  "/api/account-requests/:id/reject",
+  withDatabase(async (req, res) => {
+    const requestId = Number(req.params.id);
+
+    if (!Number.isInteger(requestId) || requestId <= 0) {
+      return res.status(400).json({ success: false, message: "A valid account request id is required." });
+    }
+
+    const [requestRows] = await pool.execute(
+      `SELECT id, request_type FROM account_requests WHERE id = ? LIMIT 1`,
+      [requestId]
+    );
+
+    if (requestRows.length === 0) {
+      return res.status(404).json({ success: false, message: "Account request not found." });
+    }
+
+    if (String(requestRows[0].request_type || "account_creation").toLowerCase() !== "account_creation") {
+      return res.status(400).json({ success: false, message: "This rejection route only supports account creation requests." });
+    }
+
+    await pool.execute(
+      `UPDATE account_requests SET approval_status = 'rejected', rejection_date = CURRENT_TIMESTAMP, rejection_reason = ? WHERE id = ?`,
+      [String(req.body?.reason || "Rejected during approval workflow"), requestId]
+    );
+
+    return res.json({ success: true, message: "Account request rejected." });
+  })
+);
+
+app.patch(
+  "/api/users/:id/role",
+  withDatabase(async (req, res) => {
+    const userId = Number(req.params.id);
+    const nextRole = normalizeRoleForStorage(req.body?.role);
+    const schema = await getAuthSchema();
+    const allowedRoles = new Set(["staff", "head_of_department", "dean", "admin"]);
+
+    if (!Number.isInteger(userId) || userId <= 0 || !nextRole) {
+      return res.status(400).json({ success: false, message: "A valid user id and role are required." });
+    }
+
+    if (!allowedRoles.has(nextRole)) {
+      return res.status(400).json({ success: false, message: "Inventory access is granted through inventory assignment, not manual role changes." });
+    }
+
+    const updated = await updateStoredUserRole(schema, userId, nextRole);
+
+    if (!updated) {
+      return res.status(400).json({ success: false, message: "Unable to update the requested role." });
+    }
+
+    return res.json({ success: true, message: "User role updated successfully." });
+  })
+);
+
+app.patch(
+  "/api/users/:id/status",
+  withDatabase(async (req, res) => {
+    const userId = Number(req.params.id);
+    const nextStatus = String(req.body?.status || "").trim().toLowerCase();
+    const schema = await getAuthSchema();
+
+    if (!Number.isInteger(userId) || userId <= 0 || !["active", "inactive"].includes(nextStatus)) {
+      return res.status(400).json({ success: false, message: "A valid user id and status are required." });
+    }
+
+    if (nextStatus === "active") {
+      const accountRequestColumns = await ensureAccountRequestsTable();
+      const [requestRows] = await pool.execute(
+        `
+          SELECT approval_status
+          FROM account_requests
+          WHERE ${accountRequestColumns.has("user_id") ? "user_id = ?" : "1 = 0"}
+            AND LOWER(COALESCE(request_type, 'account_creation')) = 'account_creation'
+          ORDER BY ${accountRequestColumns.has("requested_date") ? "requested_date" : "id"} DESC, id DESC
+          LIMIT 1
+        `,
+        [userId]
+      );
+
+      if (requestRows.length > 0) {
+        const approvalStatus = String(requestRows[0].approval_status || "").toLowerCase();
+
+        if (approvalStatus !== "approved_by_admin") {
+          const statusMessages = {
+            pending_dept_head: "This account is still waiting for HOD approval and cannot be activated yet.",
+            pending_dean: "This account is still waiting for dean approval and cannot be activated yet.",
+            pending_admin: "Use the account approval flow to activate this account after reviewing the request.",
+            rejected: "This account request was rejected and cannot be activated.",
+          };
+
+          return res.status(409).json({
+            success: false,
+            message: statusMessages[approvalStatus] || "This account cannot be activated until the approval workflow is completed.",
+          });
+        }
+      }
+    }
+
+    await updateStoredUserStatus(
+      schema,
+      userId,
+      schema.hasUserRolesTable ? (nextStatus === "active" ? "Active" : "Inactive") : nextStatus
+    );
+
+    return res.json({ success: true, message: `User marked as ${nextStatus}.` });
   })
 );
 
@@ -849,6 +1677,8 @@ app.post(
       insertValues
     );
 
+    await syncInventoryInchargeRole(inchargeId);
+
     return res.status(201).json({
       success: true,
       inventory: {
@@ -911,6 +1741,17 @@ app.put(
       return res.status(400).json({ success: false, error: "Selected in-charge person was not found." });
     }
 
+    const [existingRows] = await pool.execute(
+      `SELECT ${inventoryInchargeColumn} AS incharge_id FROM inventories WHERE ${inventoryIdColumn} = ? LIMIT 1`,
+      [inventoryId]
+    );
+
+    if (existingRows.length === 0) {
+      return res.status(404).json({ success: false, error: "Inventory not found." });
+    }
+
+    const previousInchargeId = Number(existingRows[0]?.incharge_id ?? 0);
+
     const updateAssignments = [`${inventoryNameColumn} = ?`, "department_id = ?", `${inventoryInchargeColumn} = ?`];
     const updateValues = [name, departmentId, inchargeId];
 
@@ -936,8 +1777,11 @@ app.put(
       updateValues
     );
 
-    if (result.affectedRows === 0) {
-      return res.status(404).json({ success: false, error: "Inventory not found." });
+    const assignmentCounts = await getInventoryAssignmentCounts();
+    await syncInventoryInchargeRole(inchargeId, assignmentCounts);
+
+    if (previousInchargeId > 0 && previousInchargeId !== inchargeId) {
+      await syncInventoryInchargeRole(previousInchargeId, assignmentCounts);
     }
 
     return res.json({
@@ -971,7 +1815,7 @@ app.get(
     const activeUsers = tableNames.has("users")
       ? await getCountValue("SELECT COUNT(*) AS count FROM users WHERE LOWER(COALESCE(status, '')) = 'active'")
       : 0;
-    const inactiveUsers = Math.max(totalUsers - activeUsers, 0);
+    let inactiveUsers = Math.max(totalUsers - activeUsers, 0);
     const totalInventories = tableNames.has("inventories")
       ? await getCountValue("SELECT COUNT(*) AS count FROM inventories")
       : 0;
@@ -989,10 +1833,17 @@ app.get(
         )
       : 0;
 
+    if (tableNames.has("account_requests")) {
+      const blockedInactiveUsers = await getCountValue(
+        "SELECT COUNT(DISTINCT user_id) AS count FROM account_requests WHERE user_id IS NOT NULL AND LOWER(COALESCE(request_type, 'account_creation')) = 'account_creation' AND LOWER(COALESCE(approval_status, '')) IN ('pending_dept_head', 'pending_dean', 'pending_admin', 'rejected')"
+      );
+      inactiveUsers = Math.max(inactiveUsers - blockedInactiveUsers, 0);
+    }
+
     let pendingTasks = inactiveUsers;
     if (tableNames.has("account_requests")) {
       pendingTasks += await getCountValue(
-        "SELECT COUNT(*) AS count FROM account_requests WHERE LOWER(COALESCE(approval_status, '')) NOT IN ('approved_by_admin', 'rejected')"
+        "SELECT COUNT(*) AS count FROM account_requests WHERE LOWER(COALESCE(request_type, 'account_creation')) = 'account_creation' AND LOWER(COALESCE(approval_status, '')) = 'pending_admin'"
       );
     }
     if (tableNames.has("inventory_creation_requests")) {
@@ -1082,7 +1933,33 @@ app.post(
       [email]
     );
 
+    const accountRequestColumns = await ensureAccountRequestsTable();
+    const [pendingRequestRows] = await pool.execute(
+      `
+        SELECT approval_status, requested_role, ${accountRequestColumns.has("requested_password") ? "requested_password" : "NULL AS requested_password"}
+        FROM account_requests
+        WHERE LOWER(COALESCE(email, '')) = ?
+          AND LOWER(COALESCE(request_type, 'account_creation')) = 'account_creation'
+          AND LOWER(COALESCE(approval_status, '')) NOT IN ('approved_by_admin', 'rejected')
+        ORDER BY ${accountRequestColumns.has("requested_date") ? "requested_date" : "id"} DESC, id DESC
+        LIMIT 1
+      `,
+      [email]
+    );
+    const pendingRequest = pendingRequestRows[0] || null;
+
     if (rows.length === 0 || rows[0].password !== password) {
+      if (pendingRequest) {
+        const pendingPassword = String(pendingRequest.requested_password || "");
+
+        if (!pendingPassword || pendingPassword === password) {
+          return res.status(403).json({
+            success: false,
+            error: getPendingAccountStatusMessage(pendingRequest.approval_status, pendingRequest.requested_role),
+          });
+        }
+      }
+
       return res.status(401).json({
         success: false,
         error: "Invalid email or password.",
@@ -1092,9 +1969,22 @@ app.post(
     const user = rows[0];
 
     if (String(user.status ?? "").toLowerCase() !== "active") {
+      const [requestRows] = await pool.execute(
+        `
+          SELECT approval_status, requested_role
+          FROM account_requests
+          WHERE LOWER(COALESCE(email, '')) = ?
+            AND LOWER(COALESCE(request_type, 'account_creation')) = 'account_creation'
+            AND LOWER(COALESCE(approval_status, '')) NOT IN ('approved_by_admin', 'rejected')
+          ORDER BY ${accountRequestColumns.has("requested_date") ? "requested_date" : "id"} DESC, id DESC
+          LIMIT 1
+        `,
+        [email]
+      );
+
       return res.status(403).json({
         success: false,
-        error: "Your account is not active yet. Please contact the administrator.",
+        error: getPendingAccountStatusMessage(requestRows[0]?.approval_status, requestRows[0]?.requested_role),
       });
     }
 
@@ -1105,10 +1995,12 @@ app.post(
       ]);
     }
 
+    const roleDetails = await getEffectiveUserRoleDetails(user.id, user.role);
+
     return res.json({
       success: true,
       message: "Login successful! Redirecting...",
-      user: buildUserResponse(user),
+      user: buildUserResponse(user, roleDetails),
     });
   })
 );
@@ -1119,17 +2011,28 @@ app.post(
     const fullName = String(req.body?.fullName ?? "").trim();
     const email = String(req.body?.email ?? "").trim().toLowerCase();
     const password = String(req.body?.password ?? "");
-    const role = normalizeRoleForStorage(req.body?.role);
+    const adminRequest = req.body?.adminRequest === true || String(req.body?.adminRequest ?? "").toLowerCase() === "true";
+    const createdByRole = normalizeRoleForStorage(req.body?.createdByRole || "");
+    const requestedRoleInput = normalizeRoleForStorage(req.body?.role || "staff");
+    const requestedRole = adminRequest ? "admin" : requestedRoleInput || "staff";
     const department = String(req.body?.department ?? "").trim();
     const designation = String(req.body?.designation ?? "").trim();
     const mobileNoRaw = String(req.body?.mobileNo ?? "").trim();
     const officeExtNoRaw = String(req.body?.officeExtNo ?? "").trim();
 
-    if (!fullName || !email || !password || !role || !department) {
+    if (!fullName || !email || !password || !department) {
       return res.status(400).json({
         success: false,
-        error: "Full name, email, password, role, and department are required.",
+        error: "Full name, email, password, and department are required.",
       });
+    }
+
+    if (!["staff", "head_of_department", "dean", "registrar", "admin"].includes(requestedRole)) {
+      return res.status(400).json({ success: false, error: "Invalid account request type." });
+    }
+
+    if (requestedRole === "registrar" && createdByRole !== "admin") {
+      return res.status(403).json({ success: false, error: "Registrar accounts can only be created by an administrator." });
     }
 
     if (password.length < 8) {
@@ -1140,6 +2043,7 @@ app.post(
     }
 
     const schema = await getAuthSchema();
+    const accountRequestColumns = await ensureAccountRequestsTable();
     const [existingUserRows] = await pool.execute(
       "SELECT 1 FROM users WHERE LOWER(email) = ? LIMIT 1",
       [email]
@@ -1149,6 +2053,25 @@ app.post(
       return res.status(409).json({
         success: false,
         error: "An account with this email already exists.",
+      });
+    }
+
+    const [existingRequestRows] = await pool.execute(
+      `
+        SELECT 1
+        FROM account_requests
+        WHERE LOWER(COALESCE(email, '')) = ?
+          AND LOWER(COALESCE(request_type, 'account_creation')) = 'account_creation'
+          AND LOWER(COALESCE(approval_status, '')) NOT IN ('approved_by_admin', 'rejected')
+        LIMIT 1
+      `,
+      [email]
+    );
+
+    if (existingRequestRows.length > 0) {
+      return res.status(409).json({
+        success: false,
+        error: "An account request with this email is already pending approval.",
       });
     }
 
@@ -1168,75 +2091,115 @@ app.post(
       });
     }
 
-    const userNameColumn = schema.userColumns.has("name") ? "name" : "full_name";
-    const statusValue = schema.hasUserRolesTable ? "Active" : "active";
+    const departmentHeadUserId = departmentId ? await resolveDepartmentHeadUserId(schema, departmentId) : null;
+    const deanUserId = await resolveDeanUserId(schema);
+    const requiresDeanApproval = ["admin", "head_of_department", "registrar"].includes(requestedRole);
 
-    const insertColumns = [userNameColumn, "email", "password", "department_id", "status"];
-    const insertValues = [fullName, email, password, departmentId, statusValue];
+    if (!requiresDeanApproval && !departmentHeadUserId) {
+      return res.status(409).json({
+        success: false,
+        error: "No active Head of Department is assigned to the selected department yet. Create the HOD account first.",
+      });
+    }
 
-    if (schema.userColumns.has("role")) {
-      insertColumns.push("role");
-      insertValues.push(role);
-    } else if (schema.hasUserRolesTable) {
-      const roleId = await resolveRoleId(role);
-      if (!roleId) {
-        return res.status(400).json({
-          success: false,
-          error: "Invalid role selected.",
-        });
+    if (requiresDeanApproval && !deanUserId) {
+      return res.status(409).json({
+        success: false,
+        error: "No active dean account is available to approve this request. Create the dean account first.",
+      });
+    }
+
+    {
+      const requestInsertColumns = [];
+      const requestInsertValues = [];
+
+      if (accountRequestColumns.has("request_type")) {
+        requestInsertColumns.push("request_type");
+        requestInsertValues.push("account_creation");
       }
-      insertColumns.push("role_id");
-      insertValues.push(roleId);
-    }
 
-    if (designation && schema.userColumns.has("designation_id") && designationId) {
-      insertColumns.push("designation_id");
-      insertValues.push(designationId);
-    } else if (designation && schema.userColumns.has("designation")) {
-      insertColumns.push("designation");
-      insertValues.push(designation);
-    }
-
-    if (schema.userColumns.has("mobile_no") && mobileNoRaw) {
-      const mobileNo = Number(mobileNoRaw);
-      if (!Number.isNaN(mobileNo)) {
-        insertColumns.push("mobile_no");
-        insertValues.push(mobileNo);
+      if (accountRequestColumns.has("requested_by_name")) {
+        requestInsertColumns.push("requested_by_name");
+        requestInsertValues.push(fullName);
       }
-    }
 
-    if (schema.userColumns.has("off_ext") && officeExtNoRaw) {
-      const officeExtNo = Number(officeExtNoRaw);
-      if (!Number.isNaN(officeExtNo)) {
-        insertColumns.push("off_ext");
-        insertValues.push(officeExtNo);
+      if (accountRequestColumns.has("email")) {
+        requestInsertColumns.push("email");
+        requestInsertValues.push(email);
       }
+
+      if (accountRequestColumns.has("requested_role")) {
+        requestInsertColumns.push("requested_role");
+        requestInsertValues.push(requestedRole);
+      }
+
+      if (accountRequestColumns.has("requested_department_id")) {
+        requestInsertColumns.push("requested_department_id");
+        requestInsertValues.push(departmentId || null);
+      }
+
+      if (accountRequestColumns.has("requested_password")) {
+        requestInsertColumns.push("requested_password");
+        requestInsertValues.push(password);
+      }
+
+      if (accountRequestColumns.has("requested_designation")) {
+        requestInsertColumns.push("requested_designation");
+        requestInsertValues.push(designation || null);
+      }
+
+      if (accountRequestColumns.has("requested_mobile_no")) {
+        requestInsertColumns.push("requested_mobile_no");
+        requestInsertValues.push(mobileNoRaw || null);
+      }
+
+      if (accountRequestColumns.has("requested_off_ext")) {
+        requestInsertColumns.push("requested_off_ext");
+        requestInsertValues.push(officeExtNoRaw || null);
+      }
+
+      if (accountRequestColumns.has("approval_status")) {
+        requestInsertColumns.push("approval_status");
+        requestInsertValues.push(requiresDeanApproval ? "pending_dean" : "pending_dept_head");
+      }
+
+      if (accountRequestColumns.has("request_reason")) {
+        requestInsertColumns.push("request_reason");
+        requestInsertValues.push(`Signup requested with target role: ${requestedRole}`);
+      }
+
+      const requestPlaceholders = requestInsertColumns.map(() => "?").join(", ");
+      const [requestResult] = await pool.execute(
+        `INSERT INTO account_requests (${requestInsertColumns.join(", ")}) VALUES (${requestPlaceholders})`,
+        requestInsertValues
+      );
+
+      return res.status(201).json({
+        success: true,
+        message: requestedRole === "admin"
+          ? "Admin account request submitted successfully. Your account will stay pending until dean and admin approval."
+          : requiresDeanApproval
+            ? "Account request submitted successfully. Your account will stay pending until dean and admin approval."
+            : "Account request submitted successfully. Your account will stay pending until HOD and admin approval.",
+        request: {
+          id: requestResult.insertId,
+          name: fullName,
+          email,
+          requestedRole,
+          department,
+          designation,
+          approvalStatus: requiresDeanApproval ? "pending_dean" : "pending_dept_head",
+          adminRequest,
+        },
+      });
     }
-
-    const placeholders = insertColumns.map(() => "?").join(", ");
-    const [result] = await pool.execute(
-      `INSERT INTO users (${insertColumns.join(", ")}) VALUES (${placeholders})`,
-      insertValues
-    );
-
-    return res.status(201).json({
-      success: true,
-      message: "Account created successfully.",
-      user: {
-        id: result.insertId,
-        name: fullName,
-        email,
-        role,
-        department,
-        designation,
-      },
-    });
   })
 );
 
 app.post(
   "/api/items",
   withDatabase(async (req, res) => {
+    await ensureInventoryItemsInventoryColumn();
     const item = normalizeItemPayload(req.body);
     const validationError = validateRequiredFields(item);
 
@@ -1260,6 +2223,7 @@ app.post(
 app.post(
   "/api/items/bulk",
   withDatabase(async (req, res) => {
+    await ensureInventoryItemsInventoryColumn();
     if (!Array.isArray(req.body)) {
       return res.status(400).json({ success: false, error: "Expected an array of items" });
     }
@@ -1293,8 +2257,29 @@ app.post(
 );
 
 app.get(
+  "/api/items",
+  withDatabase(async (req, res) => {
+    const inventoryItemColumns = await ensureInventoryItemsInventoryColumn();
+    const inventoryId = Number(req.query?.inventoryId ?? 0);
+    const hasInventoryId = inventoryItemColumns.has("inventory_id");
+    const whereClause = Number.isInteger(inventoryId) && inventoryId > 0 && hasInventoryId
+      ? "WHERE inventory_id = ?"
+      : "";
+    const params = whereClause ? [inventoryId] : [];
+
+    const [rows] = await pool.execute(
+      `SELECT * FROM ${DB_ITEMS_TABLE} ${whereClause} ORDER BY updated_at DESC, created_at DESC, id DESC`,
+      params
+    );
+
+    return res.json({ success: true, items: rows });
+  })
+);
+
+app.get(
   "/api/items/:id",
   withDatabase(async (req, res) => {
+    await ensureInventoryItemsInventoryColumn();
     const itemId = Number(req.params.id);
 
     if (!Number.isInteger(itemId) || itemId <= 0) {
@@ -1383,20 +2368,161 @@ app.get(
     }
 
     const user = rows[0];
+    const roleDetails = await getEffectiveUserRoleDetails(user.id, user.role);
+    const departmentHeadUserId = user.department_id ? await resolveDepartmentHeadUserId(schema, user.department_id) : null;
+    const deanUserId = await resolveDeanUserId(schema);
+    const hasExistingHodRequest = await hasPendingRoleRequest(user.id, "head_of_department");
+    const isCurrentRoleStaff = normalizeUserRole(roleDetails.role) === "staff";
+    const hodRequestEligible = isCurrentRoleStaff && !departmentHeadUserId && !hasExistingHodRequest && Boolean(deanUserId);
+    let hodRequestMessage = "";
+
+    if (!isCurrentRoleStaff) {
+      hodRequestMessage = "Only staff members can request the HOD role from the profile page.";
+    } else if (departmentHeadUserId) {
+      hodRequestMessage = "A Head of Department is already assigned to this department.";
+    } else if (hasExistingHodRequest) {
+      hodRequestMessage = "A pending HOD request already exists for this account.";
+    } else if (!deanUserId) {
+      hodRequestMessage = "No active dean account is available to review an HOD request.";
+    }
+
     return res.json({
       success: true,
       profile: {
         id: user.id,
         name: user.name,
         email: user.email,
-        role: normalizeUserRole(user.role),
+        role: roleDetails.role,
         status: String(user.status ?? "").toLowerCase(),
         department: user.department_name ?? "",
         departmentId: user.department_id ?? null,
         designation: user.designation ?? "",
         mobileNo: user.mobile_no ?? "",
         officeExtNo: user.off_ext ?? "",
+        assignedInventoryCount: roleDetails.assignedInventoryCount,
+        hodRequestEligible,
+        hodRequestMessage,
+        hasDepartmentHod: Boolean(departmentHeadUserId),
       },
+    });
+  })
+);
+
+app.post(
+  "/api/profile/request-hod",
+  withDatabase(async (req, res) => {
+    const email = String(req.body?.email ?? "").trim().toLowerCase();
+    const userId = Number(req.body?.userId ?? 0);
+
+    if (!email && (!Number.isInteger(userId) || userId <= 0)) {
+      return res.status(400).json({ success: false, message: "A valid email or userId is required." });
+    }
+
+    const schema = await getAuthSchema();
+    const userIdColumn = schema.userColumns.has("id") ? "u.id" : "u.user_id";
+    const userNameColumn = schema.userColumns.has("name") ? "u.name" : "u.full_name";
+    const roleSelection = schema.userColumns.has("role")
+      ? "u.role AS role"
+      : schema.hasUserRolesTable
+        ? "ur.user_role AS role"
+        : "NULL AS role";
+    const roleJoin = !schema.userColumns.has("role") && schema.hasUserRolesTable
+      ? "LEFT JOIN user_roles ur ON ur.role_id = u.role_id"
+      : "";
+    const whereClause = email ? "LOWER(u.email) = ?" : `${userIdColumn} = ?`;
+    const whereValue = email || userId;
+
+    const [rows] = await pool.execute(
+      `
+        SELECT ${userIdColumn} AS id, ${userNameColumn} AS name, u.email, u.department_id, ${roleSelection}
+        FROM users u
+        ${roleJoin}
+        WHERE ${whereClause}
+        LIMIT 1
+      `,
+      [whereValue]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ success: false, message: "Profile not found." });
+    }
+
+    const user = rows[0];
+    const roleDetails = await getEffectiveUserRoleDetails(user.id, user.role);
+
+    if (normalizeUserRole(roleDetails.role) !== "staff") {
+      return res.status(403).json({ success: false, message: "Only staff members can request the HOD role." });
+    }
+
+    const departmentHeadUserId = user.department_id ? await resolveDepartmentHeadUserId(schema, user.department_id) : null;
+    if (departmentHeadUserId) {
+      return res.status(409).json({ success: false, message: "A Head of Department is already assigned to this department." });
+    }
+
+    if (await hasPendingRoleRequest(user.id, "head_of_department")) {
+      return res.status(409).json({ success: false, message: "A pending HOD request already exists for this account." });
+    }
+
+    const deanUserId = await resolveDeanUserId(schema);
+    if (!deanUserId) {
+      return res.status(409).json({ success: false, message: "No active dean account is available to review this HOD request." });
+    }
+
+    const accountRequestColumns = await ensureAccountRequestsTable();
+    const insertColumns = [];
+    const insertValues = [];
+
+    if (accountRequestColumns.has("request_type")) {
+      insertColumns.push("request_type");
+      insertValues.push("account_creation");
+    }
+
+    if (accountRequestColumns.has("requested_by_name")) {
+      insertColumns.push("requested_by_name");
+      insertValues.push(user.name || user.email);
+    }
+
+    if (accountRequestColumns.has("email")) {
+      insertColumns.push("email");
+      insertValues.push(user.email);
+    }
+
+    if (accountRequestColumns.has("requested_role")) {
+      insertColumns.push("requested_role");
+      insertValues.push("head_of_department");
+    }
+
+    if (accountRequestColumns.has("requested_department_id")) {
+      insertColumns.push("requested_department_id");
+      insertValues.push(user.department_id || null);
+    }
+
+    if (accountRequestColumns.has("approval_status")) {
+      insertColumns.push("approval_status");
+      insertValues.push("pending_dean");
+    }
+
+    if (accountRequestColumns.has("request_reason")) {
+      insertColumns.push("request_reason");
+      insertValues.push("Requested from profile page for HOD role");
+    }
+
+    if (accountRequestColumns.has("user_id")) {
+      insertColumns.push("user_id");
+      insertValues.push(user.id);
+    }
+
+    const placeholders = insertColumns.map(() => "?").join(", ");
+    const [result] = await pool.execute(
+      `INSERT INTO account_requests (${insertColumns.join(", ")}) VALUES (${placeholders})`,
+      insertValues
+    );
+
+    return res.status(201).json({
+      success: true,
+      message: "HOD request submitted successfully. It now awaits dean approval and admin activation.",
+      requestId: result.insertId,
+      reviewerUserId: deanUserId,
     });
   })
 );
@@ -1482,6 +2608,21 @@ app.post(
 
     if (!departmentHeadUserId) {
       return res.status(400).json({ success: false, message: "No active Head of Department is assigned to your department." });
+    }
+
+    const outstandingReturns = await getOutstandingReturnSummary(userId);
+
+    if (outstandingReturns.count > 0) {
+      const itemLabel = outstandingReturns.count === 1 ? "item is" : "items are";
+      const preview = outstandingReturns.sampleItems.length > 0
+        ? ` Outstanding: ${outstandingReturns.sampleItems.join(", ")}${outstandingReturns.count > outstandingReturns.sampleItems.length ? ", ..." : ""}.`
+        : "";
+
+      return res.status(409).json({
+        success: false,
+        code: "OUTSTANDING_ITEM_RETURNS",
+        message: `Your account cannot be deactivated because ${outstandingReturns.count} issued ${itemLabel} still pending return.${preview}`,
+      });
     }
 
     const [existingRows] = await pool.execute(
@@ -1654,6 +2795,7 @@ const startServer = async () => {
   try {
     await pool.query("SELECT 1");
     await ensureInventoriesLocationColumn();
+    await ensureInventoryItemsInventoryColumn();
     if (AUTO_CREATE_TABLES) {
       await createAccountRequestsTable();
       await createInventoryCreationRequestsTable();

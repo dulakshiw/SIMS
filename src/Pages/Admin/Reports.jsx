@@ -52,7 +52,7 @@ const Reports = ({ layoutVariant = "admin", sidebarVariant }) => {
       id: 2,
       name: "Bob Smith",
       email: "bob@example.com",
-      role: "Incharge",
+      role: "Inventory Officer",
       department: "Inventory",
       designation: "Lecturer",
       status: "active",
@@ -85,7 +85,7 @@ const Reports = ({ layoutVariant = "admin", sidebarVariant }) => {
       id: 5,
       name: "Emma Davis",
       email: "emma@example.com",
-      role: "Incharge",
+      role: "Inventory Officer",
       department: "Inventory",
       designation: "Senior Lecturer",
       status: "active",
@@ -284,7 +284,7 @@ const Reports = ({ layoutVariant = "admin", sidebarVariant }) => {
   const inventoryDetailsColumns = [
     { field: "name", label: "Inventory Name", sortable: true },
     { field: "department", label: "Department", sortable: true },
-    { field: "incharge", label: "In-Charge", sortable: true },
+    { field: "incharge", label: "Inventory Officer", sortable: true },
     { field: "itemCount", label: "Item Count", sortable: true },
     { field: "createdDate", label: "Created Date" },
     { field: "lastUpdated", label: "Last Updated" },
@@ -355,7 +355,7 @@ const Reports = ({ layoutVariant = "admin", sidebarVariant }) => {
       "inventory-details": {
         title: "Inventory Details Report",
         fileName: "inventories-report",
-        headers: ["Inventory Name", "Department", "In-Charge", "Item Count", "Status", "Created Date", "Last Updated"],
+        headers: ["Inventory Name", "Department", "Inventory Officer", "Item Count", "Status", "Created Date", "Last Updated"],
         rows: inventoryDetailsData.map((inventory) => [
           inventory.name,
           inventory.department,

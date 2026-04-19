@@ -1,19 +1,36 @@
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useLocation, useParams } from "react-router-dom";
 import MainLayout from "../../Components/Layouts/MainLayout";
-import { Card, Button, PageHeader } from "../../Components/UI";
+import { Card, Button, PageHeader, Select } from "../../Components/UI";
 import { resolveSidebarVariant } from "../../utils/helpers";
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
 
 const AddNewItem = () => {
   const location = useLocation();
   const { role } = useParams();
   const sidebarVariant = resolveSidebarVariant(location.pathname, role);
+  const currentUser = useMemo(() => {
+    try {
+      return JSON.parse(localStorage.getItem("currentUser") || "{}");
+    } catch {
+      return {};
+    }
+  }, []);
+  const initialInventoryId = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    return params.get("inventoryId") || "";
+  }, [location.search]);
+  const isInchargeMode = role === "incharge" || currentUser.role === "inventory_incharge";
   const [uploadMode, setUploadMode] = useState("single"); // "single" or "bulk"
   const [bulkFile, setBulkFile] = useState(null);
   const [bulkItems, setBulkItems] = useState([]);
   const [selectedBulk, setSelectedBulk] = useState({});
   const [selectAllBulk, setSelectAllBulk] = useState(false);
   const [labelLayout, setLabelLayout] = useState('grid'); // 'grid' or 'avery'
+  const [assignedInventories, setAssignedInventories] = useState([]);
+  const [selectedInventoryId, setSelectedInventoryId] = useState(initialInventoryId);
+  const [inventoryLoadError, setInventoryLoadError] = useState("");
   
   const [itemData, setItemData] = useState({
     itemName: "",
@@ -39,6 +56,56 @@ const AddNewItem = () => {
     location: "",
     remarks: ""
   });
+
+  useEffect(() => {
+    if (!isInchargeMode || !currentUser.id) {
+      return undefined;
+    }
+
+    let isMounted = true;
+
+    const loadAssignedInventories = async () => {
+      try {
+        setInventoryLoadError("");
+        const response = await fetch(`${API_BASE_URL}/api/inventories`);
+        const data = await response.json();
+
+        if (!response.ok || !data.success) {
+          throw new Error(data.error || data.message || "Failed to load assigned inventories.");
+        }
+
+        if (!isMounted) {
+          return;
+        }
+
+        const nextInventories = (data.inventories || []).filter(
+          (inventory) => String(inventory.inchargeId) === String(currentUser.id)
+        );
+        setAssignedInventories(nextInventories);
+
+        if (!selectedInventoryId && nextInventories.length === 1) {
+          setSelectedInventoryId(String(nextInventories[0].id));
+        }
+      } catch (error) {
+        if (isMounted) {
+          setAssignedInventories([]);
+          setInventoryLoadError(error.message || "Failed to load assigned inventories.");
+        }
+      }
+    };
+
+    loadAssignedInventories();
+    return () => {
+      isMounted = false;
+    };
+  }, [API_BASE_URL, currentUser.id, isInchargeMode, selectedInventoryId]);
+
+  const inventoryOptions = useMemo(
+    () => assignedInventories.map((inventory) => ({ value: String(inventory.id), label: `${inventory.name} (${inventory.location || "No location"})` })),
+    [assignedInventories]
+  );
+
+  const selectedInventory = assignedInventories.find((inventory) => String(inventory.id) === String(selectedInventoryId)) || null;
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -252,13 +319,18 @@ const AddNewItem = () => {
   };
 
   const handleBulkSubmit = () => {
+    if (isInchargeMode && !selectedInventoryId) {
+      alert('Select the inventory you want to add these items to.');
+      return;
+    }
+
     if (bulkItems.length === 0) {
       alert('No items to upload. Please select a CSV file.');
       return;
     }
     (async () => {
       try {
-        const res = await fetch('http://localhost:4000/api/items/bulk', {
+        const res = await fetch(`${API_BASE_URL}/api/items/bulk`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(bulkItems.map(it => {
@@ -280,6 +352,7 @@ const AddNewItem = () => {
 
             return {
               ...rest,
+              inventoryId: selectedInventoryId ? Number(selectedInventoryId) : null,
               funding: !normalizedFunding && fundingOtherValue ? fundingOtherValue : normalizedFunding,
               warranty: !normalizedWarranty && warrantyOtherValue ? warrantyOtherValue : normalizedWarranty,
               qrcode: it.qrcode,
@@ -364,10 +437,17 @@ const AddNewItem = () => {
 
   const handleSubmit = (e) => {
     e.preventDefault();
+
+    if (isInchargeMode && !selectedInventoryId) {
+      alert('Select the inventory you want to add this item to.');
+      return;
+    }
+
     (async () => {
       try {
         // prepare payload (omit File objects; include file names if present)
         const payload = { ...itemData };
+        payload.inventoryId = selectedInventoryId ? Number(selectedInventoryId) : null;
         const normalizedFunding = payload.funding === "other"
           ? (payload.fundingOther || "")
           : (payload.funding || "");
@@ -392,7 +472,7 @@ const AddNewItem = () => {
         if (payload.itemImage) payload.itemImage = payload.itemImage.name;
         if (payload.ginfile) payload.ginfile = payload.ginfile.name;
 
-        const res = await fetch('http://localhost:4000/api/items', {
+        const res = await fetch(`${API_BASE_URL}/api/items`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
@@ -477,6 +557,41 @@ const AddNewItem = () => {
       />
 
       <div className="p-6 space-y-6">
+        {isInchargeMode && (
+          <Card>
+            <div className="space-y-4">
+              <div>
+                <h2 className="text-lg font-semibold text-text-dark">Target Inventory</h2>
+                <p className="text-sm text-text-light">
+                  Choose which assigned inventory should receive these items. This keeps inventories separate for the same account.
+                </p>
+              </div>
+              {inventoryLoadError && (
+                <div className="rounded border border-red-300 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+                  {inventoryLoadError}
+                </div>
+              )}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Select
+                  label="Assigned Inventory"
+                  name="assignedInventory"
+                  value={selectedInventoryId}
+                  onChange={setSelectedInventoryId}
+                  options={inventoryOptions}
+                  placeholder="Select inventory"
+                  required
+                />
+                <div className="rounded-md border border-border-light bg-background-light px-4 py-3 text-sm text-text-dark">
+                  <p className="font-medium">Current Selection</p>
+                  <p className="mt-1 text-text-light">
+                    {selectedInventory ? `${selectedInventory.name} - ${selectedInventory.location || 'No location'}` : 'No inventory selected yet.'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </Card>
+        )}
+
         <div className="flex flex-wrap items-center gap-2 text-sm text-text-light">
           <span>Home</span>
           <span>/</span>

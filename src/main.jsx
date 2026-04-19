@@ -19,7 +19,6 @@ import Profile from './Pages/Admin/Profile'
 // Inventory Pages
 import InventoryListView from './Pages/Inventory/InventoryListView'
 import AddNewItem from './Pages/Inventory/AddNewItem'
-import InchargeDashboard from './Pages/Inventory/InchargeDashboard'
 import ItemView from './Pages/Inventory/ItemView'
 import ItemDetail from './Pages/Inventory/ItemDetail'
 
@@ -106,7 +105,7 @@ const router = createBrowserRouter([
     children: [
       {
         path: "dashboard",
-        element: <InchargeDashboard />
+        element: <StaffDashboard />
       },
       {
         path: "scan",
@@ -282,16 +281,6 @@ const router = createBrowserRouter([
     ]
   },
 
-  // ==================== Incharge Routes ====================
-  {
-    path: "/incharge",
-    children: [
-      {
-        path: "dashboard",
-        element: <InchargeDashboard />
-      }
-    ]
-  }
 ])
 
 createRoot(document.getElementById('root')).render(

@@ -2,7 +2,9 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import AdminLayout from "../../Components/Layouts/AdminLayout";
 import { Card, Button, Table, Badge, Modal, SearchBox, PageHeader } from "../../Components/UI";
-import { ACCOUNT_REQUEST_STATUS, INVENTORY_REQUEST_STATUS, INVENTORY_REQUEST_TYPE, ROLE_HIERARCHY } from "../../utils/constants";
+import { ACCOUNT_REQUEST_STATUS, ACCOUNT_REQUEST_STATUS_META, INVENTORY_REQUEST_STATUS, INVENTORY_REQUEST_TYPE, ROLE_HIERARCHY } from "../../utils/constants";
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
 
 const AdminPendingTasks = () => {
   const navigate = useNavigate();
@@ -12,55 +14,11 @@ const AdminPendingTasks = () => {
   // -- Confirm modal state --
   const [confirmModal, setConfirmModal] = useState({ open: false, action: null, item: null, type: "" });
 
-  // -- Account requests awaiting admin action --
-  const [accountRequests, setAccountRequests] = useState([
-    {
-      id: 101,
-      name: "A.S. Liyanagoda",
-      email: "alokal@uom.lk",
-      requestedRole: "staff",
-      department: "Information Technology",
-      designation: "Lecturer",
-      requestedDate: "2026-01-25",
-      requestedByDeptHead: "Dr. N. Perera",
-      approvalStatus: ACCOUNT_REQUEST_STATUS.APPROVED_BY_DEPT_HEAD,
-    },
-    {
-      id: 102,
-      name: "S.T.K. Gamhewage",
-      email: "sampathg@uom.lk",
-      requestedRole: "inventory_incharge",
-      department: "Interdisciplinary Studies",
-      designation: "Senior Lecturer",
-      requestedDate: "2026-01-26",
-      requestedByDeptHead: "Prof. R. Dias",
-      approvalStatus: ACCOUNT_REQUEST_STATUS.APPROVED_BY_DEPT_HEAD,
-    },
-  ]);
+  const [accountRequests, setAccountRequests] = useState([]);
+  const [loadingErrors, setLoadingErrors] = useState({ accountRequests: "", users: "" });
 
   // -- Users that need activate / deactivate action --
-  const [users, setUsers] = useState([
-    {
-      id: 3,
-      name: "P.L. Jayawardena",
-      email: "pljaya@uom.lk",
-      role: "staff",
-      department: "Operations",
-      designation: "Assistant Lecturer",
-      status: "inactive",
-      createdDate: "2026-01-28",
-    },
-    {
-      id: 5,
-      name: "T.M. Ranasinghe",
-      email: "tmrana@uom.lk",
-      role: "inventory_incharge",
-      department: "Human Resources",
-      designation: "Lecturer",
-      status: "inactive",
-      createdDate: "2026-02-03",
-    },
-  ]);
+  const [users, setUsers] = useState([]);
 
   // -- Inventory creation requests awaiting admin action (approved by HOD) --
   const [inventoryRequests, setInventoryRequests] = useState([
@@ -90,6 +48,64 @@ const AdminPendingTasks = () => {
     },
   ]);
 
+  const loadAccountRequests = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/account-requests?requestType=account_creation`);
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || data.error || "Failed to load account requests.");
+      }
+
+      setAccountRequests(data.requests || []);
+      setLoadingErrors((prev) => ({ ...prev, accountRequests: "" }));
+    } catch (error) {
+      setLoadingErrors((prev) => ({ ...prev, accountRequests: error.message || "Failed to load account requests." }));
+    }
+  };
+
+  const loadUsers = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/users`);
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || data.error || "Failed to load users.");
+      }
+
+      setUsers(data.users || []);
+      setLoadingErrors((prev) => ({ ...prev, users: "" }));
+    } catch (error) {
+      setLoadingErrors((prev) => ({ ...prev, users: error.message || "Failed to load users." }));
+    }
+  };
+
+  const refreshPendingTasks = () => {
+    loadAccountRequests();
+    loadUsers();
+  };
+
+  React.useEffect(() => {
+    refreshPendingTasks();
+  }, []);
+
+  React.useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      refreshPendingTasks();
+    }, 15000);
+
+    const handleFocus = () => {
+      refreshPendingTasks();
+    };
+
+    window.addEventListener("focus", handleFocus);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", handleFocus);
+    };
+  }, []);
+
   // ---- Handlers ----
   const openConfirm = (action, item, type) => {
     setConfirmModal({ open: true, action, item, type });
@@ -99,25 +115,109 @@ const AdminPendingTasks = () => {
     const { action, item, type } = confirmModal;
 
     if (type === "approve-account") {
-      setAccountRequests((prev) =>
-        prev.map((r) =>
-          r.id === item.id ? { ...r, approvalStatus: ACCOUNT_REQUEST_STATUS.APPROVED_BY_ADMIN } : r
-        )
-      );
+      fetch(`${API_BASE_URL}/api/account-requests/${item.id}/approve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ approverRole: "admin" }),
+      })
+        .then((response) => response.json().then((data) => ({ ok: response.ok, data })))
+        .then(({ ok, data }) => {
+          if (!ok || !data.success) {
+            throw new Error(data.message || data.error || "Failed to approve account.");
+          }
+
+          setAccountRequests((prev) =>
+            prev.map((r) =>
+              r.id === item.id ? { ...r, approvalStatus: ACCOUNT_REQUEST_STATUS.APPROVED_BY_ADMIN } : r
+            )
+          );
+
+          if (data.user) {
+            setUsers((prev) => {
+              const existingIndex = prev.findIndex((user) => user.email === data.user.email);
+              const nextUser = {
+                ...(existingIndex >= 0 ? prev[existingIndex] : {}),
+                id: data.user.id,
+                name: data.user.name || item.name,
+                email: data.user.email || item.email,
+                role: data.user.role || (["head_of_department", "dean", "registrar", "admin"].includes(item.requestedRole)
+                  ? item.requestedRole
+                  : "staff"),
+                department: item.department,
+                designation: data.user.designation || item.designation || "",
+                status: "active",
+              };
+
+              if (existingIndex >= 0) {
+                return prev.map((user, index) => (index === existingIndex ? nextUser : user));
+              }
+
+              return [nextUser, ...prev];
+            });
+          }
+        })
+        .catch((error) => {
+          window.alert(error.message || "Failed to approve account.");
+        });
     } else if (type === "reject-account") {
-      setAccountRequests((prev) =>
-        prev.map((r) =>
-          r.id === item.id ? { ...r, approvalStatus: ACCOUNT_REQUEST_STATUS.REJECTED } : r
-        )
-      );
+      fetch(`${API_BASE_URL}/api/account-requests/${item.id}/reject`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: "Rejected from admin pending tasks" }),
+      })
+        .then((response) => response.json().then((data) => ({ ok: response.ok, data })))
+        .then(({ ok, data }) => {
+          if (!ok || !data.success) {
+            throw new Error(data.message || data.error || "Failed to reject account.");
+          }
+
+          setAccountRequests((prev) =>
+            prev.map((r) =>
+              r.id === item.id ? { ...r, approvalStatus: ACCOUNT_REQUEST_STATUS.REJECTED } : r
+            )
+          );
+        })
+        .catch((error) => {
+          window.alert(error.message || "Failed to reject account.");
+        });
     } else if (type === "activate-user") {
-      setUsers((prev) =>
-        prev.map((u) => (u.id === item.id ? { ...u, status: "active" } : u))
-      );
+      fetch(`${API_BASE_URL}/api/users/${item.id}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "active" }),
+      })
+        .then((response) => response.json().then((data) => ({ ok: response.ok, data })))
+        .then(({ ok, data }) => {
+          if (!ok || !data.success) {
+            throw new Error(data.message || data.error || "Failed to activate user.");
+          }
+
+          setUsers((prev) =>
+            prev.map((u) => (u.id === item.id ? { ...u, status: "active" } : u))
+          );
+        })
+        .catch((error) => {
+          window.alert(error.message || "Failed to activate user.");
+        });
     } else if (type === "deactivate-user") {
-      setUsers((prev) =>
-        prev.map((u) => (u.id === item.id ? { ...u, status: "inactive" } : u))
-      );
+      fetch(`${API_BASE_URL}/api/users/${item.id}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "inactive" }),
+      })
+        .then((response) => response.json().then((data) => ({ ok: response.ok, data })))
+        .then(({ ok, data }) => {
+          if (!ok || !data.success) {
+            throw new Error(data.message || data.error || "Failed to deactivate user.");
+          }
+
+          setUsers((prev) =>
+            prev.map((u) => (u.id === item.id ? { ...u, status: "inactive" } : u))
+          );
+        })
+        .catch((error) => {
+          window.alert(error.message || "Failed to deactivate user.");
+        });
     } else if (type === "approve-inventory") {
       setInventoryRequests((prev) =>
         prev.map((r) =>
@@ -157,12 +257,7 @@ const AdminPendingTasks = () => {
       field: "approvalStatus",
       label: "Status",
       render: (value) => {
-        const map = {
-          approved_by_dept_head: { label: "Pending Admin Approval", variant: "warning" },
-          approved_by_admin: { label: "Approved", variant: "success" },
-          rejected: { label: "Rejected", variant: "error" },
-        };
-        const cfg = map[value] || { label: value, variant: "secondary" };
+        const cfg = ACCOUNT_REQUEST_STATUS_META[value] || { label: value, variant: "secondary" };
         return <Badge label={cfg.label} variant={cfg.variant} size="sm" />;
       },
     },
@@ -269,12 +364,20 @@ const AdminPendingTasks = () => {
 
   // ---- Filtered data ----
   const pendingAccountRequests = accountRequests.filter(
-    (r) => r.approvalStatus === ACCOUNT_REQUEST_STATUS.APPROVED_BY_DEPT_HEAD
+    (r) => r.approvalStatus === ACCOUNT_REQUEST_STATUS.PENDING_ADMIN
+  );
+  const blockedAccountUserIds = new Set(
+    accountRequests
+      .filter((request) => request.approvalStatus !== ACCOUNT_REQUEST_STATUS.APPROVED_BY_ADMIN)
+      .map((request) => Number(request.userId))
+      .filter((userId) => Number.isInteger(userId) && userId > 0)
   );
   const pendingInventoryRequests = inventoryRequests.filter(
     (r) => r.requestType === INVENTORY_REQUEST_TYPE.CREATE_NEW && r.approvalStatus === INVENTORY_REQUEST_STATUS.PENDING_ADMIN
   );
-  const inactiveUsers = users.filter((u) => u.status === "inactive");
+  const inactiveUsers = users.filter(
+    (u) => u.status === "inactive" && !blockedAccountUserIds.has(Number(u.id))
+  );
 
   const filteredAccountRequests = pendingAccountRequests.filter(
     (r) =>
@@ -343,12 +446,19 @@ const AdminPendingTasks = () => {
       <PageHeader
         title="Pending Tasks"
         subtitle="Actions requiring admin approval or intervention"
-        actions={totalPending > 0 ? (
-          <span className="inline-flex items-center gap-2 rounded-lg border border-white/30 bg-white/15 px-4 py-2 text-sm font-semibold text-white">
-            <span className="material-symbols-outlined text-base">schedule</span>
-            {totalPending} task{totalPending !== 1 ? "s" : ""} pending
-          </span>
-        ) : null}
+        actions={
+          <>
+            {totalPending > 0 ? (
+              <span className="inline-flex items-center gap-2 rounded-lg border border-white/30 bg-white/15 px-4 py-2 text-sm font-semibold text-white">
+                <span className="material-symbols-outlined text-base">schedule</span>
+                {totalPending} task{totalPending !== 1 ? "s" : ""} pending
+              </span>
+            ) : null}
+            <Button variant="secondary" icon="refresh" onClick={refreshPendingTasks}>
+              Refresh
+            </Button>
+          </>
+        }
       />
 
       <div className="p-6 space-y-6">
@@ -426,6 +536,12 @@ const AdminPendingTasks = () => {
           icon="search"
         />
 
+        {(loadingErrors.accountRequests || loadingErrors.users) && (
+          <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+            {loadingErrors.accountRequests || loadingErrors.users}
+          </div>
+        )}
+
         {/* Tab Content */}
         {activeTab === "account-approvals" && (
           <Card title="Pending Account Creation Requests" icon="how_to_reg">
@@ -455,8 +571,7 @@ const AdminPendingTasks = () => {
           <Card title="Users Requiring Activation / Deactivation" icon="manage_accounts">
             <div className="space-y-4">
               <p className="text-sm text-text-light bg-background-light p-3 rounded">
-                Inactive users below need to be activated before they can access the system, or
-                deactivated to revoke access.
+                Only inactive users outside the signup approval workflow are shown here. Newly signed-up users stay hidden until the HOD and admin approval chain is completed.
               </p>
               {filteredUsers.length === 0 ? (
                 <div className="text-center py-10 text-text-light">

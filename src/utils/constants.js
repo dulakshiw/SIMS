@@ -87,7 +87,7 @@ export const ROLE_HIERARCHY = {
     ],
   },
   inventory_incharge: {
-    label: "Inventory In-Charge",
+    label: "Inventory Officer",
     description: "Manages inventory items, transfers, and disposals",
     superclass: "staff",
     permissions: [
@@ -146,10 +146,20 @@ export const ROLE_HIERARCHY = {
 // Account Creation Request Status
 export const ACCOUNT_REQUEST_STATUS = {
   PENDING_DEPT_HEAD: "pending_dept_head",
+  PENDING_DEAN: "pending_dean",
   APPROVED_BY_DEPT_HEAD: "approved_by_dept_head",
   PENDING_ADMIN: "pending_admin",
   APPROVED_BY_ADMIN: "approved_by_admin",
   REJECTED: "rejected",
+};
+
+export const ACCOUNT_REQUEST_STATUS_META = {
+  pending_dept_head: { label: "Pending HOD Approval", variant: "warning" },
+  pending_dean: { label: "Pending Dean Approval", variant: "warning" },
+  pending_admin: { label: "Pending Admin Approval", variant: "info" },
+  approved_by_dept_head: { label: "Pending Admin Approval", variant: "info" },
+  approved_by_admin: { label: "Approved", variant: "success" },
+  rejected: { label: "Rejected", variant: "error" },
 };
 
 // Inventory Creation Request Status
@@ -241,6 +251,20 @@ export const STAFF_NAV_ITEMS = [
   { id: 6, label: "Profile", path: "/profile/staff", icon: "person" },
 ];
 
+export const STAFF_INCHARGE_NAV_ITEMS = [
+  { id: 1, label: "Dashboard", path: "/staff/dashboard", icon: "dashboard" },
+  { id: 2, label: "Request Items", path: "/inventory/requests/new/staff", icon: "add_circle" },
+  { id: 3, label: "My Requests", path: "/requests/my/staff", icon: "fact_check" },
+  { id: 4, label: "My Issued Items", path: "/inventory/list/staff", icon: "inventory_2" },
+  { id: 5, label: "My Inventories", path: "/inventory/list/incharge", icon: "inventory" },
+  { id: 6, label: "Add Item", path: "/inventory/add/incharge", icon: "playlist_add" },
+  { id: 7, label: "Transfers", path: "/inventory/transfers/list/incharge", icon: "compare_arrows" },
+  { id: 8, label: "Disposals", path: "/inventory/disposals/list/incharge", icon: "delete_sweep" },
+  { id: 9, label: "Inventory Requests", path: "/inventory/requests/list/incharge", icon: "request_quote" },
+  { id: 10, label: "Reports", path: "/reports/staff", icon: "assessment" },
+  { id: 11, label: "Profile", path: "/profile/staff", icon: "person" },
+];
+
 export const HOD_NAV_ITEMS = [
   { id: 1, label: "Dashboard", path: "/hod/dashboard", icon: "dashboard" },
   { id: 2, label: "Request Items", path: "/inventory/requests/new/hod", icon: "add_circle" },
@@ -262,18 +286,6 @@ export const DEAN_NAV_ITEMS = [
   { id: 8, label: "Profile", path: "/profile/dean", icon: "person" },
 ];
 
-export const INCHARGE_NAV_ITEMS = [
-  { id: 1, label: "Dashboard", path: "/incharge/dashboard", icon: "dashboard" },
-  { id: 2, label: "My Inventories", path: "/inventory/list/incharge", icon: "inventory_2" },
-  { id: 3, label: "Add Item", path: "/inventory/add/incharge", icon: "add_circle" },
-  { id: 4, label: "Transfers", path: "/inventory/transfers/list/incharge", icon: "compare_arrows" },
-  { id: 5, label: "Disposals", path: "/inventory/disposals/list/incharge", icon: "delete_sweep" },
-  { id: 6, label: "My Requests", path: "/requests/my/incharge", icon: "fact_check" },
-  { id: 7, label: "Requests", path: "/inventory/requests/list/incharge", icon: "request_quote" },
-  { id: 8, label: "Reports", path: "/reports/incharge", icon: "assessment" },
-  { id: 9, label: "Profile", path: "/profile/incharge", icon: "person" },
-];
-
 // Mock data structure
 export const MOCK_USER = {
   id: 1,
@@ -293,6 +305,7 @@ export default {
   ROLES,
   ROLE_HIERARCHY,
   ACCOUNT_REQUEST_STATUS,
+  ACCOUNT_REQUEST_STATUS_META,
   INVENTORY_REQUEST_STATUS,
   ITEM_REMARK_TYPE,
   ITEM_STATUS,
@@ -306,8 +319,8 @@ export default {
   ADMIN_NAV_ITEMS,
   INVENTORY_NAV_ITEMS,
   STAFF_NAV_ITEMS,
+  STAFF_INCHARGE_NAV_ITEMS,
   HOD_NAV_ITEMS,
   DEAN_NAV_ITEMS,
-  INCHARGE_NAV_ITEMS,
   MOCK_USER,
 };

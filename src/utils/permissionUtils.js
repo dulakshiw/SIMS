@@ -113,6 +113,9 @@ export const canApproveAccountCreation = (userRole, requestContext) => {
   if (requestContext === "dept_head") {
     return userRole === ROLES.HEAD_OF_DEPARTMENT;
   }
+  if (requestContext === "dean") {
+    return userRole === ROLES.DEAN;
+  }
   if (requestContext === "admin") {
     return userRole === ROLES.ADMIN;
   }
@@ -129,9 +132,14 @@ export const getNextAccountApprovalAuthority = (currentStatus) => {
     pending_dept_head: {
       authority: "Department Head",
       requiredRole: ROLES.HEAD_OF_DEPARTMENT,
-      nextStatus: "approved_by_dept_head",
+      nextStatus: "pending_admin",
     },
-    approved_by_dept_head: {
+    pending_dean: {
+      authority: "Dean",
+      requiredRole: ROLES.DEAN,
+      nextStatus: "pending_admin",
+    },
+    pending_admin: {
       authority: "System Administrator",
       requiredRole: ROLES.ADMIN,
       nextStatus: "approved_by_admin",

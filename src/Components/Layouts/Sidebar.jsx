@@ -1,19 +1,93 @@
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   ADMIN_NAV_ITEMS,
   DEAN_NAV_ITEMS,
   HOD_NAV_ITEMS,
-  INCHARGE_NAV_ITEMS,
   INVENTORY_NAV_ITEMS,
+  STAFF_INCHARGE_NAV_ITEMS,
   STAFF_NAV_ITEMS,
 } from "../../utils/constants";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { logoutUser } from "../../utils/helpers";
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
+
+const getStoredUser = () => {
+  try {
+    return JSON.parse(localStorage.getItem("currentUser") || "{}");
+  } catch {
+    return {};
+  }
+};
+
 const Sidebar = ({ variant = "inventory", onCollapseChange }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
+  const [currentUser, setCurrentUser] = useState(getStoredUser);
+
+  useEffect(() => {
+    let isMounted = true;
+    const storedUser = getStoredUser();
+
+    setCurrentUser(storedUser);
+
+    if (!storedUser?.email && !storedUser?.id) {
+      return undefined;
+    }
+
+    const searchParams = new URLSearchParams();
+
+    if (storedUser.email) {
+      searchParams.set("email", storedUser.email);
+    } else if (storedUser.id) {
+      searchParams.set("userId", storedUser.id);
+    }
+
+    const loadEffectiveProfile = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/profile?${searchParams.toString()}`);
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok || !data.success || !isMounted) {
+          return;
+        }
+
+        const profile = data.profile || {};
+        const nextRole = profile.role || storedUser.role || localStorage.getItem("userRole") || "staff";
+        const nextUser = { ...storedUser, ...profile, role: nextRole };
+
+        localStorage.setItem("currentUser", JSON.stringify(nextUser));
+        localStorage.setItem("userRole", nextRole);
+        window.currentUser = nextUser;
+        setCurrentUser(nextUser);
+      } catch {
+        // Keep rendering from the locally stored user if the refresh fails.
+      }
+    };
+
+    loadEffectiveProfile();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [location.pathname]);
+
+  const effectiveRole = useMemo(() => {
+    if (currentUser.role) {
+      return currentUser.role;
+    }
+
+    if (Number(currentUser.assignedInventoryCount ?? 0) > 0) {
+      return "inventory_incharge";
+    }
+
+    return localStorage.getItem("userRole") || "staff";
+  }, [currentUser.assignedInventoryCount, currentUser.role]);
+
+  const effectiveVariant = variant === "staff" && effectiveRole === "inventory_incharge"
+    ? "staff-incharge"
+    : variant;
 
   const handleCollapse = () => {
     const newState = !isCollapsed;
@@ -27,12 +101,12 @@ const Sidebar = ({ variant = "inventory", onCollapseChange }) => {
     admin: ADMIN_NAV_ITEMS,
     inventory: INVENTORY_NAV_ITEMS,
     staff: STAFF_NAV_ITEMS,
+    "staff-incharge": STAFF_INCHARGE_NAV_ITEMS,
     hod: HOD_NAV_ITEMS,
     dean: DEAN_NAV_ITEMS,
-    incharge: INCHARGE_NAV_ITEMS,
   };
 
-  const navItems = navItemsByVariant[variant] || INVENTORY_NAV_ITEMS;
+  const navItems = navItemsByVariant[effectiveVariant] || INVENTORY_NAV_ITEMS;
 
   const handleLogout = () => {
     const shouldLogout = window.confirm("Are you sure you want to log out?");

@@ -31,7 +31,7 @@ const ItemView = () => {
     remarks: 'No additional remarks.'
   };
 
-  const isIncharge = item.incharge === currentUser;
+  const isInventoryOfficer = item.incharge === currentUser;
 
   return (
     <MainLayout variant={sidebarVariant}>
@@ -40,9 +40,9 @@ const ItemView = () => {
       <div className="p-6">
         <div className="bg-white p-4 rounded-lg border">
           <h2 className="text-lg font-semibold">{item.itemName}</h2>
-          <p className="text-sm text-text-light">Incharge: {item.incharge}</p>
+          <p className="text-sm text-text-light">Inventory Officer: {item.incharge}</p>
 
-          {isIncharge ? (
+          {isInventoryOfficer ? (
             <div className="mt-4 space-y-2">
               <div>Code: {item.itemCode}</div>
               <div>Serial: {item.serialNo}</div>
@@ -53,7 +53,7 @@ const ItemView = () => {
             </div>
           ) : (
             <div className="mt-4 text-sm text-text-light">
-              Only the inventory name and incharge are visible to you.
+              Only the inventory name and inventory officer are visible to you.
             </div>
           )}
         </div>

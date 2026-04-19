@@ -101,7 +101,7 @@ const InventoryManagement = () => {
         setInchargeCandidates(
           (usersData.users || []).filter(
             (user) =>
-              user.role === "staff" &&
+              ["staff", "inventory_incharge"].includes(user.role) &&
               user.status === "active" &&
               ALLOWED_INCHARGE_DESIGNATIONS.has(String(user.designation || "").trim())
           )
@@ -200,7 +200,7 @@ const InventoryManagement = () => {
     { field: "location", label: "Location", sortable: true },
     { field: "department", label: "Department", sortable: true },
     { field: "hod", label: "HOD", sortable: true },
-    { field: "incharge", label: "In-Charge", sortable: true },
+    { field: "incharge", label: "Inventory Officer", sortable: true },
     { field: "itemCount", label: "Items", sortable: true },
     {
       field: "status",
@@ -216,7 +216,7 @@ const InventoryManagement = () => {
   ];
 
   const actions = [
-    { label: "Assign In-Charge", icon: "person_add", onClick: (row) => handleAssignIncharge(row) },
+    { label: "Assign Inventory Officer", icon: "person_add", onClick: (row) => handleAssignIncharge(row) },
     {
       label: "Toggle Status",
       icon: "toggle_on",
@@ -444,7 +444,7 @@ const InventoryManagement = () => {
         Cancel
       </Button>
       <Button variant="primary" onClick={handleAssignInchargeSubmit}>
-        Assign In-Charge
+        Assign Inventory Officer
       </Button>
     </div>
   );
@@ -453,7 +453,7 @@ const InventoryManagement = () => {
     <AdminLayout>
       <PageHeader
         title="Inventory Management"
-        subtitle="Manage inventories, approve creation requests, and assign in-charge persons"
+        subtitle="Manage inventories, approve creation requests, and assign inventory officers"
         actions={canCreateInventory(currentUserRole) ? (
           <Button
             icon="add_circle"
@@ -545,7 +545,7 @@ const InventoryManagement = () => {
           selectedName={selectedInventoryDetails?.name}
           details={[
             { label: "Department", value: selectedInventoryDetails?.department },
-            { label: "In-Charge", value: selectedInventoryDetails?.incharge },
+            { label: "Inventory Officer", value: selectedInventoryDetails?.incharge },
             { label: "HOD", value: selectedInventoryDetails?.hod },
             { label: "Inventory Location", value: selectedInventoryDetails?.location },
             { label: "Item Count", value: selectedInventoryDetails?.itemCount },
@@ -611,12 +611,12 @@ const InventoryManagement = () => {
             />
 
             <Select
-              label="In-Charge Person"
+              label="Inventory Officer"
               name="incharge"
               value={formData.incharge}
               onChange={handleSelectChange("incharge")}
               options={inchargeOptions}
-              placeholder={formData.department ? "Select an in-charge person" : "Select a department first"}
+              placeholder={formData.department ? "Select an inventory officer" : "Select a department first"}
               disabled={!formData.department}
               required
             />
@@ -633,21 +633,21 @@ const InventoryManagement = () => {
           </form>
         </Modal>
 
-        {/* Assign In-Charge Modal */}
+        {/* Assign Inventory Officer Modal */}
         <Modal
           isOpen={assignInchargeModalOpen}
-          title={`Assign In-Charge to ${selectedInventory?.name}`}
+          title={`Assign Inventory Officer to ${selectedInventory?.name}`}
           onClose={() => setAssignInchargeModalOpen(false)}
           footer={assignInchargeFooter}
           size="md"
         >
           <div className="space-y-4">
             <p className="text-sm text-text-light">
-              Current In-Charge: <span className="font-semibold text-text-dark">{selectedInventory?.incharge}</span>
+              Current Inventory Officer: <span className="font-semibold text-text-dark">{selectedInventory?.incharge}</span>
             </p>
 
             <div className="space-y-2">
-              <label className="block text-sm font-semibold text-text-dark">Select New In-Charge:</label>
+              <label className="block text-sm font-semibold text-text-dark">Select New Inventory Officer:</label>
               <div className="space-y-2 max-h-64 overflow-y-auto">
                 {inchargeCandidates.map((person) => (
                   <label

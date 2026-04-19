@@ -33,12 +33,15 @@ const Profile = () => {
   const [status, setStatus] = useState('')
   const [mobileNo, setMobileNo] = useState('')
   const [officeExtNo, setOfficeExtNo] = useState('')
+  const [hodRequestEligible, setHodRequestEligible] = useState(false)
+  const [hodRequestMessage, setHodRequestMessage] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [currentPassword, setCurrentPassword] = useState('')
 
   const [loading, setLoading] = useState(false)
   const [deactivationLoading, setDeactivationLoading] = useState(false)
+  const [hodRequestLoading, setHodRequestLoading] = useState(false)
   const [profileLoading, setProfileLoading] = useState(true)
   const [message, setMessage] = useState(null)
   const [error, setError] = useState(null)
@@ -90,9 +93,13 @@ const Profile = () => {
           setStatus(profile.status || '')
           setMobileNo(profile.mobileNo ? String(profile.mobileNo) : '')
           setOfficeExtNo(profile.officeExtNo ? String(profile.officeExtNo) : '')
+          setHodRequestEligible(Boolean(profile.hodRequestEligible))
+          setHodRequestMessage(profile.hodRequestMessage || '')
 
           const updatedUser = { ...storedUser, ...profile }
           localStorage.setItem('currentUser', JSON.stringify(updatedUser))
+          localStorage.setItem('userRole', profile.role || updatedUser.role || '')
+          window.currentUser = updatedUser
           if (profile.name) {
             localStorage.setItem('username', profile.name)
           }
@@ -202,6 +209,9 @@ const Profile = () => {
       const data = await response.json().catch(() => ({}))
 
       if (!response.ok || !data.success) {
+        if (data.code === 'OUTSTANDING_ITEM_RETURNS' && data.message) {
+          window.alert(data.message)
+        }
         throw new Error(data.message || 'Failed to submit deactivation request')
       }
 
@@ -210,6 +220,50 @@ const Profile = () => {
       setError(err.message || 'Failed to submit deactivation request')
     } finally {
       setDeactivationLoading(false)
+    }
+  }
+
+  const handleHodRequest = async () => {
+    setMessage(null)
+    setError(null)
+
+    const storedUser = JSON.parse(localStorage.getItem('currentUser') || '{}')
+
+    if (!storedUser?.id && !storedUser?.email) {
+      setError('No logged-in user found. Please sign in again.')
+      return
+    }
+
+    const confirmed = window.confirm('Submit an HOD role request for this account? This will be sent to the dean for review and then to admin for activation.')
+
+    if (!confirmed) {
+      return
+    }
+
+    setHodRequestLoading(true)
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/profile/request-hod`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: storedUser.id,
+          email: storedUser.email || email,
+        }),
+      })
+
+      const data = await response.json().catch(() => ({}))
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || 'Failed to submit the HOD request')
+      }
+
+      setMessage(data.message || 'HOD request submitted successfully')
+      setHodRequestEligible(false)
+      setHodRequestMessage('A pending HOD request already exists for this account.')
+    } catch (err) {
+      setError(err.message || 'Failed to submit the HOD request')
+    } finally {
+      setHodRequestLoading(false)
     }
   }
 
@@ -227,6 +281,12 @@ const Profile = () => {
           {error && <div className="mb-4 p-3 bg-red-50 text-red-800 rounded">{error}</div>}
 
           <p className="text-sm text-gray-600 mb-4">Profile details below are loaded from the database. You can update your password or submit an account deactivation request from this page.</p>
+
+          {!profileLoading && hodRequestMessage && (
+            <div className={`mb-4 p-3 rounded ${hodRequestEligible ? 'bg-blue-50 text-blue-800' : 'bg-amber-50 text-amber-800'}`}>
+              {hodRequestMessage}
+            </div>
+          )}
 
           {profileLoading && <div className="mb-4 p-3 bg-blue-50 text-blue-800 rounded">Loading profile details...</div>}
 
@@ -379,6 +439,15 @@ const Profile = () => {
               onClick={handleDeactivationRequest}
             >
               {deactivationLoading ? 'Submitting Request...' : 'Request for Deactivation'}
+            </button>
+
+            <button
+              type="button"
+              disabled={!hodRequestEligible || hodRequestLoading}
+              className={`px-4 py-2 rounded-md text-white ${(!hodRequestEligible || hodRequestLoading) ? 'bg-gray-300 cursor-not-allowed' : 'bg-primary-600 hover:bg-primary-700'}`}
+              onClick={handleHodRequest}
+            >
+              {hodRequestLoading ? 'Submitting HOD Request...' : 'Request for HOD'}
             </button>
           </div>
         </form>

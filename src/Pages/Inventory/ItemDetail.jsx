@@ -46,7 +46,7 @@ const ItemDetail = () => {
 
   // Simulated current user (replace with real auth lookup)
   const currentUser = (window.currentUser && window.currentUser.name) || 'Alice';
-  const isIncharge = item.receivedfrom === currentUser || item.incharge === currentUser;
+  const isInventoryOfficer = item.receivedfrom === currentUser || item.incharge === currentUser;
 
   return (
     <MainLayout variant={sidebarVariant}>
@@ -78,7 +78,7 @@ const ItemDetail = () => {
               <div><strong>Funding:</strong> {item.funding || '-'}</div>
               <div><strong>GIN No:</strong> {item.ginNo || '-'}</div>
               <div><strong>Location:</strong> {item.location || '-'}</div>
-              <div><strong>Incharge / Received From:</strong> {item.receivedfrom || item.incharge || '-'}</div>
+              <div><strong>Inventory Officer / Received From:</strong> {item.receivedfrom || item.incharge || '-'}</div>
             </div>
 
             <div className="col-span-1 md:col-span-2 space-y-2">
@@ -86,10 +86,10 @@ const ItemDetail = () => {
               <div className="whitespace-pre-wrap">{item.remarks || '-'}</div>
             </div>
 
-            {isIncharge && (
+            {isInventoryOfficer && (
               <>
                 <div className="col-span-1 md:col-span-2">
-                  <h3 className="text-lg font-semibold">Confidential Details (Incharge only)</h3>
+                  <h3 className="text-lg font-semibold">Confidential Details (Inventory Officer only)</h3>
                   <div><strong>QR Code:</strong> {item.QRCode || item.qrcode || '-'}</div>
                   <div><strong>QR Code 2:</strong> {item.QRCode2 || item.qrcode2 || '-'}</div>
                   <div><strong>GIN File:</strong> {item.ginfile || '-'}</div>
@@ -98,9 +98,9 @@ const ItemDetail = () => {
               </>
             )}
 
-            {!isIncharge && (
+            {!isInventoryOfficer && (
               <div className="col-span-1 md:col-span-2 text-sm text-text-light">
-                Only the inventory name and incharge are visible to you.
+                Only the inventory name and inventory officer are visible to you.
               </div>
             )}
           </div>

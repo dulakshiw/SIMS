@@ -134,9 +134,9 @@ export const getQueryParams = (search) => {
  * @returns {string} - sidebar variant
  */
 export const resolveSidebarVariant = (pathname, roleParam) => {
-  if (roleParam) return roleParam;
+  if (roleParam) return roleParam === "incharge" ? "staff" : roleParam;
   if (!pathname) return "inventory";
-  if (pathname.startsWith("/incharge")) return "incharge";
+  if (pathname.startsWith("/incharge")) return "staff";
   if (pathname.startsWith("/hod")) return "hod";
   if (pathname.startsWith("/dean")) return "dean";
   if (pathname.startsWith("/staff")) return "staff";

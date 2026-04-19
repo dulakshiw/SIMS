@@ -9,7 +9,7 @@ const DASHBOARD_BY_ROLE = {
   admin: "/admin/dashboard",
   registrar: "/admin/pending-tasks",
   staff: "/staff/dashboard",
-  inventory_incharge: "/incharge/dashboard",
+  inventory_incharge: "/staff/dashboard",
   head_of_department: "/hod/dashboard",
   dean: "/dean/dashboard",
 };

@@ -13,7 +13,7 @@ const SignUp = () => {
     officeExtNo: "",
     password: "",
     confirmPassword: "",
-    role: "staff",
+    adminRequest: false,
     department: "Information Technology",
     designation: ""
   });
@@ -117,7 +117,7 @@ const SignUp = () => {
             <div className="text-center space-y-2">
               <h1 className="text-3xl font-bold text-text-dark">Create Account</h1>
               <p className="text-text-light text-sm">
-                Join the Inventory Management System
+                Join the Inventory Management System. Staff signups go to the selected Department Head for approval.
               </p>
             </div>
 
@@ -184,28 +184,6 @@ const SignUp = () => {
                   className="w-full px-4 py-2.5 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                   style={{ backgroundColor: '#F2F0F0' }}
                 />
-              </div>
-
-              {/* Role */}
-              <div className="space-y-2">
-                <label className="block text-sm font-semibold text-text-dark">
-                  Requested Role 
-                </label>
-                <select
-                  name="role"
-                  value={formData.role}
-                  onChange={handleChange}
-                  required
-                  className="w-full px-4 py-2.5 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  style={{ backgroundColor: '#F2F0F0' }}
-                >
-                  <option value="staff">Staff Member</option>
-                  <option value="head_of_department">Head of Department</option>
-                  <option value="dean">Dean</option>
-                  <option value="registrar">Registrar</option>
-                  <option value="inventory_incharge">Inventory Incharge</option>
-                  <option value="admin">Admin</option>
-                </select>
               </div>
 
               {/* Department */}
@@ -305,6 +283,23 @@ const SignUp = () => {
                 />
               </div>
             </div>
+               {/* Admin Request Toggle */}
+              <div className="space-y-2">
+               
+                <label className="flex items-center gap-3 rounded-lg border border-border px-4 py-3" style={{ backgroundColor: '#F2F0F0' }}>
+                  <input
+                    type="checkbox"
+                    name="adminRequest"
+                    checked={Boolean(formData.adminRequest)}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, adminRequest: e.target.checked }))}
+                    className="h-4 w-4"
+                  />
+                  <span className="text-sm text-text-dark">Request an administrator account instead of a normal staff account</span>
+                </label>
+                <p className="text-xs text-text-light">
+                  Leave this off for a normal staff signup. Admin requests require dean approval before admin activation.
+                </p>
+              </div>
 
             {/* Password Strength Indicator - Full Width */}
             {formData.password && (

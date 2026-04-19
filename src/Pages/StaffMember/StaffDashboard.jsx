@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import MainLayout from '../../Components/Layouts/MainLayout'
 import { Card, Button, FormInput, Modal, PageHeader } from '../../Components/UI'
 import { canRequestItems } from '../../utils/permissionUtils'
@@ -6,6 +7,14 @@ import { INVENTORY_REQUEST_TYPE } from '../../utils/constants'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
 const ALLOWED_INVENTORY_REQUEST_DESIGNATIONS = new Set(['Technical Officer', 'Management Assistant'])
+
+const getStoredUser = () => {
+  try {
+    return JSON.parse(localStorage.getItem('currentUser') || '{}')
+  } catch {
+    return {}
+  }
+}
 
 const getTimeOfDayGreeting = () => {
   const hour = new Date().getHours()
@@ -27,17 +36,13 @@ const getLastName = (fullName = 'User') => {
 }
 
 const StaffDashboard = () => {
-  const storedUser = useMemo(() => {
-    try {
-      return JSON.parse(localStorage.getItem('currentUser') || '{}')
-    } catch {
-      return {}
-    }
-  }, [])
-  const userRole = storedUser.role || localStorage.getItem('userRole') || 'staff'
-  const userDesignation = String(storedUser.designation || '').trim()
-  const greeting = `${getTimeOfDayGreeting()} ${getLastName(storedUser.name || localStorage.getItem('username') || 'User')}`
-  const canRequestInventoryCreation = userRole === 'staff' && ALLOWED_INVENTORY_REQUEST_DESIGNATIONS.has(userDesignation)
+  const navigate = useNavigate()
+  const [currentUser, setCurrentUser] = useState(getStoredUser)
+  const userRole = currentUser.role || (Number(currentUser.assignedInventoryCount ?? 0) > 0 ? 'inventory_incharge' : '') || localStorage.getItem('userRole') || 'staff'
+  const isInventoryOfficer = userRole === 'inventory_incharge'
+  const userDesignation = String(currentUser.designation || '').trim()
+  const greeting = `${getTimeOfDayGreeting()} ${getLastName(currentUser.name || localStorage.getItem('username') || 'User')}`
+  const canRequestInventoryCreation = ['staff', 'inventory_incharge'].includes(userRole) && ALLOWED_INVENTORY_REQUEST_DESIGNATIONS.has(userDesignation)
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false)
   const [activeRequestType, setActiveRequestType] = useState(INVENTORY_REQUEST_TYPE.ADD_EXISTING)
   const [users, setUsers] = useState([])
@@ -45,18 +50,78 @@ const StaffDashboard = () => {
   const [requestMessage, setRequestMessage] = useState('')
   const [optionsError, setOptionsError] = useState('')
   const [isSubmittingRequest, setIsSubmittingRequest] = useState(false)
+  const [inventorySummary, setInventorySummary] = useState({
+    totalAssets: 0,
+    available: 0,
+    inUse: 0,
+    pendingRequests: 0,
+  })
+  const [assignedInventories, setAssignedInventories] = useState([])
+  const [inventoryError, setInventoryError] = useState('')
+  const [inventoryLoading, setInventoryLoading] = useState(false)
   const [formData, setFormData] = useState({
     name: '',
     location: '',
-    department: storedUser.department || '',
+    department: currentUser.department || '',
     incharge: '',
     Hod: '',
     description: '',
   })
 
+  useEffect(() => {
+    let isMounted = true
+    const storedUser = getStoredUser()
+
+    setCurrentUser(storedUser)
+
+    if (!storedUser?.email && !storedUser?.id) {
+      return undefined
+    }
+
+    const searchParams = new URLSearchParams()
+
+    if (storedUser.email) {
+      searchParams.set('email', storedUser.email)
+    } else if (storedUser.id) {
+      searchParams.set('userId', storedUser.id)
+    }
+
+    const loadEffectiveProfile = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/profile?${searchParams.toString()}`)
+        const data = await response.json().catch(() => ({}))
+
+        if (!response.ok || !data.success || !isMounted) {
+          return
+        }
+
+        const profile = data.profile || {}
+        const nextRole = profile.role || storedUser.role || localStorage.getItem('userRole') || 'staff'
+        const nextUser = { ...storedUser, ...profile, role: nextRole }
+
+        localStorage.setItem('currentUser', JSON.stringify(nextUser))
+        localStorage.setItem('userRole', nextRole)
+        if (nextUser.name) {
+          localStorage.setItem('username', nextUser.name)
+        }
+        window.currentUser = nextUser
+        setCurrentUser(nextUser)
+      } catch {
+        // Fall back to the locally stored user if the refresh fails.
+      }
+    }
+
+    loadEffectiveProfile()
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
   const stats = {
     myRequests: 2,
     availableItems: 240,
+    myIssuedItems: 0,
   }
 
   const mockRecent = [
@@ -103,19 +168,78 @@ const StaffDashboard = () => {
     }
   }, [canRequestInventoryCreation])
 
+  useEffect(() => {
+    if (!isInventoryOfficer) {
+      return undefined
+    }
+
+    let isMounted = true
+
+    const loadInventoryFeatures = async () => {
+      try {
+        setInventoryLoading(true)
+        setInventoryError('')
+
+        const [summaryResponse, inventoriesResponse] = await Promise.all([
+          fetch(`${API_BASE_URL}/api/dashboard/summary`),
+          fetch(`${API_BASE_URL}/api/inventories`),
+        ])
+
+        const [summaryData, inventoriesData] = await Promise.all([
+          summaryResponse.json(),
+          inventoriesResponse.json(),
+        ])
+
+        if (!summaryResponse.ok || !summaryData.success) {
+          throw new Error(summaryData.error || 'Failed to load inventory dashboard summary.')
+        }
+
+        if (!inventoriesResponse.ok || !inventoriesData.success) {
+          throw new Error(inventoriesData.error || 'Failed to load assigned inventories.')
+        }
+
+        if (!isMounted) {
+          return
+        }
+
+        setInventorySummary(summaryData.inventorySummary || {})
+        setAssignedInventories(
+          (inventoriesData.inventories || []).filter(
+            (inventory) => String(inventory.inchargeId) === String(storedUser.id)
+          )
+        )
+      } catch (error) {
+        if (isMounted) {
+          setInventoryError(error.message || 'Failed to load inventory features.')
+          setAssignedInventories([])
+        }
+      } finally {
+        if (isMounted) {
+          setInventoryLoading(false)
+        }
+      }
+    }
+
+    loadInventoryFeatures()
+
+    return () => {
+      isMounted = false
+    }
+  }, [currentUser.id, isInventoryOfficer])
+
   const currentUserRecord = useMemo(
     () =>
       users.find(
         (user) =>
-          (storedUser.id && String(user.id) === String(storedUser.id)) ||
-          (storedUser.email && String(user.email || '').toLowerCase() === String(storedUser.email).toLowerCase())
+          (currentUser.id && String(user.id) === String(currentUser.id)) ||
+          (currentUser.email && String(user.email || '').toLowerCase() === String(currentUser.email).toLowerCase())
       ) || null,
-    [storedUser.email, storedUser.id, users]
+    [currentUser.email, currentUser.id, users]
   )
 
-  const accountDepartment = storedUser.department || currentUserRecord?.department || ''
-  const accountHolderName = storedUser.name || currentUserRecord?.name || ''
-  const accountInchargeId = Number(storedUser.id || currentUserRecord?.id || 0)
+  const accountDepartment = currentUser.department || currentUserRecord?.department || ''
+  const accountHolderName = currentUser.name || currentUserRecord?.name || ''
+  const accountInchargeId = Number(currentUser.id || currentUserRecord?.id || 0)
 
   const departmentHodLookup = useMemo(
     () =>
@@ -173,7 +297,7 @@ const StaffDashboard = () => {
       setIsSubmittingRequest(true)
 
       const payload = {
-        requestedById: storedUser.id,
+        requestedById: currentUser.id,
         requestType: activeRequestType,
         name: formData.name.trim(),
         location: formData.location.trim(),
@@ -235,7 +359,7 @@ const StaffDashboard = () => {
     <MainLayout variant="staff">
       <PageHeader
         title="Staff Member Dashboard"
-        subtitle="Request items and view details of items issued to you"
+        subtitle={isInventoryOfficer ? 'Use your staff account for both staff requests and inventory management.' : 'Request items and view details of items issued to you'}
         actions={
           <div className="text-right text-base font-medium text-white sm:text-lg">
             {greeting}
@@ -252,6 +376,72 @@ const StaffDashboard = () => {
             <p className="text-3xl font-bold text-primary-800">{stats.myIssuedItems}</p>
           </Card>
         </div>
+
+        {isInventoryOfficer && inventoryError && (
+          <div className="mb-6 rounded bg-red-50 px-4 py-3 text-sm text-red-800">{inventoryError}</div>
+        )}
+
+        {isInventoryOfficer && (
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+              <Card title="Assigned Inventories" icon="inventory">
+                <p className="text-3xl font-bold text-primary-800">{inventoryLoading ? '...' : assignedInventories.length}</p>
+              </Card>
+              <Card title="Total Assets" icon="inventory_2">
+                <p className="text-3xl font-bold text-primary-800">{inventoryLoading ? '...' : inventorySummary.totalAssets ?? 0}</p>
+              </Card>
+              <Card title="Available" icon="check_circle">
+                <p className="text-3xl font-bold text-success">{inventoryLoading ? '...' : inventorySummary.available ?? 0}</p>
+              </Card>
+              <Card title="In Use" icon="assignment">
+                <p className="text-3xl font-bold text-info">{inventoryLoading ? '...' : inventorySummary.inUse ?? 0}</p>
+              </Card>
+              <Card title="Pending Requests" icon="request_quote">
+                <p className="text-3xl font-bold text-warning">{inventoryLoading ? '...' : inventorySummary.pendingRequests ?? 0}</p>
+              </Card>
+            </div>
+
+            <div className="bg-white p-6 rounded-lg shadow-md border border-border-lighter mb-6">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                <div>
+                  <h2 className="text-lg font-semibold text-text-dark">Inventory Management</h2>
+                  <p className="text-sm text-text-light">Manage all inventories assigned to this staff account.</p>
+                </div>
+                <div className="flex flex-wrap gap-3">
+                  <Button variant="secondary" onClick={() => navigate('/inventory/list/incharge')} icon="inventory_2">My Inventories</Button>
+                  <Button variant="primary" onClick={() => navigate('/inventory/add/incharge')} icon="playlist_add">Add Item</Button>
+                  <Button variant="secondary" onClick={() => navigate('/inventory/transfers/list/incharge')} icon="compare_arrows">Transfers</Button>
+                  <Button variant="secondary" onClick={() => navigate('/inventory/disposals/list/incharge')} icon="delete_sweep">Disposals</Button>
+                </div>
+              </div>
+            </div>
+
+            <Card title="Assigned Inventories" icon="inventory" className="mb-6">
+              <div className="space-y-3">
+                {assignedInventories.length === 0 && !inventoryLoading ? (
+                  <p className="text-sm text-text-light">No inventories are assigned to this account yet.</p>
+                ) : (
+                  assignedInventories.map((inventory) => (
+                    <div key={inventory.id} className="flex items-center justify-between rounded-lg border border-border-lighter p-3">
+                      <div>
+                        <p className="font-medium text-text-dark">{inventory.name}</p>
+                        <p className="text-sm text-text-light">{inventory.location || 'No location'} • {inventory.department}</p>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button variant="secondary" onClick={() => navigate(`/inventory/list/incharge?inventoryId=${inventory.id}`)}>
+                          Open
+                        </Button>
+                        <Button variant="primary" onClick={() => navigate(`/inventory/add/incharge?inventoryId=${inventory.id}`)}>
+                          Add Item
+                        </Button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </Card>
+          </>
+        )}
 
         <div className="bg-white p-6 rounded-lg shadow-md border border-border-lighter mb-6">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -356,11 +546,11 @@ const StaffDashboard = () => {
             />
 
             <FormInput
-              label="In-Charge Person"
+              label="Inventory Officer"
               name="incharge"
               value={accountHolderName}
               onChange={handleInputChange}
-              placeholder="In-charge person"
+              placeholder="Inventory officer"
               disabled
               required
             />
