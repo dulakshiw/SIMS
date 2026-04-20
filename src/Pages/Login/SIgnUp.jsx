@@ -13,7 +13,6 @@ const SignUp = () => {
     officeExtNo: "",
     password: "",
     confirmPassword: "",
-    adminRequest: false,
     department: "Information Technology",
     designation: ""
   });
@@ -81,7 +80,7 @@ const SignUp = () => {
         throw new Error(data.error || data.message || "Account creation failed.");
       }
 
-      alert(data.message || "Account Created Successfully!");
+      alert(data.message || "Account request submitted successfully!");
       navigate("/", { replace: true });
     } catch (error) {
       const fallbackMessage = error?.message?.includes("Failed to fetch")
@@ -117,7 +116,7 @@ const SignUp = () => {
             <div className="text-center space-y-2">
               <h1 className="text-3xl font-bold text-text-dark">Create Account</h1>
               <p className="text-text-light text-sm">
-                Join the Inventory Management System. Staff signups go to the selected Department Head for approval.
+                Create a staff member account request. Requests go to your Department Head for review and then to admin for activation.
               </p>
             </div>
 
@@ -283,24 +282,6 @@ const SignUp = () => {
                 />
               </div>
             </div>
-               {/* Admin Request Toggle */}
-              <div className="space-y-2">
-               
-                <label className="flex items-center gap-3 rounded-lg border border-border px-4 py-3" style={{ backgroundColor: '#F2F0F0' }}>
-                  <input
-                    type="checkbox"
-                    name="adminRequest"
-                    checked={Boolean(formData.adminRequest)}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, adminRequest: e.target.checked }))}
-                    className="h-4 w-4"
-                  />
-                  <span className="text-sm text-text-dark">Request an administrator account instead of a normal staff account</span>
-                </label>
-                <p className="text-xs text-text-light">
-                  Leave this off for a normal staff signup. Admin requests require dean approval before admin activation.
-                </p>
-              </div>
-
             {/* Password Strength Indicator - Full Width */}
             {formData.password && (
               <div className="bg-gray-50 p-4 rounded-lg space-y-2">
@@ -337,7 +318,7 @@ const SignUp = () => {
               className="w-full"
               disabled={loading}
             >
-              {loading ? "Creating Account..." : "Create Account"}
+              {loading ? "Submitting Request..." : "Submit Account Request"}
             </Button>
           </form>
 

@@ -8,11 +8,13 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
 
 const UserManagement = () => {
   const location = useLocation();
+  const singletonRoles = ["head_of_department", "dean", "registrar"];
   const [searchTerm, setSearchTerm] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isChangeRoleModalOpen, setIsChangeRoleModalOpen] = useState(false);
   const [isApproveAccountModalOpen, setIsApproveAccountModalOpen] = useState(false);
   const [isUserDetailsModalOpen, setIsUserDetailsModalOpen] = useState(false);
+  const [isEditAccountModalOpen, setIsEditAccountModalOpen] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState(null);
   const [selectedUserName, setSelectedUserName] = useState("");
   const [selectedUserDetails, setSelectedUserDetails] = useState(null);
@@ -37,6 +39,13 @@ const UserManagement = () => {
   const [accountRequestsLoading, setAccountRequestsLoading] = useState(true);
   const [accountRequestsError, setAccountRequestsError] = useState("");
   const [submitError, setSubmitError] = useState("");
+  const [editAccountError, setEditAccountError] = useState("");
+  const [editAccountLoading, setEditAccountLoading] = useState(false);
+  const [editFormData, setEditFormData] = useState({
+    mobileNo: "",
+    password: "",
+    confirmPassword: "",
+  });
 
   const [accountRequests, setAccountRequests] = useState([]);
 
@@ -87,9 +96,15 @@ const UserManagement = () => {
   };
 
   const columns = [
+    {
+      field: "id",
+      label: "No",
+      sortable: false,
+      render: (_value, row) => filteredUsers.findIndex((user) => user.id === row.id) + 1,
+    },
     { field: "name", label: "Name", sortable: true },
-    { field: "email", label: "Email", sortable: true },
     { field: "department", label: "Department", sortable: true },
+    { field: "designation", label: "Designation", sortable: true },
     {
       field: "role",
       label: "Role",
@@ -112,7 +127,6 @@ const UserManagement = () => {
         />
       ),
     },
-    { field: "createdDate", label: "Created Date" },
   ];
 
   const accountRequestColumns = [
@@ -143,7 +157,7 @@ const UserManagement = () => {
   ];
 
   const actions = [
-    { label: "Edit", icon: "edit", onClick: (row) => console.log("Edit", row) },
+    { label: "Edit", icon: "edit", onClick: (row) => handleEditAccount(row) },
     { label: "Change Role", icon: "admin_panel_settings", onClick: (row) => handleChangeRole(row) },
     {
       label: "Toggle Status",
@@ -216,6 +230,33 @@ const UserManagement = () => {
     return "bg-success";
   };
 
+  const hasDeanAccount = users.some((user) => user.role === "dean");
+  const hasRegistrarAccount = users.some((user) => user.role === "registrar");
+  const hasDepartmentHodAccount = users.some(
+    (user) => user.role === "head_of_department" && user.department === formData.department
+  );
+  const createRoleOptions = [
+    { value: "staff", label: ROLE_HIERARCHY.staff.label },
+    ...(!hasDepartmentHodAccount ? [{ value: "head_of_department", label: ROLE_HIERARCHY.head_of_department.label }] : []),
+    ...(!hasDeanAccount ? [{ value: "dean", label: ROLE_HIERARCHY.dean.label }] : []),
+    ...(!hasRegistrarAccount ? [{ value: "registrar", label: ROLE_HIERARCHY.registrar.label }] : []),
+  ];
+  const isDirectProvisionedRole = ["head_of_department", "dean", "registrar", "admin"].includes(formData.role);
+  const isRegistrarRole = formData.role === "registrar";
+
+  useEffect(() => {
+    if (!createRoleOptions.some((option) => option.value === formData.role)) {
+      setFormData((prev) => ({ ...prev, role: "staff" }));
+    }
+  }, [createRoleOptions, formData.role]);
+
+  useEffect(() => {
+    if (isRegistrarRole && (formData.department || formData.designation)) {
+      setFormData((prev) => ({ ...prev, department: "", designation: "" }));
+      setOtherDesignation("");
+    }
+  }, [isRegistrarRole, formData.department, formData.designation]);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSubmitError("");
@@ -232,7 +273,11 @@ const UserManagement = () => {
     }
     
     // If "Other" is selected, use the custom designation
-    const finalDesignation = formData.designation === "Other" ? otherDesignation : formData.designation;
+    const finalDesignation = isRegistrarRole
+      ? ""
+      : formData.designation === "Other"
+        ? otherDesignation
+        : formData.designation;
     
     try {
       const response = await fetch(`${API_BASE_URL}/api/auth/signup`, {
@@ -246,7 +291,7 @@ const UserManagement = () => {
           password: formData.password,
           role: formData.role,
           createdByRole: "admin",
-          department: formData.department,
+          department: isRegistrarRole ? "" : formData.department,
           designation: finalDesignation,
         }),
       });
@@ -256,22 +301,42 @@ const UserManagement = () => {
         throw new Error(data.error || data.message || "Failed to submit account request.");
       }
 
-      setAccountRequests((prev) => [
-        {
-          id: data.request?.id || Date.now(),
-          name: formData.name,
-          email: formData.email,
-          requestedRole: formData.role,
-          department: formData.department,
-          designation: finalDesignation,
-          requestedDate: new Date().toISOString().split("T")[0],
-          requestedByDeptHead: "-",
-          approvalStatus: ["head_of_department", "registrar", "admin"].includes(formData.role)
-            ? ACCOUNT_REQUEST_STATUS.PENDING_DEAN
-            : ACCOUNT_REQUEST_STATUS.PENDING_DEPT_HEAD,
-        },
-        ...prev,
-      ]);
+      if (data.user && !data.request) {
+        setUsers((prev) => [
+          {
+            id: data.user.id,
+            name: data.user.name || formData.name,
+            email: data.user.email || formData.email,
+            role: data.user.role || formData.role,
+            department: data.user.department || (isRegistrarRole ? "-" : formData.department),
+            designation: data.user.designation || finalDesignation,
+            mobileNo: data.user.mobileNo || formData.mobileNo,
+            officeExtNo: data.user.officeExtNo || formData.officeExtNo,
+            status: data.user.status || "active",
+            createdDate: new Date().toISOString().split("T")[0],
+          },
+          ...prev,
+        ]);
+      } else {
+        setAccountRequests((prev) => [
+          {
+            id: data.request?.id || Date.now(),
+            name: formData.name,
+            email: formData.email,
+            requestedRole: formData.role,
+            department: isRegistrarRole ? "-" : formData.department,
+            designation: finalDesignation,
+            requestedDate: new Date().toISOString().split("T")[0],
+            requestedByDeptHead: "-",
+            approvalStatus: ACCOUNT_REQUEST_STATUS.PENDING_DEPT_HEAD,
+          },
+          ...prev,
+        ]);
+      }
+
+      window.alert(
+        data.message || (data.user ? "User account created successfully." : "Account request submitted successfully.")
+      );
       setIsModalOpen(false);
       setFormData({ name: "", email: "", mobileNo: "", officeExtNo: "", role: "staff", department: "", designation: "", password: "", confirmPassword: "" });
       setOtherDesignation("");
@@ -313,6 +378,24 @@ const UserManagement = () => {
     setIsChangeRoleModalOpen(true);
   };
 
+  const handleEditAccount = (user) => {
+    if (!singletonRoles.includes(user.role)) {
+      window.alert("The edit flow is currently limited to dean, HOD, and registrar re-appointment updates.");
+      return;
+    }
+
+    setSelectedUserDetails(user);
+    setSelectedUserId(user.id);
+    setSelectedUserName(user.name);
+    setEditAccountError("");
+    setEditFormData({
+      mobileNo: user.mobileNo || "",
+      password: "",
+      confirmPassword: "",
+    });
+    setIsEditAccountModalOpen(true);
+  };
+
   const handleViewUserDetails = (user) => {
     setSelectedUserDetails(user);
     setIsUserDetailsModalOpen(true);
@@ -342,6 +425,72 @@ const UserManagement = () => {
       setNewRole("");
     } catch (error) {
       window.alert(error.message || "Failed to update user role.");
+    }
+  };
+
+  const handleEditFormChange = (e) => {
+    const { name, value } = e.target;
+    setEditFormData((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleEditAccountSubmit = async () => {
+    setEditAccountError("");
+
+    const trimmedMobileNo = String(editFormData.mobileNo || "").trim();
+    const nextPassword = String(editFormData.password || "");
+
+    if (!trimmedMobileNo && !nextPassword) {
+      setEditAccountError("Enter a new mobile number or password to update this account.");
+      return;
+    }
+
+    if (nextPassword && nextPassword !== editFormData.confirmPassword) {
+      setEditAccountError("Passwords do not match.");
+      return;
+    }
+
+    if (nextPassword && nextPassword.length < 8) {
+      setEditAccountError("Password must be at least 8 characters long.");
+      return;
+    }
+
+    try {
+      setEditAccountLoading(true);
+      const response = await fetch(`${API_BASE_URL}/api/users/${selectedUserId}/reappointment`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mobileNo: trimmedMobileNo,
+          password: nextPassword,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || data.error || "Failed to update the account.");
+      }
+
+      setUsers((prevUsers) =>
+        prevUsers.map((user) => (
+          user.id === selectedUserId
+            ? { ...user, mobileNo: trimmedMobileNo || user.mobileNo }
+            : user
+        ))
+      );
+
+      setSelectedUserDetails((prev) => (
+        prev && prev.id === selectedUserId
+          ? { ...prev, mobileNo: trimmedMobileNo || prev.mobileNo }
+          : prev
+      ));
+
+      window.alert(data.message || "Account updated successfully.");
+      setIsEditAccountModalOpen(false);
+      setEditFormData({ mobileNo: "", password: "", confirmPassword: "" });
+    } catch (error) {
+      setEditAccountError(error.message || "Failed to update the account.");
+    } finally {
+      setEditAccountLoading(false);
     }
   };
 
@@ -473,7 +622,7 @@ const UserManagement = () => {
         Cancel
       </Button>
       <Button variant="primary" onClick={handleSubmit}>
-        Submit Request
+        {isDirectProvisionedRole ? "Create & Activate User" : "Submit Request"}
       </Button>
     </div>
   );
@@ -496,6 +645,17 @@ const UserManagement = () => {
       </Button>
       <Button variant="primary" onClick={handleApproveAccountSubmit}>
         Approve & Activate Account
+      </Button>
+    </div>
+  );
+
+  const editAccountFooter = (
+    <div className="flex gap-3 justify-end">
+      <Button variant="secondary" onClick={() => setIsEditAccountModalOpen(false)}>
+        Cancel
+      </Button>
+      <Button variant="primary" onClick={handleEditAccountSubmit} disabled={editAccountLoading}>
+        {editAccountLoading ? "Updating..." : "Update Account"}
       </Button>
     </div>
   );
@@ -593,7 +753,8 @@ const UserManagement = () => {
                 data={filteredUsers}
                 actions={actions}
                 onRowClick={handleViewUserDetails}
-                rowsPerPage={10}
+                paginated
+                itemsPerPage={10}
               />
             )}
           </Card>
@@ -602,7 +763,7 @@ const UserManagement = () => {
             {accountRequestsLoading ? (
               <p className="text-sm text-text-light p-4">Loading account requests...</p>
             ) : (
-              <Table columns={accountRequestColumns} data={filteredRequests} actions={requestActions} rowsPerPage={10} />
+              <Table columns={accountRequestColumns} data={filteredRequests} actions={requestActions} paginated itemsPerPage={10} />
             )}
           </Card>
         )}
@@ -644,7 +805,7 @@ const UserManagement = () => {
         <form className="space-y-4">
           {submitError && <p className="rounded bg-error/10 px-3 py-2 text-sm text-error">{submitError}</p>}
           <p className="text-sm text-text-light bg-background-light p-3 rounded">
-            Note: New non-admin accounts are created as inactive staff accounts first. Requested HOD and dean roles are assigned during approval.
+            Staff accounts still enter the signup approval workflow. Dean and registrar accounts can be created only once. Each department can have only one HOD account, and those designation accounts are reused instead of recreated.
           </p>
           <FormInput
             label="Full Name"
@@ -685,47 +846,48 @@ const UserManagement = () => {
               name="role"
               value={formData.role}
               onChange={handleSelectChange("role")}
-              options={[
-                { value: "staff", label: ROLE_HIERARCHY.staff.label },
-                { value: "head_of_department", label: ROLE_HIERARCHY.head_of_department.label },
-                { value: "dean", label: ROLE_HIERARCHY.dean.label },
-                { value: "registrar", label: ROLE_HIERARCHY.registrar.label },
-              ]}
+              options={createRoleOptions}
               required
             />
-            <Select
-              label="Department"
-              name="department"
-              value={formData.department}
-              onChange={handleSelectChange("department")}
-              options={[
-                { value: "Dean's Office", label: "Dean's Office" },
-                { value: "Information Technology", label: "Information Technology" },
-                { value: "Computational Mathematics", label: "Computational Mathematics" },
-                { value: "Interdisciplinary Studies", label: "Interdisciplinary Studies" },
-                { value: "Undergraduate Studies", label: "Undergraduate Studies" },
-                { value: "Postgraduate Studies", label: "Postgraduate Studies" },
-              ]}
-              required
-            />
+            {!isRegistrarRole ? (
+              <Select
+                label="Department"
+                name="department"
+                value={formData.department}
+                onChange={handleSelectChange("department")}
+                options={[
+                  { value: "Dean's Office", label: "Dean's Office" },
+                  { value: "Information Technology", label: "Information Technology" },
+                  { value: "Computational Mathematics", label: "Computational Mathematics" },
+                  { value: "Interdisciplinary Studies", label: "Interdisciplinary Studies" },
+                  { value: "Undergraduate Studies", label: "Undergraduate Studies" },
+                  { value: "Postgraduate Studies", label: "Postgraduate Studies" },
+                ]}
+                required
+              />
+            ) : (
+              <div />
+            )}
           </div>
-          <Select
-            label="Designation"
-            name="designation"
-            value={formData.designation}
-            onChange={handleSelectChange("designation")}
-            options={[
-              { value: "Lecturer", label: "Lecturer" },
-              { value: "Instructor", label: "Instructor" },
-              { value: "Technical Officer", label: "Technical Officer" },
-              { value: "Management Assistant", label: "Management Assistant" },
-              { value: "Laboratory Attendant", label: "Laboratory Attendant" },
-              { value: "Works Aide", label: "Works Aide" },
-              { value: "Other", label: "Other" },
-            ]}
-            required
-          />
-          {formData.designation === "Other" && (
+          {!isRegistrarRole ? (
+            <Select
+              label="Designation"
+              name="designation"
+              value={formData.designation}
+              onChange={handleSelectChange("designation")}
+              options={[
+                { value: "Lecturer", label: "Lecturer" },
+                { value: "Instructor", label: "Instructor" },
+                { value: "Technical Officer", label: "Technical Officer" },
+                { value: "Management Assistant", label: "Management Assistant" },
+                { value: "Laboratory Attendant", label: "Laboratory Attendant" },
+                { value: "Works Aide", label: "Works Aide" },
+                { value: "Other", label: "Other" },
+              ]}
+              required
+            />
+          ) : null}
+          {!isRegistrarRole && formData.designation === "Other" && (
             <div className="space-y-2">
               <label className="block text-sm font-semibold text-text-dark">
                 Please Specify Designation <span className="text-danger">*</span>
@@ -788,6 +950,11 @@ const UserManagement = () => {
               </div>
             </div>
           )}
+          {formData.role === "staff" && createRoleOptions.length === 1 ? (
+            <p className="text-xs text-text-light">
+              Permanent designation accounts have already been created. Use the existing dean, HOD, or registrar accounts when assignments change.
+            </p>
+          ) : null}
         </form>
       </Modal>
 
@@ -889,6 +1056,47 @@ const UserManagement = () => {
               </div>
             </div>
           )}
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={isEditAccountModalOpen}
+        onClose={() => setIsEditAccountModalOpen(false)}
+        title={`Update Account for ${selectedUserName}`}
+        footer={editAccountFooter}
+        size="md"
+      >
+        <div className="space-y-4">
+          {editAccountError ? <p className="rounded bg-error/10 px-3 py-2 text-sm text-error">{editAccountError}</p> : null}
+          <div className="rounded-lg bg-background-light p-4 text-sm text-text-dark">
+            <p><strong>Role:</strong> {ROLE_HIERARCHY[selectedUserDetails?.role]?.label || selectedUserDetails?.role}</p>
+            <p><strong>Email:</strong> {selectedUserDetails?.email || "-"}</p>
+            <p><strong>Department:</strong> {selectedUserDetails?.department || "-"}</p>
+            <p><strong>Designation:</strong> {selectedUserDetails?.designation || "-"}</p>
+          </div>
+          <FormInput
+            label="Mobile No"
+            name="mobileNo"
+            placeholder="e.g., 0771234567"
+            value={editFormData.mobileNo}
+            onChange={handleEditFormChange}
+          />
+          <FormInput
+            label="New Password"
+            name="password"
+            type="password"
+            placeholder="Enter new password"
+            value={editFormData.password}
+            onChange={handleEditFormChange}
+          />
+          <FormInput
+            label="Confirm New Password"
+            name="confirmPassword"
+            type="password"
+            placeholder="Confirm new password"
+            value={editFormData.confirmPassword}
+            onChange={handleEditFormChange}
+          />
         </div>
       </Modal>
     </AdminLayout>
