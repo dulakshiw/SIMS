@@ -4,7 +4,7 @@ import MainLayout from "../../Components/Layouts/MainLayout";
 import { Card, Button, PageHeader } from "../../Components/UI";
 import { resolveSidebarVariant } from "../../utils/helpers";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
 
 const ItemDetail = () => {
   const { id, role } = useParams();

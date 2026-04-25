@@ -4,7 +4,14 @@ import MainLayout from "../../Components/Layouts/MainLayout";
 import { Card, Button, PageHeader, Select } from "../../Components/UI";
 import { resolveSidebarVariant } from "../../utils/helpers";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
+const COMMON_PLACE_OPTIONS = [
+  { value: "Store Room", label: "Store Room" },
+  { value: "Lecture Hall 1", label: "Lecture Hall 1" },
+  { value: "Lecture Hall 2", label: "Lecture Hall 2" },
+  { value: "Lecture Hall 3", label: "Lecture Hall 3" },
+  { value: "Lecture Hall 4", label: "Lecture Hall 4" },
+];
 
 const AddNewItem = () => {
   const location = useLocation();
@@ -31,6 +38,11 @@ const AddNewItem = () => {
   const [assignedInventories, setAssignedInventories] = useState([]);
   const [selectedInventoryId, setSelectedInventoryId] = useState(initialInventoryId);
   const [inventoryLoadError, setInventoryLoadError] = useState("");
+  const [systemUsers, setSystemUsers] = useState([]);
+  const [usersLoadError, setUsersLoadError] = useState("");
+  const [locationAssignmentType, setLocationAssignmentType] = useState("person");
+  const [selectedLocationUserId, setSelectedLocationUserId] = useState("");
+  const [selectedCommonPlace, setSelectedCommonPlace] = useState("");
   
   const [itemData, setItemData] = useState({
     itemName: "",
@@ -100,12 +112,58 @@ const AddNewItem = () => {
     };
   }, [API_BASE_URL, currentUser.id, isInchargeMode, selectedInventoryId]);
 
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadSystemUsers = async () => {
+      try {
+        setUsersLoadError("");
+        const response = await fetch(`${API_BASE_URL}/api/users`);
+        const data = await response.json();
+
+        if (!response.ok || !data.success) {
+          throw new Error(data.error || data.message || "Failed to load users.");
+        }
+
+        if (!isMounted) {
+          return;
+        }
+
+        setSystemUsers(data.users || []);
+      } catch (error) {
+        if (isMounted) {
+          setSystemUsers([]);
+          setUsersLoadError(error.message || "Failed to load users.");
+        }
+      }
+    };
+
+    loadSystemUsers();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   const inventoryOptions = useMemo(
     () => assignedInventories.map((inventory) => ({ value: String(inventory.id), label: `${inventory.name} (${inventory.location || "No location"})` })),
     [assignedInventories]
   );
 
   const selectedInventory = assignedInventories.find((inventory) => String(inventory.id) === String(selectedInventoryId)) || null;
+  const userLocationOptions = useMemo(
+    () =>
+      systemUsers.map((user) => ({
+        value: String(user.id),
+        label: user.department ? `${user.name} (${user.department})` : user.name,
+      })),
+    [systemUsers]
+  );
+
+  const selectedLocationUser = useMemo(
+    () => systemUsers.find((user) => String(user.id) === String(selectedLocationUserId)) || null,
+    [selectedLocationUserId, systemUsers]
+  );
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -330,6 +388,29 @@ const AddNewItem = () => {
     }
     (async () => {
       try {
+        // If a CSV file was selected, upload file directly to server CSV endpoint
+        if (bulkFile) {
+          const form = new FormData();
+          form.append('file', bulkFile);
+          if (selectedInventoryId) form.append('inventoryId', String(selectedInventoryId));
+
+          const res = await fetch(`${API_BASE_URL}/api/items/bulk-csv`, {
+            method: 'POST',
+            body: form,
+          });
+
+          const data = await res.json();
+          if (res.ok) {
+            alert(`Successfully submitted ${data.createdCount} items`);
+            setBulkFile(null);
+            setBulkItems([]);
+            return;
+          } else {
+            alert('Bulk upload failed: ' + (data.error || 'unknown'));
+            return;
+          }
+        }
+
         const res = await fetch(`${API_BASE_URL}/api/items/bulk`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -443,51 +524,75 @@ const AddNewItem = () => {
       return;
     }
 
+    const resolvedLocation = locationAssignmentType === "person"
+      ? (selectedLocationUser?.name || "")
+      : selectedCommonPlace;
+
+    if (locationAssignmentType === "person" && !selectedLocationUserId) {
+      alert("Select a system user to issue this item to.");
+      return;
+    }
+
+    if (locationAssignmentType === "place" && !selectedCommonPlace) {
+      alert("Select a common place for this item.");
+      return;
+    }
+
+    if (!resolvedLocation) {
+      alert("Select a valid person or place in Location Details.");
+      return;
+    }
+
     (async () => {
       try {
-        // prepare payload (omit File objects; include file names if present)
-        const payload = { ...itemData };
-        payload.inventoryId = selectedInventoryId ? Number(selectedInventoryId) : null;
-        const normalizedFunding = payload.funding === "other"
-          ? (payload.fundingOther || "")
-          : (payload.funding || "");
-        const normalizedWarranty = payload.warranty === "other"
-          ? (payload.warrantyOther || "")
-          : (payload.warranty || "");
+        // prepare FormData for multipart upload (supports files)
+        const form = new FormData();
+        const normalizedFunding = itemData.funding === "other"
+          ? (itemData.fundingOther || "")
+          : (itemData.funding || "");
+        const normalizedWarranty = itemData.warranty === "other"
+          ? (itemData.warrantyOther || "")
+          : (itemData.warranty || "");
 
-        if (!normalizedFunding && payload.fundingOther) {
-          payload.funding = payload.fundingOther;
-        } else {
-          payload.funding = normalizedFunding;
-        }
+        form.append('inventoryId', selectedInventoryId ? String(selectedInventoryId) : '');
+        form.append('location', resolvedLocation);
+        form.append('itemName', itemData.itemName || '');
+        form.append('itemCode', itemData.itemCode || '');
+        form.append('serialNo', itemData.serialNo || '');
+        form.append('serialNo2', itemData.serialNo2 || '');
+        form.append('model', itemData.model || '');
+        form.append('QRCode', itemData.QRCode || '');
+        form.append('QRCode2', itemData.QRCode2 || '');
+        form.append('pageno', itemData.pageno || '');
+        form.append('value', itemData.value || '');
+        form.append('purchaseDate', itemData.purchaseDate || '');
+        form.append('ginNo', itemData.ginNo || '');
+        form.append('poNo', itemData.poNo || '');
+        form.append('supplier', itemData.supplier || '');
+        form.append('funding', !normalizedFunding && itemData.fundingOther ? itemData.fundingOther : normalizedFunding);
+        form.append('receivedfrom', itemData.receivedfrom || '');
+        form.append('warranty', !normalizedWarranty && itemData.warrantyOther ? itemData.warrantyOther : normalizedWarranty);
+        form.append('location', itemData.location || '');
+        form.append('remarks', itemData.remarks || '');
 
-        if (!normalizedWarranty && payload.warrantyOther) {
-          payload.warranty = payload.warrantyOther;
-        } else {
-          payload.warranty = normalizedWarranty;
-        }
-
-        delete payload.fundingOther;
-        delete payload.warrantyOther;
-        if (payload.itemImage) payload.itemImage = payload.itemImage.name;
-        if (payload.ginfile) payload.ginfile = payload.ginfile.name;
+        if (itemData.itemImage) form.append('itemImage', itemData.itemImage);
+        if (itemData.ginfile) form.append('ginfile', itemData.ginfile);
 
         const res = await fetch(`${API_BASE_URL}/api/items`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
+          body: form,
         });
+
         const data = await res.json();
         if (res.ok) {
-          alert('Item added successfully (saved to mock server)');
-          // clear
+          alert('Item added successfully');
           handleReset();
         } else {
           alert('Save failed: ' + (data.error || 'unknown'));
         }
       } catch (err) {
         console.error(err);
-        alert('Save failed (network). Ensure mock server is running at http://localhost:4000');
+        alert('Save failed (network). Ensure API server is running at http://localhost:4000');
       }
     })();
   };
@@ -517,6 +622,9 @@ const AddNewItem = () => {
       location: "",
       remarks: ""
     });
+    setLocationAssignmentType("person");
+    setSelectedLocationUserId("");
+    setSelectedCommonPlace("");
   };
 
   return (
@@ -929,33 +1037,8 @@ const AddNewItem = () => {
                     />
                   )}
                 </div>
-              </div>
-            </div>
 
-            {/* ==================== LOGISTICS & LOCATION SECTION ==================== */}
-            <div className="space-y-4">
-              <div className="pb-4 border-b-2 border-primary-500">
-                <h2 className="text-xl font-bold text-text-dark">Logistics & Location</h2>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Location */}
-                <div className="space-y-2">
-                  <label className="block text-sm font-semibold text-text-dark">
-                    Location <span className="text-danger">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    name="location"
-                    value={itemData.location}
-                    onChange={handleChange}
-                    required
-                    placeholder="Enter location"
-                    style={{ backgroundColor: '#F2F0F0' }}
-                    className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  />
-                </div>
-
-                {/* Received/Transferred From */}
+                 {/* Received/Transferred From */}
                 <div className="space-y-2">
                   <label className="block text-sm font-semibold text-text-dark">Received/Transferred From</label>
                   <input
@@ -979,6 +1062,7 @@ const AddNewItem = () => {
                     style={{ backgroundColor: '#F2F0F0' }}
                     className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                   >
+                    <option value="1year">6 Months</option>
                     <option value="1year">1 Year</option>
                     <option value="2years">2 Years</option>
                     <option value="3years">3 Years</option>
@@ -998,6 +1082,65 @@ const AddNewItem = () => {
                     />
                   )}
                 </div>
+              </div>
+            </div>
+
+            {/* ==================== LOCATION Details SECTION ==================== */}
+            <div className="space-y-4">
+              <div className="pb-4 border-b-2 border-primary-500">
+                <h2 className="text-xl font-bold text-text-dark">Location Details</h2>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <label className="block text-sm font-semibold text-text-dark">Assign To <span className="text-danger">*</span></label>
+                  <select
+                    value={locationAssignmentType}
+                    onChange={(e) => {
+                      const nextType = e.target.value;
+                      setLocationAssignmentType(nextType);
+                      if (nextType === "person") {
+                        setSelectedCommonPlace("");
+                      } else {
+                        setSelectedLocationUserId("");
+                      }
+                    }}
+                    style={{ backgroundColor: '#F2F0F0' }}
+                    className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  >
+                    <option value="person">Staff Member</option>
+                    <option value="place">Place</option>
+                  </select>
+                </div>
+
+                <div className="space-y-2">
+                  {locationAssignmentType === "person" ? (
+                    <Select
+                      label="Issued To User"
+                      name="issuedToUser"
+                      value={selectedLocationUserId}
+                      onChange={setSelectedLocationUserId}
+                      options={userLocationOptions}
+                      placeholder="Select a Staff Member"
+                      required
+                    />
+                  ) : (
+                    <Select
+                      label="Location"
+                      name="commonPlace"
+                      value={selectedCommonPlace}
+                      onChange={setSelectedCommonPlace}
+                      options={COMMON_PLACE_OPTIONS}
+                      placeholder="Select a place"
+                      required
+                    />
+                  )}
+                </div>
+
+                {usersLoadError && locationAssignmentType === "person" && (
+                  <div className="md:col-span-2 rounded border border-red-300 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+                    {usersLoadError}
+                  </div>
+                )}
               </div>
             </div>
 

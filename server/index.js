@@ -2,6 +2,10 @@ import cors from "cors";
 import dotenv from "dotenv";
 import express from "express";
 import mysql from "mysql2/promise";
+import fs from "fs";
+import path from "path";
+import multer from "multer";
+import { parse as csvParse } from "csv-parse/sync";
 
 dotenv.config();
 
@@ -29,8 +33,50 @@ const pool = mysql.createPool({
 
 let dbReady = false;
 
-app.use(cors({ origin: CLIENT_ORIGIN, credentials: true }));
+const corsOrigin = (origin, callback) => {
+  if (!origin) {
+    callback(null, true);
+    return;
+  }
+
+  if (origin === CLIENT_ORIGIN) {
+    callback(null, true);
+    return;
+  }
+
+  try {
+    const url = new URL(origin);
+    const isLocalDevHost = url.hostname === "localhost" || url.hostname === "127.0.0.1";
+
+    if (isLocalDevHost) {
+      callback(null, true);
+      return;
+    }
+  } catch {
+    // Ignore malformed origins and reject below.
+  }
+
+  callback(new Error(`CORS blocked for origin: ${origin}`));
+};
+
+app.use(cors({ origin: corsOrigin, credentials: true }));
 app.use(express.json({ limit: "2mb" }));
+
+// Ensure uploads directory exists
+const UPLOAD_DIR = path.resolve(process.cwd(), "uploads");
+if (!fs.existsSync(UPLOAD_DIR)) {
+  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+}
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, UPLOAD_DIR),
+  filename: (req, file, cb) => {
+    const safeName = `${Date.now()}-${file.originalname.replace(/[^a-zA-Z0-9.\-_]/g, "_")}`;
+    cb(null, safeName);
+  },
+});
+
+const upload = multer({ storage, limits: { fileSize: 10 * 1024 * 1024 } });
 
 const itemColumns = [
   "inventory_id",
@@ -693,32 +739,38 @@ const ensureInventoryCreationRequestsTable = async () => {
   const inventoryRequestColumns = await getTableColumns("inventory_creation_requests");
 
   if (!inventoryRequestColumns.has("request_type")) {
-    await pool.query("ALTER TABLE inventory_creation_requests ADD COLUMN request_type VARCHAR(50) DEFAULT 'new_inventory_creation' AFTER id");
+    const afterClause = inventoryRequestColumns.has("id") ? "AFTER id" : "";
+    await pool.query(`ALTER TABLE inventory_creation_requests ADD COLUMN request_type VARCHAR(50) DEFAULT 'new_inventory_creation' ${afterClause}`);
     inventoryRequestColumns.add("request_type");
   }
 
   if (!inventoryRequestColumns.has("location")) {
-    await pool.query("ALTER TABLE inventory_creation_requests ADD COLUMN location VARCHAR(255) NULL AFTER name");
+    const afterClause = inventoryRequestColumns.has("name") ? "AFTER name" : "";
+    await pool.query(`ALTER TABLE inventory_creation_requests ADD COLUMN location VARCHAR(255) NULL ${afterClause}`);
     inventoryRequestColumns.add("location");
   }
 
   if (!inventoryRequestColumns.has("incharge_user_id")) {
-    await pool.query("ALTER TABLE inventory_creation_requests ADD COLUMN incharge_user_id INT NULL AFTER requested_by_id");
+    const afterClause = inventoryRequestColumns.has("requested_by_id") ? "AFTER requested_by_id" : "";
+    await pool.query(`ALTER TABLE inventory_creation_requests ADD COLUMN incharge_user_id INT NULL ${afterClause}`);
     inventoryRequestColumns.add("incharge_user_id");
   }
 
   if (!inventoryRequestColumns.has("hod_user_id")) {
-    await pool.query("ALTER TABLE inventory_creation_requests ADD COLUMN hod_user_id INT NULL AFTER incharge_user_id");
+    const afterClause = inventoryRequestColumns.has("incharge_user_id") ? "AFTER incharge_user_id" : "";
+    await pool.query(`ALTER TABLE inventory_creation_requests ADD COLUMN hod_user_id INT NULL ${afterClause}`);
     inventoryRequestColumns.add("hod_user_id");
   }
 
   if (!inventoryRequestColumns.has("admin_approved_date")) {
-    await pool.query("ALTER TABLE inventory_creation_requests ADD COLUMN admin_approved_date TIMESTAMP NULL AFTER registrar_approved_by_id");
+    const afterClause = inventoryRequestColumns.has("registrar_approved_by_id") ? "AFTER registrar_approved_by_id" : "";
+    await pool.query(`ALTER TABLE inventory_creation_requests ADD COLUMN admin_approved_date TIMESTAMP NULL ${afterClause}`);
     inventoryRequestColumns.add("admin_approved_date");
   }
 
   if (!inventoryRequestColumns.has("admin_approved_by_id")) {
-    await pool.query("ALTER TABLE inventory_creation_requests ADD COLUMN admin_approved_by_id INT NULL AFTER admin_approved_date");
+    const afterClause = inventoryRequestColumns.has("admin_approved_date") ? "AFTER admin_approved_date" : "";
+    await pool.query(`ALTER TABLE inventory_creation_requests ADD COLUMN admin_approved_by_id INT NULL ${afterClause}`);
     inventoryRequestColumns.add("admin_approved_by_id");
   }
 
@@ -2460,11 +2512,29 @@ app.post(
   })
 );
 
+// Accept multipart/form-data for single item creation (supports itemImage and ginfile uploads)
 app.post(
   "/api/items",
+  upload.fields([
+    { name: "itemImage", maxCount: 1 },
+    { name: "ginfile", maxCount: 1 },
+  ]),
   withDatabase(async (req, res) => {
     await ensureInventoryItemsInventoryColumn();
-    const item = normalizeItemPayload(req.body);
+
+    // Merge text fields from req.body
+    const payload = { ...req.body };
+
+    // Attach uploaded file paths if present
+    if (req.files && req.files.itemImage && req.files.itemImage[0]) {
+      payload.itemImage = `/uploads/${req.files.itemImage[0].filename}`;
+    }
+
+    if (req.files && req.files.ginfile && req.files.ginfile[0]) {
+      payload.ginfile = `/uploads/${req.files.ginfile[0].filename}`;
+    }
+
+    const item = normalizeItemPayload(payload);
     const validationError = validateRequiredFields(item);
 
     if (validationError) {
@@ -2517,6 +2587,49 @@ app.post(
       success: true,
       createdCount: result.affectedRows,
     });
+  })
+);
+
+// CSV bulk upload: accepts multipart/form-data with `file` field (CSV)
+app.post(
+  "/api/items/bulk-csv",
+  upload.single("file"),
+  withDatabase(async (req, res) => {
+    await ensureInventoryItemsInventoryColumn();
+
+    if (!req.file) {
+      return res.status(400).json({ success: false, error: "CSV file is required in field 'file'" });
+    }
+
+    const csvBuffer = fs.readFileSync(path.join(UPLOAD_DIR, req.file.filename));
+    let records = [];
+    try {
+      records = csvParse(String(csvBuffer), { columns: true, skip_empty_lines: true });
+    } catch (err) {
+      return res.status(400).json({ success: false, error: "Failed to parse CSV: " + err.message });
+    }
+
+    if (!Array.isArray(records) || records.length === 0) {
+      return res.status(400).json({ success: false, error: "No records found in CSV" });
+    }
+
+    const items = records.map(normalizeItemPayload);
+    const invalid = items.find(validateRequiredFields);
+    if (invalid) {
+      return res.status(400).json({ success: false, error: validateRequiredFields(invalid) });
+    }
+
+    const placeholders = items
+      .map(() => `(${itemColumns.map(() => "?").join(", ")})`)
+      .join(", ");
+    const values = items.flatMap(buildInsertValues);
+
+    const [result] = await pool.execute(
+      `INSERT INTO ${DB_ITEMS_TABLE} (${itemColumns.join(", ")}) VALUES ${placeholders}`,
+      values
+    );
+
+    return res.status(201).json({ success: true, createdCount: result.affectedRows });
   })
 );
 
@@ -2634,21 +2747,6 @@ app.get(
     const user = rows[0];
     const roleDetails = await getEffectiveUserRoleDetails(user.id, user.role);
     const departmentHeadUserId = user.department_id ? await resolveDepartmentHeadUserId(schema, user.department_id) : null;
-    const deanUserId = await resolveDeanUserId(schema);
-    const hasExistingHodRequest = await hasPendingRoleRequest(user.id, "head_of_department");
-    const isCurrentRoleStaff = normalizeUserRole(roleDetails.role) === "staff";
-    const hodRequestEligible = isCurrentRoleStaff && !departmentHeadUserId && !hasExistingHodRequest && Boolean(deanUserId);
-    let hodRequestMessage = "";
-
-    if (!isCurrentRoleStaff) {
-      hodRequestMessage = "Only staff members can request the HOD role from the profile page.";
-    } else if (departmentHeadUserId) {
-      hodRequestMessage = "A Head of Department is already assigned to this department.";
-    } else if (hasExistingHodRequest) {
-      hodRequestMessage = "A pending HOD request already exists for this account.";
-    } else if (!deanUserId) {
-      hodRequestMessage = "No active dean account is available to review an HOD request.";
-    }
 
     return res.json({
       success: true,
@@ -2664,129 +2762,8 @@ app.get(
         mobileNo: user.mobile_no ?? "",
         officeExtNo: user.off_ext ?? "",
         assignedInventoryCount: roleDetails.assignedInventoryCount,
-        hodRequestEligible,
-        hodRequestMessage,
         hasDepartmentHod: Boolean(departmentHeadUserId),
       },
-    });
-  })
-);
-
-app.post(
-  "/api/profile/request-hod",
-  withDatabase(async (req, res) => {
-    const email = String(req.body?.email ?? "").trim().toLowerCase();
-    const userId = Number(req.body?.userId ?? 0);
-
-    if (!email && (!Number.isInteger(userId) || userId <= 0)) {
-      return res.status(400).json({ success: false, message: "A valid email or userId is required." });
-    }
-
-    const schema = await getAuthSchema();
-    const userIdColumn = schema.userColumns.has("id") ? "u.id" : "u.user_id";
-    const userNameColumn = schema.userColumns.has("name") ? "u.name" : "u.full_name";
-    const roleSelection = schema.userColumns.has("role")
-      ? "u.role AS role"
-      : schema.hasUserRolesTable
-        ? "ur.user_role AS role"
-        : "NULL AS role";
-    const roleJoin = !schema.userColumns.has("role") && schema.hasUserRolesTable
-      ? "LEFT JOIN user_roles ur ON ur.role_id = u.role_id"
-      : "";
-    const whereClause = email ? "LOWER(u.email) = ?" : `${userIdColumn} = ?`;
-    const whereValue = email || userId;
-
-    const [rows] = await pool.execute(
-      `
-        SELECT ${userIdColumn} AS id, ${userNameColumn} AS name, u.email, u.department_id, ${roleSelection}
-        FROM users u
-        ${roleJoin}
-        WHERE ${whereClause}
-        LIMIT 1
-      `,
-      [whereValue]
-    );
-
-    if (rows.length === 0) {
-      return res.status(404).json({ success: false, message: "Profile not found." });
-    }
-
-    const user = rows[0];
-    const roleDetails = await getEffectiveUserRoleDetails(user.id, user.role);
-
-    if (normalizeUserRole(roleDetails.role) !== "staff") {
-      return res.status(403).json({ success: false, message: "Only staff members can request the HOD role." });
-    }
-
-    const departmentHeadUserId = user.department_id ? await resolveDepartmentHeadUserId(schema, user.department_id) : null;
-    if (departmentHeadUserId) {
-      return res.status(409).json({ success: false, message: "A Head of Department is already assigned to this department." });
-    }
-
-    if (await hasPendingRoleRequest(user.id, "head_of_department")) {
-      return res.status(409).json({ success: false, message: "A pending HOD request already exists for this account." });
-    }
-
-    const deanUserId = await resolveDeanUserId(schema);
-    if (!deanUserId) {
-      return res.status(409).json({ success: false, message: "No active dean account is available to review this HOD request." });
-    }
-
-    const accountRequestColumns = await ensureAccountRequestsTable();
-    const insertColumns = [];
-    const insertValues = [];
-
-    if (accountRequestColumns.has("request_type")) {
-      insertColumns.push("request_type");
-      insertValues.push("account_creation");
-    }
-
-    if (accountRequestColumns.has("requested_by_name")) {
-      insertColumns.push("requested_by_name");
-      insertValues.push(user.name || user.email);
-    }
-
-    if (accountRequestColumns.has("email")) {
-      insertColumns.push("email");
-      insertValues.push(user.email);
-    }
-
-    if (accountRequestColumns.has("requested_role")) {
-      insertColumns.push("requested_role");
-      insertValues.push("head_of_department");
-    }
-
-    if (accountRequestColumns.has("requested_department_id")) {
-      insertColumns.push("requested_department_id");
-      insertValues.push(user.department_id || null);
-    }
-
-    if (accountRequestColumns.has("approval_status")) {
-      insertColumns.push("approval_status");
-      insertValues.push("pending_dean");
-    }
-
-    if (accountRequestColumns.has("request_reason")) {
-      insertColumns.push("request_reason");
-      insertValues.push("Requested from profile page for HOD role");
-    }
-
-    if (accountRequestColumns.has("user_id")) {
-      insertColumns.push("user_id");
-      insertValues.push(user.id);
-    }
-
-    const placeholders = insertColumns.map(() => "?").join(", ");
-    const [result] = await pool.execute(
-      `INSERT INTO account_requests (${insertColumns.join(", ")}) VALUES (${placeholders})`,
-      insertValues
-    );
-
-    return res.status(201).json({
-      success: true,
-      message: "HOD request submitted successfully. It now awaits dean approval and admin activation.",
-      requestId: result.insertId,
-      reviewerUserId: deanUserId,
     });
   })
 );
@@ -2798,6 +2775,7 @@ app.put(
     const userId = Number(req.body?.userId ?? 0);
     const currentPassword = String(req.body?.currentPassword ?? "");
     const nextPassword = String(req.body?.password ?? "");
+    const mobileNo = req.body?.mobileNo !== undefined ? String(req.body.mobileNo).trim() : null;
 
     if (!email && (!Number.isInteger(userId) || userId <= 0)) {
       return res.status(400).json({
@@ -2806,10 +2784,20 @@ app.put(
       });
     }
 
-    if (!currentPassword || !nextPassword) {
+    const updatingPassword = Boolean(currentPassword || nextPassword);
+    const updatingMobile = mobileNo !== null;
+
+    if (!updatingPassword && !updatingMobile) {
       return res.status(400).json({
         success: false,
-        message: "Current password and new password are required.",
+        message: "Nothing to update. Provide a new password or mobile number.",
+      });
+    }
+
+    if (updatingPassword && (!currentPassword || !nextPassword)) {
+      return res.status(400).json({
+        success: false,
+        message: "Current password and new password are required to update the password.",
       });
     }
 
@@ -2830,14 +2818,22 @@ app.put(
       });
     }
 
-    if (String(rows[0].password ?? "") !== currentPassword) {
-      return res.status(401).json({
-        success: false,
-        message: "Current password is incorrect.",
-      });
+    if (updatingPassword) {
+      if (String(rows[0].password ?? "") !== currentPassword) {
+        return res.status(401).json({
+          success: false,
+          message: "Current password is incorrect.",
+        });
+      }
+      await pool.execute(`UPDATE users SET password = ? WHERE ${idColumnName} = ?`, [nextPassword, rows[0].id]);
     }
 
-    await pool.execute(`UPDATE users SET password = ? WHERE ${idColumnName} = ?`, [nextPassword, rows[0].id]);
+    if (updatingMobile) {
+      const mobileColumn = schema.userColumns.has("mobile_no") ? "mobile_no" : null;
+      if (mobileColumn) {
+        await pool.execute(`UPDATE users SET ${mobileColumn} = ? WHERE ${idColumnName} = ?`, [mobileNo || null, rows[0].id]);
+      }
+    }
 
     return res.json({
       success: true,

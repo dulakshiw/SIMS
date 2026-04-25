@@ -6,7 +6,7 @@ import { PageHeader } from '../../Components/UI'
 import { ROLE_HIERARCHY } from '../../utils/constants'
 import { resolveSidebarVariant } from '../../utils/helpers'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000'
 
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -32,16 +32,14 @@ const Profile = () => {
   const [roleLabel, setRoleLabel] = useState('')
   const [status, setStatus] = useState('')
   const [mobileNo, setMobileNo] = useState('')
+  const [originalMobileNo, setOriginalMobileNo] = useState('')
   const [officeExtNo, setOfficeExtNo] = useState('')
-  const [hodRequestEligible, setHodRequestEligible] = useState(false)
-  const [hodRequestMessage, setHodRequestMessage] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [currentPassword, setCurrentPassword] = useState('')
 
   const [loading, setLoading] = useState(false)
   const [deactivationLoading, setDeactivationLoading] = useState(false)
-  const [hodRequestLoading, setHodRequestLoading] = useState(false)
   const [profileLoading, setProfileLoading] = useState(true)
   const [message, setMessage] = useState(null)
   const [error, setError] = useState(null)
@@ -92,9 +90,8 @@ const Profile = () => {
           setRoleLabel(ROLE_HIERARCHY[profile.role]?.label || profile.role || '')
           setStatus(profile.status || '')
           setMobileNo(profile.mobileNo ? String(profile.mobileNo) : '')
+          setOriginalMobileNo(profile.mobileNo ? String(profile.mobileNo) : '')
           setOfficeExtNo(profile.officeExtNo ? String(profile.officeExtNo) : '')
-          setHodRequestEligible(Boolean(profile.hodRequestEligible))
-          setHodRequestMessage(profile.hodRequestMessage || '')
 
           const updatedUser = { ...storedUser, ...profile }
           localStorage.setItem('currentUser', JSON.stringify(updatedUser))
@@ -124,21 +121,25 @@ const Profile = () => {
 
   const strength = useMemo(() => passwordStrength(password), [password])
 
+  const mobileNoChanged = mobileNo !== originalMobileNo
+  const passwordAttempt = currentPassword.length > 0 || password.length > 0 || confirmPassword.length > 0
   const isPasswordValid = password.length > 0 ? password.length >= 8 && strength >= 3 : false
   const isConfirmMatch = password === confirmPassword && password.length > 0
   const isCurrentProvided = currentPassword.length > 0
+  const passwordValid = !passwordAttempt || (isCurrentProvided && isPasswordValid && isConfirmMatch)
 
-  // Users may only update password; require current password, new password and confirm to enable save
-  const canSave = isCurrentProvided && isPasswordValid && isConfirmMatch && !loading
+  const canSave = (mobileNoChanged || passwordAttempt) && passwordValid && !loading
 
   const handleSave = async (e) => {
     e.preventDefault()
     setMessage(null)
     setError(null)
 
-    if (!isCurrentProvided) return setError('Enter your current password')
-    if (!isPasswordValid) return setError('Password must be at least 8 characters and include uppercase, number and special char')
-    if (!isConfirmMatch) return setError('Passwords do not match')
+    if (passwordAttempt) {
+      if (!isCurrentProvided) return setError('Enter your current password')
+      if (!isPasswordValid) return setError('Password must be at least 8 characters and include uppercase, number and special char')
+      if (!isConfirmMatch) return setError('Passwords do not match')
+    }
 
     setLoading(true)
     try {
@@ -147,8 +148,8 @@ const Profile = () => {
       const payload = {
         userId: storedUser.id,
         email: storedUser.email || email,
-        currentPassword,
-        password,
+        ...(mobileNoChanged ? { mobileNo } : {}),
+        ...(passwordAttempt ? { currentPassword, password } : {}),
       }
 
       const res = await fetch(`${API_BASE_URL}/api/profile`, {
@@ -163,6 +164,7 @@ const Profile = () => {
       }
 
       setMessage('Profile updated successfully')
+      setOriginalMobileNo(mobileNo)
       setPassword('')
       setConfirmPassword('')
       setCurrentPassword('')
@@ -223,55 +225,11 @@ const Profile = () => {
     }
   }
 
-  const handleHodRequest = async () => {
-    setMessage(null)
-    setError(null)
-
-    const storedUser = JSON.parse(localStorage.getItem('currentUser') || '{}')
-
-    if (!storedUser?.id && !storedUser?.email) {
-      setError('No logged-in user found. Please sign in again.')
-      return
-    }
-
-    const confirmed = window.confirm('Submit an HOD role request for this account? This will be sent to the dean for review and then to admin for activation.')
-
-    if (!confirmed) {
-      return
-    }
-
-    setHodRequestLoading(true)
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/profile/request-hod`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: storedUser.id,
-          email: storedUser.email || email,
-        }),
-      })
-
-      const data = await response.json().catch(() => ({}))
-
-      if (!response.ok || !data.success) {
-        throw new Error(data.message || 'Failed to submit the HOD request')
-      }
-
-      setMessage(data.message || 'HOD request submitted successfully')
-      setHodRequestEligible(false)
-      setHodRequestMessage('A pending HOD request already exists for this account.')
-    } catch (err) {
-      setError(err.message || 'Failed to submit the HOD request')
-    } finally {
-      setHodRequestLoading(false)
-    }
-  }
-
   return (
     <Layout {...(isAdminRoute ? {} : { variant: sidebarVariant })}>
       <PageHeader
         title="Profile Settings"
-        subtitle="View your profile and update your password"
+        subtitle="View your profile and update your mobile number or password. You can also submit a deactivation request from this page."
       />
 
       <div className="p-6">
@@ -279,14 +237,6 @@ const Profile = () => {
         <form onSubmit={handleSave} className="bg-white p-6 rounded-md shadow-sm max-w-2xl">
           {message && <div className="mb-4 p-3 bg-green-50 text-green-800 rounded">{message}</div>}
           {error && <div className="mb-4 p-3 bg-red-50 text-red-800 rounded">{error}</div>}
-
-          <p className="text-sm text-gray-600 mb-4">Profile details below are loaded from the database. You can update your password or submit an account deactivation request from this page.</p>
-
-          {!profileLoading && hodRequestMessage && (
-            <div className={`mb-4 p-3 rounded ${hodRequestEligible ? 'bg-blue-50 text-blue-800' : 'bg-amber-50 text-amber-800'}`}>
-              {hodRequestMessage}
-            </div>
-          )}
 
           {profileLoading && <div className="mb-4 p-3 bg-blue-50 text-blue-800 rounded">Loading profile details...</div>}
 
@@ -349,9 +299,10 @@ const Profile = () => {
             <div>
               <label className="block text-sm font-medium text-gray-700">Mobile No</label>
               <input
-                className="w-full px-4 py-2.5 border border-border rounded-lg mt-1 bg-gray-50"
+                className="w-full px-4 py-2.5 border border-border rounded-lg mt-1"
                 value={mobileNo}
-                readOnly
+                onChange={(e) => setMobileNo(e.target.value)}
+                placeholder="Enter mobile number"
               />
             </div>
 
@@ -422,6 +373,7 @@ const Profile = () => {
               type="button"
               className="px-4 py-2 rounded-md border"
               onClick={() => {
+                setMobileNo(originalMobileNo)
                 setPassword('')
                 setConfirmPassword('')
                 setCurrentPassword('')
@@ -429,7 +381,7 @@ const Profile = () => {
                 setError(null)
               }}
             >
-              Reset Password Fields
+              Reset Fields
             </button>
 
             <button
@@ -441,14 +393,6 @@ const Profile = () => {
               {deactivationLoading ? 'Submitting Request...' : 'Request for Deactivation'}
             </button>
 
-            <button
-              type="button"
-              disabled={!hodRequestEligible || hodRequestLoading}
-              className={`px-4 py-2 rounded-md text-white ${(!hodRequestEligible || hodRequestLoading) ? 'bg-gray-300 cursor-not-allowed' : 'bg-primary-600 hover:bg-primary-700'}`}
-              onClick={handleHodRequest}
-            >
-              {hodRequestLoading ? 'Submitting HOD Request...' : 'Request for HOD'}
-            </button>
           </div>
         </form>
       </div>

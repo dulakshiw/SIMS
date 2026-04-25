@@ -4,7 +4,7 @@ import AdminLayout from "../../Components/Layouts/AdminLayout";
 import { Card, Button, Table, Badge, Modal, SearchBox, PageHeader } from "../../Components/UI";
 import { ACCOUNT_REQUEST_STATUS, ACCOUNT_REQUEST_STATUS_META, INVENTORY_REQUEST_STATUS, INVENTORY_REQUEST_TYPE, ROLE_HIERARCHY } from "../../utils/constants";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
 
 const AdminPendingTasks = () => {
   const navigate = useNavigate();
@@ -237,6 +237,12 @@ const AdminPendingTasks = () => {
 
   // ---- Column / Action definitions ----
   const accountRequestColumns = [
+    {
+      field: "id",
+      label: "No",
+      sortable: false,
+      render: (_value, row) => filteredAccountRequests.length - filteredAccountRequests.findIndex((request) => request.id === row.id),
+    },
     { field: "name", label: "Name", sortable: true },
     { field: "email", label: "Email" },
     {
@@ -277,6 +283,12 @@ const AdminPendingTasks = () => {
   ];
 
   const userColumns = [
+    {
+      field: "id",
+      label: "No",
+      sortable: false,
+      render: (_value, row) => filteredUsers.length - filteredUsers.findIndex((user) => user.id === row.id),
+    },
     { field: "name", label: "Name", sortable: true },
     { field: "email", label: "Email" },
     {
@@ -315,6 +327,12 @@ const AdminPendingTasks = () => {
   ];
 
   const inventoryRequestColumns = [
+    {
+      field: "id",
+      label: "No",
+      sortable: false,
+      render: (_value, row) => filteredInventoryRequests.length - filteredInventoryRequests.findIndex((request) => request.id === row.id),
+    },
     { field: "name", label: "Inventory Name", sortable: true },
     {
       field: "requestType",

@@ -92,13 +92,8 @@ const AdminDashboard = () => {
   return (
     <AdminLayout>
       <PageHeader
-        title="Admin Dashboard"
+        title={greeting}
         subtitle="System overview and management"
-        actions={
-          <div className="text-right text-base font-medium text-white sm:text-lg">
-            {greeting}
-          </div>
-        }
       />
       <div className="p-6 space-y-6">
         {error && (

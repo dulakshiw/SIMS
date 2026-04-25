@@ -4,13 +4,12 @@ import {
   DEAN_NAV_ITEMS,
   HOD_NAV_ITEMS,
   INVENTORY_NAV_ITEMS,
-  STAFF_INCHARGE_NAV_ITEMS,
   STAFF_NAV_ITEMS,
 } from "../../utils/constants";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { logoutUser } from "../../utils/helpers";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
 
 const getStoredUser = () => {
   try {
@@ -20,8 +19,67 @@ const getStoredUser = () => {
   }
 };
 
+const normalizeDesignation = (designation = "") => String(designation).trim().toLowerCase();
+
+const isStaffInventoryCreator = (designation = "") => {
+  const normalizedDesignation = normalizeDesignation(designation);
+  return normalizedDesignation === "technical officer" || normalizedDesignation === "management assistant";
+};
+
+const buildStaffNavItems = (currentUser) => {
+  const hasAssignedInventories = Number(currentUser.assignedInventoryCount ?? 0) > 0;
+  const canCreateInventoryRequests = isStaffInventoryCreator(currentUser.designation);
+
+  const items = [
+    { id: "staff-dashboard", type: "item", label: "Dashboard", path: "/staff/dashboard", icon: "dashboard" },
+    { id: "staff-item-requests", type: "section", label: "Item Requests" },
+    { id: "staff-request-items", type: "item", label: "Request Items", path: "/inventory/requests/new/staff", icon: "add_circle", nested: true },
+    { id: "staff-my-requests", type: "item", label: "My Requests", path: "/requests/my/staff", icon: "fact_check", nested: true },
+    { id: "staff-my-issued-items", type: "item", label: "My Issued Items", path: "/inventory/list/staff", icon: "inventory_2", nested: true },
+  ];
+
+  if (canCreateInventoryRequests) {
+    items.push(
+      { id: "staff-inventory-request-actions", type: "section", label: "New Inventory Creation" },
+      {
+        id: "staff-add-inventory-request",
+        type: "item",
+        label: "Add Inventory",
+        path: "/staff/dashboard?inventoryRequest=add",
+        icon: "playlist_add",
+        nested: true,
+      },
+      {
+        id: "staff-new-inventory-request",
+        type: "item",
+        label: "New Inventory Creation",
+        path: "/staff/dashboard?inventoryRequest=new",
+        icon: "add_box",
+        nested: true,
+      }
+    );
+  }
+
+  if (hasAssignedInventories) {
+    items.push(
+      { id: "staff-inventories", type: "section", label: "Inventories" },
+      { id: "staff-my-inventories", type: "item", label: "My Inventories", path: "/inventory/list/incharge", icon: "inventory", nested: true },
+      { id: "staff-add-item", type: "item", label: "Add New Item", path: "/inventory/add/incharge", icon: "playlist_add", nested: true },
+      { id: "staff-transfers", type: "item", label: "Transfers", path: "/inventory/transfers/list/incharge", icon: "compare_arrows", nested: true },
+      { id: "staff-disposals", type: "item", label: "Disposals", path: "/inventory/disposals/list/incharge", icon: "delete_sweep", nested: true },
+      { id: "staff-inventory-requests", type: "item", label: "Inventory Requests", path: "/inventory/requests/list/incharge", icon: "request_quote", nested: true },
+      { id: "staff-reports", type: "item", label: "Reports", path: "/reports/staff", icon: "assessment", nested: true }
+    );
+  }
+
+  items.push({ id: "staff-profile", type: "item", label: "Profile", path: "/profile/staff", icon: "person" });
+
+  return items;
+};
+
 const Sidebar = ({ variant = "inventory", onCollapseChange }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [openMenus, setOpenMenus] = useState({});
   const location = useLocation();
   const navigate = useNavigate();
   const [currentUser, setCurrentUser] = useState(getStoredUser);
@@ -73,22 +131,6 @@ const Sidebar = ({ variant = "inventory", onCollapseChange }) => {
     };
   }, [location.pathname]);
 
-  const effectiveRole = useMemo(() => {
-    if (currentUser.role) {
-      return currentUser.role;
-    }
-
-    if (Number(currentUser.assignedInventoryCount ?? 0) > 0) {
-      return "inventory_incharge";
-    }
-
-    return localStorage.getItem("userRole") || "staff";
-  }, [currentUser.assignedInventoryCount, currentUser.role]);
-
-  const effectiveVariant = variant === "staff" && effectiveRole === "inventory_incharge"
-    ? "staff-incharge"
-    : variant;
-
   const handleCollapse = () => {
     const newState = !isCollapsed;
     setIsCollapsed(newState);
@@ -100,13 +142,77 @@ const Sidebar = ({ variant = "inventory", onCollapseChange }) => {
   const navItemsByVariant = {
     admin: ADMIN_NAV_ITEMS,
     inventory: INVENTORY_NAV_ITEMS,
-    staff: STAFF_NAV_ITEMS,
-    "staff-incharge": STAFF_INCHARGE_NAV_ITEMS,
+    staff: buildStaffNavItems(currentUser),
     hod: HOD_NAV_ITEMS,
     dean: DEAN_NAV_ITEMS,
   };
 
-  const navItems = navItemsByVariant[effectiveVariant] || INVENTORY_NAV_ITEMS;
+  const navItems = navItemsByVariant[variant] || INVENTORY_NAV_ITEMS;
+  const currentPath = `${location.pathname}${location.search || ""}`;
+
+  const menuEntries = useMemo(() => {
+    const entries = [];
+    let activeMenu = null;
+
+    navItems.forEach((item) => {
+      if (item.type === "section") {
+        activeMenu = {
+          id: item.id,
+          label: item.label,
+          type: "menu",
+          children: [],
+        };
+        entries.push(activeMenu);
+        return;
+      }
+
+      if (item.nested && activeMenu) {
+        activeMenu.children.push(item);
+        return;
+      }
+
+      activeMenu = null;
+      entries.push({ ...item, type: "item" });
+    });
+
+    return entries;
+  }, [navItems]);
+
+  useEffect(() => {
+    setOpenMenus((prev) => {
+      const nextState = { ...prev };
+      let didChange = false;
+
+      menuEntries.forEach((entry) => {
+        if (entry.type !== "menu") {
+          return;
+        }
+
+        const hasActiveChild = entry.children.some(
+          (child) => currentPath === child.path || location.pathname === child.path
+        );
+
+        if (hasActiveChild && !nextState[entry.id]) {
+          nextState[entry.id] = true;
+          didChange = true;
+        }
+
+        if (nextState[entry.id] === undefined) {
+          nextState[entry.id] = hasActiveChild;
+          didChange = true;
+        }
+      });
+
+      return didChange ? nextState : prev;
+    });
+  }, [currentPath, location.pathname, menuEntries]);
+
+  const toggleMenu = (menuId) => {
+    setOpenMenus((prev) => ({
+      ...prev,
+      [menuId]: !prev[menuId],
+    }));
+  };
 
   const handleLogout = () => {
     const shouldLogout = window.confirm("Are you sure you want to log out?");
@@ -142,26 +248,88 @@ const Sidebar = ({ variant = "inventory", onCollapseChange }) => {
 
       {/* Navigation */}
       <nav className="p-4 space-y-2">
-        {navItems.map((item) => {
-          const isActive = location.pathname === item.path;
+        {menuEntries.map((entry) => {
+          if (entry.type === "menu" && !isCollapsed) {
+            const isOpen = Boolean(openMenus[entry.id]);
+            const hasActiveChild = entry.children.some(
+              (child) => currentPath === child.path || location.pathname === child.path
+            );
+
+            return (
+              <div key={entry.id} className="space-y-1">
+                <button
+                  type="button"
+                  onClick={() => toggleMenu(entry.id)}
+                  className={`
+                    flex items-center justify-between w-full px-4 py-3 rounded-md transition-colors text-left
+                    ${hasActiveChild ? "bg-primary-700 text-white" : "text-primary-100 hover:bg-primary-700"}
+                  `}
+                >
+                  <span className="text-sm font-medium">{entry.label}</span>
+                  <span className="material-symbols-outlined text-base">
+                    {isOpen ? "expand_less" : "expand_more"}
+                  </span>
+                </button>
+
+                {isOpen && (
+                  <div className="space-y-1">
+                    {entry.children.map((item) => {
+                      const isActive = currentPath === item.path || location.pathname === item.path;
+
+                      return (
+                        <Link
+                          key={item.id}
+                          to={item.path}
+                          className={`
+                            flex items-center gap-4 px-4 py-2.5 ml-3 rounded-md transition-colors
+                            ${isActive ? "bg-primary-700 text-white" : "text-primary-100 hover:bg-primary-700"}
+                          `}
+                        >
+                          <span className="material-symbols-outlined flex-shrink-0">{item.icon}</span>
+                          <span className="text-sm font-medium">{item.label}</span>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          }
+
+          if (entry.type === "menu" && isCollapsed) {
+            return entry.children.map((item) => {
+              const isActive = currentPath === item.path || location.pathname === item.path;
+
+              return (
+                <Link
+                  key={item.id}
+                  to={item.path}
+                  className={`
+                    flex items-center gap-4 px-4 py-3 rounded-md transition-colors
+                    ${isActive ? "bg-primary-700 text-white" : "text-primary-100 hover:bg-primary-700"}
+                  `}
+                  title={item.label}
+                >
+                  <span className="material-symbols-outlined flex-shrink-0">{item.icon}</span>
+                </Link>
+              );
+            });
+          }
+
+          const isActive = currentPath === entry.path || location.pathname === entry.path;
+
           return (
             <Link
-              key={item.id}
-              to={item.path}
+              key={entry.id}
+              to={entry.path}
               className={`
                 flex items-center gap-4 px-4 py-3 rounded-md transition-colors
-                ${
-                  isActive
-                    ? "bg-primary-700 text-white"
-                    : "text-primary-100 hover:bg-primary-700"
-                }
+                ${isActive ? "bg-primary-700 text-white" : "text-primary-100 hover:bg-primary-700"}
               `}
-              title={isCollapsed ? item.label : ""}
+              title={isCollapsed ? entry.label : ""}
             >
-              <span className="material-symbols-outlined flex-shrink-0">
-                {item.icon}
-              </span>
-              {!isCollapsed && <span className="text-sm font-medium">{item.label}</span>}
+              <span className="material-symbols-outlined flex-shrink-0">{entry.icon}</span>
+              {!isCollapsed && <span className="text-sm font-medium">{entry.label}</span>}
             </Link>
           );
         })}

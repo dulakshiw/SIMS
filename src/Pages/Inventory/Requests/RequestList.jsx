@@ -2,7 +2,6 @@ import React, { useState } from "react";
 import { useLocation, useParams } from "react-router-dom";
 import MainLayout from "../../../Components/Layouts/MainLayout";
 import { Card, Button, SearchBox, Table, Badge, PageHeader } from "../../../Components/UI";
-import { REQUEST_PRIORITY } from "../../../utils/constants";
 import { resolveSidebarVariant } from "../../../utils/helpers";
 
 const RequestList = () => {
@@ -11,37 +10,12 @@ const RequestList = () => {
   const sidebarVariant = resolveSidebarVariant(location.pathname, role);
   const [searchTerm, setSearchTerm] = useState("");
 
-  const mockRequests = [
-    {
-      id: "REQ-001",
-      item: "New Monitors",
-      requester: "John Doe",
-      priority: "urgent",
-      status: "pending",
-      date: "2024-01-15",
-    },
-    {
-      id: "REQ-002",
-      item: "Office Supplies",
-      requester: "Jane Smith",
-      priority: "normal",
-      status: "approved",
-      date: "2024-01-10",
-    },
-    {
-      id: "REQ-003",
-      item: "Server RAM",
-      requester: "Bob Wilson",
-      priority: "low",
-      status: "completed",
-      date: "2024-01-05",
-    },
-  ];
+  const requestList = [];
 
   const columns = [
     { field: "id", label: "ID", sortable: true },
     { field: "item", label: "Item Requested", sortable: true },
-    { field: "requester", label: "Requester", sortable: true },
+    { field: "requester", label: "Requested by", sortable: true },
     {
       field: "priority",
       label: "Priority",
@@ -106,7 +80,7 @@ const RequestList = () => {
 
         {/* Table */}
         <Card>
-          <Table columns={columns} data={mockRequests} actions={actions} />
+          <Table columns={columns} data={requestList} actions={actions} />
         </Card>
       </div>
     </MainLayout>

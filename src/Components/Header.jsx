@@ -13,10 +13,7 @@ function Header() {
   return (
     <div className="header">
       <div className="header-left">
-        <h3 className="header-title">Inventory Management System</h3>
-      </div>
-      <div className="header-right">
-        <span className="header-greeting">Hello, {username}</span>
+        <h3 className="header-title">Inventory Management System - Faculty of Information Technology</h3>
       </div>
     </div>
   );

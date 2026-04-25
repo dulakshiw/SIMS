@@ -3,7 +3,7 @@ import MainLayout from '../../Components/Layouts/MainLayout';
 import { Badge, Button, Card, PageHeader, Table } from '../../Components/UI';
 import { ACCOUNT_REQUEST_STATUS, ACCOUNT_REQUEST_STATUS_META, ROLE_HIERARCHY } from '../../utils/constants';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
 
 const getStoredUser = () => {
   try {
@@ -15,6 +15,25 @@ const getStoredUser = () => {
 
 const getDepartmentName = (user) => user.departmentName || user.department || 'Department';
 
+const getTimeOfDayGreeting = () => {
+  const hour = new Date().getHours();
+
+  if (hour < 12) {
+    return 'Good morning';
+  }
+
+  if (hour < 18) {
+    return 'Good afternoon';
+  }
+
+  return 'Good evening';
+};
+
+const getLastName = (fullName = 'User') => {
+  const nameParts = String(fullName).trim().split(/\s+/).filter(Boolean);
+  return nameParts[nameParts.length - 1] || 'User';
+};
+
 const HodDashboard = () => {
   const [currentUser, setCurrentUser] = useState(getStoredUser);
   const [accountRequests, setAccountRequests] = useState([]);
@@ -23,6 +42,7 @@ const HodDashboard = () => {
   const [error, setError] = useState('');
 
   const departmentName = getDepartmentName(currentUser);
+  const greeting = `${getTimeOfDayGreeting()} ${getLastName(currentUser.name || localStorage.getItem('username') || 'User')}`;
 
   const loadRequests = async () => {
     try {
@@ -174,7 +194,7 @@ const HodDashboard = () => {
   return (
     <MainLayout variant="hod">
       <PageHeader
-        title={`HOD Dashboard - ${departmentName}`}
+        title={greeting}
         subtitle="Review staff account requests for your department and forward approved requests to admin activation."
         actions={
           <Button variant="secondary" icon="refresh" onClick={loadRequests} disabled={loading || actionLoadingId !== null}>

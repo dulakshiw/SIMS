@@ -70,6 +70,12 @@ const DepartmentManagement = () => {
   ];
 
   const columns = [
+    {
+      field: "id",
+      label: "No",
+      sortable: false,
+      render: (_value, row) => filteredDepartments.length - filteredDepartments.findIndex((dept) => dept.id === row.id),
+    },
     { field: "name", label: "Department Name", sortable: true },
     { field: "code", label: "Code", sortable: true },
     { field: "head", label: "Department Head", sortable: true },

@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "dev:server": "node server/index.js",
-    "start:server": "node server/index.js"
+    "start:server": "node server/index.js",
+    "start:server:sqlite": "node server/sqlite-server.js"
   },
   "dependencies": {
     "axios": "^1.15.0",
@@ -17,10 +18,13 @@
     "cors": "^2.8.6",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
+    "multer": "^1.4.5-lts.1",
+    "csv-parse": "^5.4.0",
     "jspdf": "^4.2.0",
     "jspdf-autotable": "^5.0.7",
     "lucide-react": "^0.563.0",
     "mysql2": "^3.20.0",
+    "better-sqlite3": "^8.3.0",
     "react": "^19.2.0",
     "react-chartjs-2": "^5.3.1",
     "react-dom": "^19.2.0",

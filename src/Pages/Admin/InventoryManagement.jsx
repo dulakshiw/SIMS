@@ -4,7 +4,7 @@ import { Card, Button, SearchBox, Table, Badge, Modal, FormInput, Select, Entity
 import { INVENTORY_REQUEST_STATUS, INVENTORY_REQUEST_TYPE } from "../../utils/constants";
 import { canCreateInventory } from "../../utils/permissionUtils";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
 const ALLOWED_INCHARGE_DESIGNATIONS = new Set(["Technical Officer", "Management Assistant"]);
 
 const InventoryManagement = () => {
@@ -196,6 +196,12 @@ const InventoryManagement = () => {
   }, [departmentHodLookup, formData.Hod, formData.department]);
 
   const columns = [
+    {
+      field: "id",
+      label: "No",
+      sortable: false,
+      render: (_value, row) => filteredInventories.length - filteredInventories.findIndex((inv) => inv.id === row.id),
+    },
     { field: "name", label: "Inventory Name", sortable: true },
     { field: "location", label: "Location", sortable: true },
     { field: "department", label: "Department", sortable: true },
@@ -225,6 +231,12 @@ const InventoryManagement = () => {
   ];
 
   const requestColumns = [
+    {
+      field: "id",
+      label: "No",
+      sortable: false,
+      render: (_value, row) => filteredRequests.length - filteredRequests.findIndex((request) => request.id === row.id),
+    },
     { field: "name", label: "Inventory Name", sortable: true },
     {
       field: "requestType",

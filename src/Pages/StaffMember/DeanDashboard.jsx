@@ -3,7 +3,7 @@ import MainLayout from '../../Components/Layouts/MainLayout';
 import { Badge, Button, Card, PageHeader, Table } from '../../Components/UI';
 import { ACCOUNT_REQUEST_STATUS, ACCOUNT_REQUEST_STATUS_META, ROLE_HIERARCHY } from '../../utils/constants';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
 
 const getStoredUser = () => {
   try {
@@ -13,12 +13,32 @@ const getStoredUser = () => {
   }
 };
 
+const getTimeOfDayGreeting = () => {
+  const hour = new Date().getHours();
+
+  if (hour < 12) {
+    return 'Good morning';
+  }
+
+  if (hour < 18) {
+    return 'Good afternoon';
+  }
+
+  return 'Good evening';
+};
+
+const getLastName = (fullName = 'User') => {
+  const nameParts = String(fullName).trim().split(/\s+/).filter(Boolean);
+  return nameParts[nameParts.length - 1] || 'User';
+};
+
 const DeanDashboard = () => {
   const [currentUser, setCurrentUser] = useState(getStoredUser);
   const [accountRequests, setAccountRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [actionLoadingId, setActionLoadingId] = useState(null);
   const [error, setError] = useState('');
+  const greeting = `${getTimeOfDayGreeting()} ${getLastName(currentUser.name || localStorage.getItem('username') || 'User')}`;
 
   const loadRequests = async () => {
     try {
@@ -162,7 +182,7 @@ const DeanDashboard = () => {
   return (
     <MainLayout variant="dean">
       <PageHeader
-        title="Dean Dashboard"
+        title={greeting}
         subtitle="Review HOD, registrar, and admin account requests before they move to admin activation."
         actions={
           <Button variant="secondary" icon="refresh" onClick={loadRequests} disabled={loading || actionLoadingId !== null}>

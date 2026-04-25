@@ -1,11 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import MainLayout from '../../Components/Layouts/MainLayout'
 import { Card, Button, FormInput, Modal, PageHeader } from '../../Components/UI'
 import { canRequestItems } from '../../utils/permissionUtils'
 import { INVENTORY_REQUEST_TYPE } from '../../utils/constants'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000'
 const ALLOWED_INVENTORY_REQUEST_DESIGNATIONS = new Set(['Technical Officer', 'Management Assistant'])
 
 const getStoredUser = () => {
@@ -37,6 +37,7 @@ const getLastName = (fullName = 'User') => {
 
 const StaffDashboard = () => {
   const navigate = useNavigate()
+  const location = useLocation()
   const [currentUser, setCurrentUser] = useState(getStoredUser)
   const userRole = currentUser.role || (Number(currentUser.assignedInventoryCount ?? 0) > 0 ? 'inventory_incharge' : '') || localStorage.getItem('userRole') || 'staff'
   const isInventoryOfficer = userRole === 'inventory_incharge'
@@ -254,6 +255,9 @@ const StaffDashboard = () => {
   )
 
   const assignedHod = departmentHodLookup[accountDepartment]
+  const managedInventoryCount = Number(currentUser.assignedInventoryCount ?? 0)
+  const assignedInventoryCount = Math.max(assignedInventories.length, managedInventoryCount)
+  const isManagingInventory = assignedInventoryCount > 0
 
   useEffect(() => {
     const nextDepartment = accountDepartment
@@ -283,6 +287,27 @@ const StaffDashboard = () => {
     setRequestMessage('')
   }
 
+  useEffect(() => {
+    if (!canRequestInventoryCreation) {
+      return
+    }
+
+    const searchParams = new URLSearchParams(location.search)
+    const inventoryRequest = searchParams.get('inventoryRequest')
+
+    if (inventoryRequest === 'add') {
+      setActiveRequestType(INVENTORY_REQUEST_TYPE.ADD_EXISTING)
+      resetRequestForm()
+      setIsRequestModalOpen(true)
+    }
+
+    if (inventoryRequest === 'new') {
+      setActiveRequestType(INVENTORY_REQUEST_TYPE.CREATE_NEW)
+      resetRequestForm()
+      setIsRequestModalOpen(true)
+    }
+  }, [canRequestInventoryCreation, location.search])
+
   const handleInputChange = (e) => {
     const { name, value } = e.target
     setFormData((prev) => ({ ...prev, [name]: value }))
@@ -307,16 +332,44 @@ const StaffDashboard = () => {
         description: formData.description.trim(),
       }
 
+      // Basic client-side validation to surface obvious issues early
+      if (!payload.name) {
+        setRequestError('Inventory name is required.')
+        setIsSubmittingRequest(false)
+        return
+      }
+
+      if (!payload.location) {
+        setRequestError('Inventory location is required.')
+        setIsSubmittingRequest(false)
+        return
+      }
+
+      if (!payload.department) {
+        setRequestError('Your account has no department assigned. Cannot submit request.')
+        setIsSubmittingRequest(false)
+        return
+      }
+
       const response = await fetch(`${API_BASE_URL}/api/inventory-creation-requests`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
 
-      const data = await response.json().catch(() => ({}))
+      let data = {}
+      try {
+        data = await response.json()
+      } catch (jsonErr) {
+        console.error('Non-JSON response from server', jsonErr)
+      }
 
       if (!response.ok || !data.success) {
-        throw new Error(data.message || data.error || 'Failed to submit inventory creation request.')
+        const serverMessage = data.message || data.error || `Server responded ${response.status}`
+        console.error('Inventory request failed:', response.status, serverMessage, data)
+        setRequestError(serverMessage)
+        setIsSubmittingRequest(false)
+        return
       }
 
       setRequestMessage(
@@ -358,98 +411,32 @@ const StaffDashboard = () => {
   return (
     <MainLayout variant="staff">
       <PageHeader
-        title="Staff Member Dashboard"
-        subtitle={isInventoryOfficer ? 'Use your staff account for both staff requests and inventory management.' : 'Request items and view details of items issued to you'}
-        actions={
-          <div className="text-right text-base font-medium text-white sm:text-lg">
-            {greeting}
-          </div>
-        }
+        title={greeting}
+        subtitle={isInventoryOfficer ? 'You can use your account for both staff requests and inventory management.' : 'Request items and view details of items issued to you'}
       />
 
       <div className="p-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+        <div className={`grid grid-cols-1 md:grid-cols-2 ${(isInventoryOfficer || isManagingInventory) ? 'lg:grid-cols-3' : ''} gap-6 mb-6`}>
           <Card title="My Requests" icon="receipt_long">
             <p className="text-3xl font-bold text-primary-800">{stats.myRequests}</p>
           </Card>
           <Card title="My Issued Items" icon="">
             <p className="text-3xl font-bold text-primary-800">{stats.myIssuedItems}</p>
           </Card>
-        </div>
-
-        {isInventoryOfficer && inventoryError && (
-          <div className="mb-6 rounded bg-red-50 px-4 py-3 text-sm text-red-800">{inventoryError}</div>
-        )}
-
-        {isInventoryOfficer && (
-          <>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
-              <Card title="Assigned Inventories" icon="inventory">
-                <p className="text-3xl font-bold text-primary-800">{inventoryLoading ? '...' : assignedInventories.length}</p>
-              </Card>
-              <Card title="Total Assets" icon="inventory_2">
-                <p className="text-3xl font-bold text-primary-800">{inventoryLoading ? '...' : inventorySummary.totalAssets ?? 0}</p>
-              </Card>
-              <Card title="Available" icon="check_circle">
-                <p className="text-3xl font-bold text-success">{inventoryLoading ? '...' : inventorySummary.available ?? 0}</p>
-              </Card>
-              <Card title="In Use" icon="assignment">
-                <p className="text-3xl font-bold text-info">{inventoryLoading ? '...' : inventorySummary.inUse ?? 0}</p>
-              </Card>
-              <Card title="Pending Requests" icon="request_quote">
-                <p className="text-3xl font-bold text-warning">{inventoryLoading ? '...' : inventorySummary.pendingRequests ?? 0}</p>
-              </Card>
-            </div>
-
-            <div className="bg-white p-6 rounded-lg shadow-md border border-border-lighter mb-6">
-              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                <div>
-                  <h2 className="text-lg font-semibold text-text-dark">Inventory Management</h2>
-                  <p className="text-sm text-text-light">Manage all inventories assigned to this staff account.</p>
-                </div>
-                <div className="flex flex-wrap gap-3">
-                  <Button variant="secondary" onClick={() => navigate('/inventory/list/incharge')} icon="inventory_2">My Inventories</Button>
-                  <Button variant="primary" onClick={() => navigate('/inventory/add/incharge')} icon="playlist_add">Add Item</Button>
-                  <Button variant="secondary" onClick={() => navigate('/inventory/transfers/list/incharge')} icon="compare_arrows">Transfers</Button>
-                  <Button variant="secondary" onClick={() => navigate('/inventory/disposals/list/incharge')} icon="delete_sweep">Disposals</Button>
-                </div>
-              </div>
-            </div>
-
-            <Card title="Assigned Inventories" icon="inventory" className="mb-6">
-              <div className="space-y-3">
-                {assignedInventories.length === 0 && !inventoryLoading ? (
-                  <p className="text-sm text-text-light">No inventories are assigned to this account yet.</p>
-                ) : (
-                  assignedInventories.map((inventory) => (
-                    <div key={inventory.id} className="flex items-center justify-between rounded-lg border border-border-lighter p-3">
-                      <div>
-                        <p className="font-medium text-text-dark">{inventory.name}</p>
-                        <p className="text-sm text-text-light">{inventory.location || 'No location'} • {inventory.department}</p>
-                      </div>
-                      <div className="flex gap-2">
-                        <Button variant="secondary" onClick={() => navigate(`/inventory/list/incharge?inventoryId=${inventory.id}`)}>
-                          Open
-                        </Button>
-                        <Button variant="primary" onClick={() => navigate(`/inventory/add/incharge?inventoryId=${inventory.id}`)}>
-                          Add Item
-                        </Button>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
+          {(isInventoryOfficer || isManagingInventory) && (
+            <Card title="Assigned Inventories" icon="inventory">
+              <p className="text-3xl font-bold text-primary-800">{assignedInventoryCount}</p>
             </Card>
-          </>
-        )}
+          )}
+        </div>
 
         <div className="bg-white p-6 rounded-lg shadow-md border border-border-lighter mb-6">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div className="flex gap-3">
               {canRequestItems(userRole) && (
-                <Button variant="primary" onClick={() => console.log('Create item request')} icon="add_circle">Request Item</Button>
+                <Button variant="primary" onClick={() => navigate('/inventory/requests/new/staff')} icon="add_circle">Request Item</Button>
               )}
-              <Button onClick={() => console.log('View my requests')}>My Requests</Button>     
+              <Button onClick={() => navigate('/requests/my/staff')}>My Requests</Button>
             </div>
              {canRequestInventoryCreation && (
                 <Button
@@ -537,7 +524,7 @@ const StaffDashboard = () => {
             />
 
             <FormInput
-              label="HOD"
+              label="Head of the Department "
               name="Hod"
               value={formData.Hod}
               onChange={handleInputChange}

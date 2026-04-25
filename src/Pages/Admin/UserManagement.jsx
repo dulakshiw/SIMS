@@ -4,7 +4,7 @@ import AdminLayout from "../../Components/Layouts/AdminLayout";
 import { Card, Button, SearchBox, Table, Badge, Modal, FormInput, Select, EntityDetailsModal, PageHeader } from "../../Components/UI";
 import { ROLE_HIERARCHY, ACCOUNT_REQUEST_STATUS, ACCOUNT_REQUEST_STATUS_META } from "../../utils/constants";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
 
 const UserManagement = () => {
   const location = useLocation();
@@ -100,7 +100,7 @@ const UserManagement = () => {
       field: "id",
       label: "No",
       sortable: false,
-      render: (_value, row) => filteredUsers.findIndex((user) => user.id === row.id) + 1,
+      render: (_value, row) => filteredUsers.length - filteredUsers.findIndex((user) => user.id === row.id),
     },
     { field: "name", label: "Name", sortable: true },
     { field: "department", label: "Department", sortable: true },
@@ -130,6 +130,12 @@ const UserManagement = () => {
   ];
 
   const accountRequestColumns = [
+    {
+      field: "id",
+      label: "No",
+      sortable: false,
+      render: (_value, row) => filteredRequests.length - filteredRequests.findIndex((request) => request.id === row.id),
+    },
     { field: "name", label: "Name", sortable: true },
     { field: "email", label: "Email", sortable: true },
     {
