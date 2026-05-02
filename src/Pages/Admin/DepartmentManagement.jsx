@@ -1,8 +1,10 @@
 import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import AdminLayout from "../../Components/Layouts/AdminLayout";
 import { Card, Button, SearchBox, Table, Badge, Modal, FormInput, Select, EntityDetailsModal, PageHeader } from "../../Components/UI";
 
 const DepartmentManagement = () => {
+  const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDepartmentDetailsModalOpen, setIsDepartmentDetailsModalOpen] = useState(false);
@@ -178,11 +180,7 @@ const DepartmentManagement = () => {
         actions={
           <Button
             icon="add_circle"
-            onClick={() => {
-              setModalMode("create");
-              setFormData({ name: "", code: "", head: "", description: "" });
-              setIsModalOpen(true);
-            }}
+            onClick={() => navigate('/admin/departments/create')}
           >
             Add Department
           </Button>

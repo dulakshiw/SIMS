@@ -1,9 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import MainLayout from '../../Components/Layouts/MainLayout'
-import { Card, Button, FormInput, Modal, PageHeader } from '../../Components/UI'
+import { Card, Button, PageHeader } from '../../Components/UI'
 import { canRequestItems } from '../../utils/permissionUtils'
-import { INVENTORY_REQUEST_TYPE } from '../../utils/constants'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000'
 const ALLOWED_INVENTORY_REQUEST_DESIGNATIONS = new Set(['Technical Officer', 'Management Assistant'])
@@ -44,13 +43,6 @@ const StaffDashboard = () => {
   const userDesignation = String(currentUser.designation || '').trim()
   const greeting = `${getTimeOfDayGreeting()} ${getLastName(currentUser.name || localStorage.getItem('username') || 'User')}`
   const canRequestInventoryCreation = ['staff', 'inventory_incharge'].includes(userRole) && ALLOWED_INVENTORY_REQUEST_DESIGNATIONS.has(userDesignation)
-  const [isRequestModalOpen, setIsRequestModalOpen] = useState(false)
-  const [activeRequestType, setActiveRequestType] = useState(INVENTORY_REQUEST_TYPE.ADD_EXISTING)
-  const [users, setUsers] = useState([])
-  const [requestError, setRequestError] = useState('')
-  const [requestMessage, setRequestMessage] = useState('')
-  const [optionsError, setOptionsError] = useState('')
-  const [isSubmittingRequest, setIsSubmittingRequest] = useState(false)
   const [inventorySummary, setInventorySummary] = useState({
     totalAssets: 0,
     available: 0,
@@ -60,14 +52,6 @@ const StaffDashboard = () => {
   const [assignedInventories, setAssignedInventories] = useState([])
   const [inventoryError, setInventoryError] = useState('')
   const [inventoryLoading, setInventoryLoading] = useState(false)
-  const [formData, setFormData] = useState({
-    name: '',
-    location: '',
-    department: currentUser.department || '',
-    incharge: '',
-    Hod: '',
-    description: '',
-  })
 
   useEffect(() => {
     let isMounted = true
@@ -131,45 +115,6 @@ const StaffDashboard = () => {
   ]
 
   useEffect(() => {
-    if (!canRequestInventoryCreation) {
-      return undefined
-    }
-
-    let isMounted = true
-
-    const loadFormOptions = async () => {
-      try {
-        setOptionsError('')
-
-        const usersResponse = await fetch(`${API_BASE_URL}/api/users`)
-
-        const usersData = await usersResponse.json()
-
-        if (!usersResponse.ok || !usersData.success) {
-          throw new Error(usersData.error || usersData.message || 'Failed to load users.')
-        }
-
-        if (!isMounted) {
-          return
-        }
-
-        setUsers(usersData.users || [])
-      } catch (error) {
-        if (isMounted) {
-          setUsers([])
-          setOptionsError(error.message || 'Failed to load account details for inventory request.')
-        }
-      }
-    }
-
-    loadFormOptions()
-
-    return () => {
-      isMounted = false
-    }
-  }, [canRequestInventoryCreation])
-
-  useEffect(() => {
     if (!isInventoryOfficer) {
       return undefined
     }
@@ -228,185 +173,9 @@ const StaffDashboard = () => {
     }
   }, [currentUser.id, isInventoryOfficer])
 
-  const currentUserRecord = useMemo(
-    () =>
-      users.find(
-        (user) =>
-          (currentUser.id && String(user.id) === String(currentUser.id)) ||
-          (currentUser.email && String(user.email || '').toLowerCase() === String(currentUser.email).toLowerCase())
-      ) || null,
-    [currentUser.email, currentUser.id, users]
-  )
-
-  const accountDepartment = currentUser.department || currentUserRecord?.department || ''
-  const accountHolderName = currentUser.name || currentUserRecord?.name || ''
-  const accountInchargeId = Number(currentUser.id || currentUserRecord?.id || 0)
-
-  const departmentHodLookup = useMemo(
-    () =>
-      users.reduce((lookup, user) => {
-        if (user.role === 'head_of_department' && user.department) {
-          lookup[user.department] = { id: user.id, name: user.name }
-        }
-
-        return lookup
-      }, {}),
-    [users]
-  )
-
-  const assignedHod = departmentHodLookup[accountDepartment]
   const managedInventoryCount = Number(currentUser.assignedInventoryCount ?? 0)
   const assignedInventoryCount = Math.max(assignedInventories.length, managedInventoryCount)
   const isManagingInventory = assignedInventoryCount > 0
-
-  useEffect(() => {
-    const nextDepartment = accountDepartment
-    const nextIncharge = accountInchargeId > 0 ? String(accountInchargeId) : ''
-    const nextHod = assignedHod?.name || ''
-
-    if (formData.department !== nextDepartment || formData.incharge !== nextIncharge || formData.Hod !== nextHod) {
-      setFormData((prev) => ({
-        ...prev,
-        department: nextDepartment,
-        incharge: nextIncharge,
-        Hod: nextHod,
-      }))
-    }
-  }, [accountDepartment, accountInchargeId, assignedHod?.name, formData.Hod, formData.department, formData.incharge])
-
-  const resetRequestForm = () => {
-    setFormData({
-      name: '',
-      location: '',
-      department: accountDepartment,
-      incharge: accountInchargeId > 0 ? String(accountInchargeId) : '',
-      Hod: assignedHod?.name || '',
-      description: '',
-    })
-    setRequestError('')
-    setRequestMessage('')
-  }
-
-  useEffect(() => {
-    if (!canRequestInventoryCreation) {
-      return
-    }
-
-    const searchParams = new URLSearchParams(location.search)
-    const inventoryRequest = searchParams.get('inventoryRequest')
-
-    if (inventoryRequest === 'add') {
-      setActiveRequestType(INVENTORY_REQUEST_TYPE.ADD_EXISTING)
-      resetRequestForm()
-      setIsRequestModalOpen(true)
-    }
-
-    if (inventoryRequest === 'new') {
-      setActiveRequestType(INVENTORY_REQUEST_TYPE.CREATE_NEW)
-      resetRequestForm()
-      setIsRequestModalOpen(true)
-    }
-  }, [canRequestInventoryCreation, location.search])
-
-  const handleInputChange = (e) => {
-    const { name, value } = e.target
-    setFormData((prev) => ({ ...prev, [name]: value }))
-  }
-
-  const handleInventoryRequestSubmit = async (e) => {
-    e?.preventDefault()
-    setRequestError('')
-    setRequestMessage('')
-
-    try {
-      setIsSubmittingRequest(true)
-
-      const payload = {
-        requestedById: currentUser.id,
-        requestType: activeRequestType,
-        name: formData.name.trim(),
-        location: formData.location.trim(),
-        department: accountDepartment,
-        inchargeId: accountInchargeId,
-        hodUserId: assignedHod?.id || null,
-        description: formData.description.trim(),
-      }
-
-      // Basic client-side validation to surface obvious issues early
-      if (!payload.name) {
-        setRequestError('Inventory name is required.')
-        setIsSubmittingRequest(false)
-        return
-      }
-
-      if (!payload.location) {
-        setRequestError('Inventory location is required.')
-        setIsSubmittingRequest(false)
-        return
-      }
-
-      if (!payload.department) {
-        setRequestError('Your account has no department assigned. Cannot submit request.')
-        setIsSubmittingRequest(false)
-        return
-      }
-
-      const response = await fetch(`${API_BASE_URL}/api/inventory-creation-requests`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
-
-      let data = {}
-      try {
-        data = await response.json()
-      } catch (jsonErr) {
-        console.error('Non-JSON response from server', jsonErr)
-      }
-
-      if (!response.ok || !data.success) {
-        const serverMessage = data.message || data.error || `Server responded ${response.status}`
-        console.error('Inventory request failed:', response.status, serverMessage, data)
-        setRequestError(serverMessage)
-        setIsSubmittingRequest(false)
-        return
-      }
-
-      setRequestMessage(
-        data.message ||
-          (activeRequestType === INVENTORY_REQUEST_TYPE.ADD_EXISTING
-            ? 'Inventory addition request submitted to your Head of Department for approval.'
-            : 'New inventory creation request submitted for approval.')
-      )
-      setIsRequestModalOpen(false)
-      resetRequestForm()
-    } catch (error) {
-      setRequestError(error.message || 'Failed to submit inventory creation request.')
-    } finally {
-      setIsSubmittingRequest(false)
-    }
-  }
-
-  const requestModalFooter = (
-    <div className="flex gap-3 justify-end">
-      <Button variant="secondary" onClick={() => {
-        setIsRequestModalOpen(false)
-        resetRequestForm()
-      }}>
-        Cancel
-      </Button>
-      <Button variant="primary" onClick={handleInventoryRequestSubmit} disabled={isSubmittingRequest}>
-        {isSubmittingRequest ? 'Submitting...' : 'Submit Request'}
-      </Button>
-    </div>
-  )
-
-  const requestModalTitle =
-    activeRequestType === INVENTORY_REQUEST_TYPE.ADD_EXISTING ? 'Add Inventory Request' : 'New Inventory Creation Request'
-  const requestModalDescription =
-    activeRequestType === INVENTORY_REQUEST_TYPE.ADD_EXISTING
-      ? 'Use this for inventories already used by the faculty. Only HOD approval is required.'
-      : 'Use this for creating a brand new inventory. This request proceeds through HOD, registrar, and admin approval.'
 
   return (
     <MainLayout variant="staff">
@@ -438,37 +207,26 @@ const StaffDashboard = () => {
               )}
               <Button onClick={() => navigate('/requests/my/staff')}>My Requests</Button>
             </div>
-             {canRequestInventoryCreation && (
-                <Button
-                  variant="primary"
-                  onClick={() => {
-                    setActiveRequestType(INVENTORY_REQUEST_TYPE.ADD_EXISTING)
-                    resetRequestForm()
-                    setIsRequestModalOpen(true)
-                  }}
-                  icon="playlist_add"
-                >
-                  Add Inventory
-                </Button>
-              )}
             {canRequestInventoryCreation && (
-                <Button
-                  variant="primary"
-                  onClick={() => {
-                    setActiveRequestType(INVENTORY_REQUEST_TYPE.CREATE_NEW)
-                    resetRequestForm()
-                    setIsRequestModalOpen(true)
-                  }}
-                  icon="playlist_add"
-                >
-                  New Inventory Creation
-                </Button>
-              )}
+              <Button
+                variant="primary"
+                onClick={() => navigate(`/requests/inventory/staff`)}
+                icon="playlist_add"
+              >
+                Add Inventory
+              </Button>
+            )}
+            {canRequestInventoryCreation && (
+              <Button
+                variant="primary"
+                onClick={() => navigate(`/requests/inventory/staff`)}
+                icon="playlist_add"
+              >
+                New Inventory Creation
+              </Button>
+            )}
           </div>
         </div>
-
-        {requestMessage && <div className="mb-6 rounded bg-green-50 px-4 py-3 text-sm text-green-800">{requestMessage}</div>}
-        {requestError && <div className="mb-6 rounded bg-red-50 px-4 py-3 text-sm text-red-800">{requestError}</div>}
 
         <Card title="Recent Activity" icon="history">
           <div className="space-y-3">
@@ -483,77 +241,6 @@ const StaffDashboard = () => {
             ))}
           </div>
         </Card>
-
-        <Modal
-          isOpen={isRequestModalOpen}
-          title={requestModalTitle}
-          onClose={() => setIsRequestModalOpen(false)}
-          footer={requestModalFooter}
-          size="lg"
-        >
-          <form onSubmit={handleInventoryRequestSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {optionsError && <p className="md:col-span-2 rounded bg-warning/10 px-3 py-2 text-sm text-warning">{optionsError}</p>}
-            <p className="md:col-span-2 rounded bg-blue-50 px-3 py-2 text-sm text-blue-800">{requestModalDescription}</p>
-
-            <FormInput
-              label="Inventory Name"
-              name="name"
-              value={formData.name}
-              onChange={handleInputChange}
-              placeholder="Enter inventory name"
-              required
-            />
-
-            <FormInput
-              label="Inventory Location (Office/Lab)"
-              name="location"
-              value={formData.location}
-              onChange={handleInputChange}
-              placeholder="Enter inventory location"
-              required
-            />
-
-            <FormInput
-              label="Department"
-              name="department"
-              value={formData.department}
-              onChange={handleInputChange}
-              placeholder="Department"
-              disabled
-              required
-            />
-
-            <FormInput
-              label="Head of the Department "
-              name="Hod"
-              value={formData.Hod}
-              onChange={handleInputChange}
-              placeholder="Department HOD"
-              disabled
-            />
-
-            <FormInput
-              label="Inventory Officer"
-              name="incharge"
-              value={accountHolderName}
-              onChange={handleInputChange}
-              placeholder="Inventory officer"
-              disabled
-              required
-            />
-
-            <FormInput
-              label="Description"
-              name="description"
-              value={formData.description}
-              onChange={handleInputChange}
-              placeholder="Inventory request description"
-              as="textarea"
-              rows={3}
-              className="md:col-span-2"
-            />
-          </form>
-        </Modal>
       </div>
     </MainLayout>
   )

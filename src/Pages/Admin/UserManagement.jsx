@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import AdminLayout from "../../Components/Layouts/AdminLayout";
 import { Card, Button, SearchBox, Table, Badge, Modal, FormInput, Select, EntityDetailsModal, PageHeader } from "../../Components/UI";
 import { ROLE_HIERARCHY, ACCOUNT_REQUEST_STATUS, ACCOUNT_REQUEST_STATUS_META } from "../../utils/constants";
@@ -8,6 +8,7 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000
 
 const UserManagement = () => {
   const location = useLocation();
+  const navigate = useNavigate();
   const singletonRoles = ["head_of_department", "dean", "registrar"];
   const [searchTerm, setSearchTerm] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -672,14 +673,9 @@ const UserManagement = () => {
         title="User Management"
         subtitle="Manage system users, roles, and account approvals"
         actions={
-          <>
-            <Button variant="secondary" icon="refresh" onClick={refreshAdminData}>
-              Refresh
-            </Button>
-            <Button icon="add_circle" onClick={() => setIsModalOpen(true)}>
-              Create User
-            </Button>
-          </>
+          <Button icon="add_circle" onClick={() => navigate('/admin/users/create')}>
+            Create User
+          </Button>
         }
       />
 

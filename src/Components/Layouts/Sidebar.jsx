@@ -45,7 +45,7 @@ const buildStaffNavItems = (currentUser) => {
         id: "staff-add-inventory-request",
         type: "item",
         label: "Add Inventory",
-        path: "/staff/dashboard?inventoryRequest=add",
+        path: "/requests/inventory/staff",
         icon: "playlist_add",
         nested: true,
       },
@@ -53,7 +53,7 @@ const buildStaffNavItems = (currentUser) => {
         id: "staff-new-inventory-request",
         type: "item",
         label: "New Inventory Creation",
-        path: "/staff/dashboard?inventoryRequest=new",
+        path: "/requests/inventory/staff",
         icon: "add_box",
         nested: true,
       }

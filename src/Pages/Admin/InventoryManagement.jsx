@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import AdminLayout from "../../Components/Layouts/AdminLayout";
 import { Card, Button, SearchBox, Table, Badge, Modal, FormInput, Select, EntityDetailsModal, PageHeader } from "../../Components/UI";
 import { INVENTORY_REQUEST_STATUS, INVENTORY_REQUEST_TYPE } from "../../utils/constants";
@@ -8,6 +9,7 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000
 const ALLOWED_INCHARGE_DESIGNATIONS = new Set(["Technical Officer", "Management Assistant"]);
 
 const InventoryManagement = () => {
+  const navigate = useNavigate();
   const currentUserRole = localStorage.getItem("userRole") || "admin";
   const [searchTerm, setSearchTerm] = useState("");
   const [activeTab, setActiveTab] = useState("inventories"); // inventories or requests
@@ -469,10 +471,7 @@ const InventoryManagement = () => {
         actions={canCreateInventory(currentUserRole) ? (
           <Button
             icon="add_circle"
-            onClick={() => {
-              resetForm();
-              setIsModalOpen(true);
-            }}
+            onClick={() => navigate('/admin/inventory/create')}
           >
             Create Inventory
           </Button>

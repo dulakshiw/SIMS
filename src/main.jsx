@@ -15,6 +15,9 @@ import AdminPendingTasks from './Pages/Admin/AdminPendingTasks'
 import UserManagement from './Pages/Admin/UserManagement'
 import Reports from './Pages/Admin/Reports'
 import Profile from './Pages/Admin/Profile'
+import CreateUser from './Pages/Admin/CreateUser'
+import CreateDepartment from './Pages/Admin/CreateDepartment'
+import CreateInventory from './Pages/Admin/CreateInventory'
 
 // Inventory Pages
 import InventoryListView from './Pages/Inventory/InventoryListView'
@@ -37,6 +40,7 @@ import RequestList from './Pages/Inventory/Requests/RequestList'
 import CreateRequest from './Pages/Inventory/Requests/CreateRequest'
 import ItemRequest from './Pages/Requests/ItemRequest'
 import MyRequests from './Pages/Requests/MyRequests'
+import InventoryCreationRequest from './Pages/Requests/InventoryCreationRequest'
 
 // Staff Pages
 import StaffDashboard from './Pages/StaffMember/StaffDashboard'
@@ -81,6 +85,10 @@ const router = createBrowserRouter([
         element: <UserManagement />
       },
       {
+        path: "users/create",
+        element: <CreateUser />
+      },
+      {
         path: "reports",
         element: <Reports />
       },
@@ -89,8 +97,16 @@ const router = createBrowserRouter([
         element: <DepartmentManagement />
       },
       {
+        path: "departments/create",
+        element: <CreateDepartment />
+      },
+      {
         path: "inventory",
         element: <InventoryManagement />
+      },
+      {
+        path: "inventory/create",
+        element: <CreateInventory />
       },
       {
         path: "pending-tasks",
@@ -244,6 +260,10 @@ const router = createBrowserRouter([
       {
         path: "my/:role",
         element: <MyRequests />
+      },
+      {
+        path: "inventory/:role",
+        element: <InventoryCreationRequest />
       }
     ]
   },
