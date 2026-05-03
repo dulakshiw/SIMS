@@ -125,7 +125,7 @@ const CreateDepartment = () => {
 
         {/* Error Messages */}
         {submitError && (
-          <div className="rounded bg-red-50 px-4 py-3 text-sm text-red-800 border border-red-200">
+          <div className="rounded bg-red-50 px-4 py-3 text-sm text-red-800 border border-red-200 text-center font-bold">
             {submitError}
           </div>
         )}

@@ -1087,6 +1087,8 @@ app.get(
     const mobileNoColumn = schema.userColumns.has("mobile_no") ? "u.mobile_no" : "NULL";
     const officeExtColumn = schema.userColumns.has("off_ext") ? "u.off_ext" : "NULL";
 
+    const lastLoginColumn = schema.userColumns.has("last_login") ? "u.last_login" : "NULL";
+
     const [rows] = await pool.execute(
       `
         SELECT
@@ -1100,7 +1102,8 @@ app.get(
           ${designationSelection},
           ${mobileNoColumn} AS mobile_no,
           ${officeExtColumn} AS off_ext,
-          ${createdDateColumn} AS created_date
+          ${createdDateColumn} AS created_date,
+          ${lastLoginColumn} AS last_login
         FROM users u
         ${roleJoin}
         ${departmentJoin}
@@ -1128,6 +1131,7 @@ app.get(
       officeExtNo: row.off_ext ?? "",
       assignedInventoryCount: roleDetails.assignedInventoryCount,
       createdDate: row.created_date ? new Date(row.created_date).toISOString().split("T")[0] : "",
+      lastLogin: row.last_login ? new Date(row.last_login).toISOString() : null,
       };
     });
 
@@ -1706,26 +1710,23 @@ app.get(
       return res.json({ success: true, departments: [] });
     }
 
-    const departmentIdColumn = schema.departmentColumns.has("id") ? "id" : "department_id";
-    const departmentNameColumn = schema.departmentColumns.has("name")
-      ? "name"
-      : schema.departmentColumns.has("department_name")
-        ? "department_name"
-        : null;
-    const departmentStatusColumn = schema.departmentColumns.has("status") ? "status" : null;
-
-    if (!departmentNameColumn) {
-      return res.json({ success: true, departments: [] });
-    }
+    const departmentCodeColumn = schema.departmentColumns.has("code") ? "code" : null;
+    const departmentHeadIdColumn = schema.departmentColumns.has("head_id") ? "head_id" : null;
+    const departmentCreatedDateColumn = schema.departmentColumns.has("created_date") ? "created_date" : null;
 
     const [rows] = await pool.execute(
       `
         SELECT
-          ${departmentIdColumn} AS id,
-          ${departmentNameColumn} AS name,
-          ${departmentStatusColumn ? `${departmentStatusColumn} AS status` : "NULL AS status"}
-        FROM departments
-        ORDER BY ${departmentNameColumn} ASC
+          d.${departmentIdColumn} AS id,
+          d.${departmentNameColumn} AS name,
+          ${departmentCodeColumn ? `d.${departmentCodeColumn}` : "NULL"} AS code,
+          ${departmentHeadIdColumn ? `d.${departmentHeadIdColumn}` : "NULL"} AS head_id,
+          ${departmentStatusColumn ? `d.${departmentStatusColumn}` : "NULL"} AS status,
+          ${departmentCreatedDateColumn ? `d.${departmentCreatedDateColumn}` : "NULL"} AS created_date,
+          u.name AS head_name
+        FROM departments d
+        LEFT JOIN users u ON u.id = d.${departmentHeadIdColumn}
+        ORDER BY d.${departmentNameColumn} ASC
       `
     );
 
@@ -1734,6 +1735,12 @@ app.get(
       .map((row) => ({
         id: row.id,
         name: row.name,
+        code: row.code || "",
+        head: row.head_name || "",
+        status: row.status || "active",
+        createdDate: row.created_date ? new Date(row.created_date).toISOString().split("T")[0] : "",
+        userCount: 0, // TODO: Add user count
+        inventoryCount: 0, // TODO: Add inventory count
       }));
 
     return res.json({ success: true, departments });

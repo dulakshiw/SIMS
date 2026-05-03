@@ -21,32 +21,7 @@ const AdminPendingTasks = () => {
   const [users, setUsers] = useState([]);
 
   // -- Inventory creation requests awaiting admin action (approved by HOD) --
-  const [inventoryRequests, setInventoryRequests] = useState([
-    {
-      id: 202,
-      name: "Sports Equipment",
-      department: "Physical Education",
-      requestedBy: "Grace Lee",
-      requestedDate: "2026-01-25",
-      requestType: INVENTORY_REQUEST_TYPE.CREATE_NEW,
-      approvalStatus: INVENTORY_REQUEST_STATUS.PENDING_ADMIN,
-      hodApprovedDate: "2026-01-26",
-      hodApprovedBy: "PE Department Head",
-      reason: "Sports facilities expansion",
-    },
-    {
-      id: 203,
-      name: "Medical Supplies",
-      department: "Health Sciences",
-      requestedBy: "Dr. Nimal Silva",
-      requestedDate: "2026-02-01",
-      requestType: INVENTORY_REQUEST_TYPE.CREATE_NEW,
-      approvalStatus: INVENTORY_REQUEST_STATUS.PENDING_ADMIN,
-      hodApprovedDate: "2026-02-02",
-      hodApprovedBy: "HS Department Head",
-      reason: "New clinic setup",
-    },
-  ]);
+  const [inventoryRequests, setInventoryRequests] = useState([]);
 
   const loadAccountRequests = async () => {
     try {
@@ -472,9 +447,7 @@ const AdminPendingTasks = () => {
                 {totalPending} task{totalPending !== 1 ? "s" : ""} pending
               </span>
             ) : null}
-            <Button variant="secondary" icon="refresh" onClick={refreshPendingTasks}>
-              Refresh
-            </Button>
+            
           </>
         }
       />
@@ -486,16 +459,16 @@ const AdminPendingTasks = () => {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`text-left p-5 rounded-lg border transition-all ${
+              className={`text-left p-5 rounded-lg border transition-all border-dark ${
                 activeTab === tab.id
                   ? "border-primary-600 bg-primary-50 shadow-sm"
-                  : "border-border-lighter bg-white hover:border-primary-300 hover:shadow-sm"
+                  : "border-border-dark bg-blue hover:border-primary-300 hover:shadow-sm"
               }`}
             >
               <div className="flex items-center gap-3">
                 <span
-                  className={`material-symbols-outlined text-2xl ${
-                    activeTab === tab.id ? "text-primary-600" : "text-text-light"
+                  className={`material-symbols-outlined text-2xl${
+                    activeTab === tab.id ? "text-primary-1000" : "text-text-light"
                   }`}
                 >
                   {tab.icon}
@@ -503,7 +476,7 @@ const AdminPendingTasks = () => {
                 <div>
                   <p className="text-sm text-text-light">{tab.label}</p>
                   <p
-                    className={`text-2xl font-bold mt-0.5 ${
+                    className={`text-2xl font-bold mt-0.5 text-center ${
                       tab.count > 0 ? "text-warning" : "text-success"
                     }`}
                   >
@@ -609,11 +582,10 @@ const AdminPendingTasks = () => {
         )}
 
         {activeTab === "inventory-requests" && (
-          <Card title="Inventory Creation Requests (HOD Approved)" icon="inventory_2">
+          <Card title="Inventory Creation Requests" icon="inventory_2">
             <div className="space-y-4">
               <p className="text-sm text-text-light bg-background-light p-3 rounded">
-                These inventory creation requests have been recommended by the HOD and are awaiting
-                your approval. Approving will create the inventory in the system.
+                These inventory creation requests are awaiting for your approval. Approving will create the inventory in the system.
               </p>
               {filteredInventoryRequests.length === 0 ? (
                 <div className="text-center py-10 text-text-light">
@@ -631,16 +603,6 @@ const AdminPendingTasks = () => {
             </div>
           </Card>
         )}
-
-        {/* Quick link to full management pages */}
-        <div className="flex gap-3 flex-wrap">
-          <Button variant="secondary" icon="people" onClick={() => navigate("/admin/users")}>
-            Manage All Users
-          </Button>
-          <Button variant="secondary" icon="inventory_2" onClick={() => navigate("/admin/inventory")}>
-            Manage All Inventories
-          </Button>
-        </div>
       </div>
 
       {/* Confirm Action Modal */}
