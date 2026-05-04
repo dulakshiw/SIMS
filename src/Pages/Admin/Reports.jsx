@@ -6,8 +6,6 @@ import AdminLayout from "../../Components/Layouts/AdminLayout";
 import MainLayout from "../../Components/Layouts/MainLayout";
 import { Card, Button, Table, Badge, PageHeader } from "../../Components/UI";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
-
 const Reports = ({ layoutVariant = "admin", sidebarVariant }) => {
   const params = useParams();
   const resolvedSidebarVariant = sidebarVariant || params?.role || "staff";
@@ -15,14 +13,6 @@ const Reports = ({ layoutVariant = "admin", sidebarVariant }) => {
   const [activeTab, setActiveTab] = useState("user-details"); // user-details, user-login, inventory-details
   const [isExportDropdownOpen, setIsExportDropdownOpen] = useState(false);
   const exportDropdownRef = useRef(null);
-
-  const [stats, setStats] = useState([]);
-  const [userDetailsData, setUserDetailsData] = useState([]);
-  const [userLoginData, setUserLoginData] = useState([]);
-  const [inventoryDetailsData, setInventoryDetailsData] = useState([]);
-  const [departmentDetailsData, setDepartmentDetailsData] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -38,156 +28,213 @@ const Reports = ({ layoutVariant = "admin", sidebarVariant }) => {
     };
   }, []);
 
-  useEffect(() => {
-    let isMounted = true;
+  const mockStats = [
+    { title: "Total Users", value: "25", icon: "people", color: "primary-800" },
+    { title: "Total Assets", value: "425", icon: "inventory_2", color: "info" },
+    { title: "Pending Requests", value: "12", icon: "request_quote", color: "warning" },
+    { title: "Inventories", value: "5", icon: "storehouse", color: "success" },
+  ];
 
-    const loadData = async () => {
-      try {
-        setLoading(true);
-        setError("");
+  // User Details Report Data
+  const userDetailsData = [
+    {
+      id: 1,
+      name: "Alice Johnson",
+      email: "alice@example.com",
+      role: "Admin",
+      department: "IT",
+      designation: "Senior Lecturer",
+      status: "active",
+      joinDate: "2024-01-15",
+      lastActive: "2024-01-26 10:30 AM",
+    },
+    {
+      id: 2,
+      name: "Bob Smith",
+      email: "bob@example.com",
+      role: "Inventory Officer",
+      department: "Inventory",
+      designation: "Lecturer",
+      status: "active",
+      joinDate: "2024-01-20",
+      lastActive: "2024-01-26 09:15 AM",
+    },
+    {
+      id: 3,
+      name: "Carol White",
+      email: "carol@example.com",
+      role: "Admin",
+      department: "Operations",
+      designation: "Professor",
+      status: "inactive",
+      joinDate: "2024-01-22",
+      lastActive: "2024-01-24 03:45 PM",
+    },
+    {
+      id: 4,
+      name: "David Brown",
+      email: "david@example.com",
+      role: "Staff",
+      department: "Finance",
+      designation: "Assistant Lecturer",
+      status: "active",
+      joinDate: "2024-02-01",
+      lastActive: "2024-01-26 11:20 AM",
+    },
+    {
+      id: 5,
+      name: "Emma Davis",
+      email: "emma@example.com",
+      role: "Inventory Officer",
+      department: "Inventory",
+      designation: "Senior Lecturer",
+      status: "active",
+      joinDate: "2024-02-05",
+      lastActive: "2024-01-26 02:50 PM",
+    },
+  ];
 
-        const [summaryResponse, usersResponse, inventoriesResponse, departmentsResponse] = await Promise.all([
-          fetch(`${API_BASE_URL}/api/dashboard/summary`),
-          fetch(`${API_BASE_URL}/api/users`),
-          fetch(`${API_BASE_URL}/api/inventories`),
-          fetch(`${API_BASE_URL}/api/departments`),
-        ]);
+  // User Login Details Report Data
+  const userLoginData = [
+    {
+      id: 1,
+      name: "Alice Johnson",
+      email: "alice@example.com",
+      loginCount: 142,
+      lastLogin: "2024-01-26 10:30 AM",
+      loginDate: "2024-01-26",
+      status: "active",
+      totalLoginHours: "256 hrs",
+    },
+    {
+      id: 2,
+      name: "Bob Smith",
+      email: "bob@example.com",
+      loginCount: 98,
+      lastLogin: "2024-01-26 09:15 AM",
+      loginDate: "2024-01-26",
+      status: "active",
+      totalLoginHours: "176 hrs",
+    },
+    {
+      id: 3,
+      name: "Carol White",
+      email: "carol@example.com",
+      loginCount: 45,
+      lastLogin: "2024-01-24 03:45 PM",
+      loginDate: "2024-01-24",
+      status: "inactive",
+      totalLoginHours: "82 hrs",
+    },
+    {
+      id: 4,
+      name: "David Brown",
+      email: "david@example.com",
+      loginCount: 67,
+      lastLogin: "2024-01-26 11:20 AM",
+      loginDate: "2024-01-26",
+      status: "active",
+      totalLoginHours: "121 hrs",
+    },
+    {
+      id: 5,
+      name: "Emma Davis",
+      email: "emma@example.com",
+      loginCount: 89,
+      lastLogin: "2024-01-26 02:50 PM",
+      loginDate: "2024-01-26",
+      status: "active",
+      totalLoginHours: "162 hrs",
+    },
+  ];
 
-        const [summaryData, usersData, inventoriesData, departmentsData] = await Promise.all([
-          summaryResponse.json(),
-          usersResponse.json(),
-          inventoriesResponse.json(),
-          departmentsResponse.json(),
-        ]);
+  // Inventory Details Report Data
+  const inventoryDetailsData = [
+    {
+      id: 1,
+      name: "Server Room",
+      department: "Information Technology",
+      incharge: "Alice Johnson",
+      itemCount: 45,
+      createdDate: "2024-01-10",
+      lastUpdated: "2024-01-26 10:30 AM",
+      status: "active",
+    },
+    {
+      id: 2,
+      name: "IT Equipment",
+      department: "Information Technology",
+      incharge: "Bob Smith",
+      itemCount: 120,
+      createdDate: "2024-01-15",
+      lastUpdated: "2024-01-26 09:15 AM",
+      status: "active",
+    },
+    {
+      id: 3,
+      name: "Office Supplies",
+      department: "Operations",
+      incharge: "Carol White",
+      itemCount: 250,
+      createdDate: "2024-01-20",
+      lastUpdated: "2024-01-24 03:45 PM",
+      status: "inactive",
+    },
+    {
+      id: 4,
+      name: "Machinery",
+      department: "Operations",
+      incharge: "David Brown",
+      itemCount: 15,
+      createdDate: "2024-02-01",
+      lastUpdated: "2024-01-26 11:20 AM",
+      status: "active",
+    },
+    {
+      id: 5,
+      name: "HR Equipment",
+      department: "Human Resources",
+      incharge: "Emma Davis",
+      itemCount: 30,
+      createdDate: "2024-02-05",
+      lastUpdated: "2024-01-26 02:50 PM",
+      status: "active",
+    },
+  ];
 
-        if (!isMounted) return;
-
-        if (!summaryResponse.ok || !summaryData.success) {
-          throw new Error(summaryData.error || summaryData.message || "Failed to load summary.");
-        }
-
-        if (!usersResponse.ok || !usersData.success) {
-          throw new Error(usersData.error || usersData.message || "Failed to load users.");
-        }
-
-        if (!inventoriesResponse.ok || !inventoriesData.success) {
-          throw new Error(inventoriesData.error || inventoriesData.message || "Failed to load inventories.");
-        }
-
-        if (!departmentsResponse.ok || !departmentsData.success) {
-          throw new Error(departmentsData.error || departmentsData.message || "Failed to load departments.");
-        }
-
-        // Set stats
-        const summary = summaryData.adminSummary || {};
-        setStats([
-          { title: "Total Users", value: summary.totalUsers ?? 0, icon: "people", color: "primary-800" },
-          { title: "Total Assets", value: summary.totalItems ?? 0, icon: "inventory_2", color: "info" },
-          { title: "Pending Requests", value: summary.pendingTasks ?? 0, icon: "request_quote", color: "warning" },
-          { title: "Inventories", value: summary.inventories ?? 0, icon: "storehouse", color: "success" },
-        ]);
-
-        // Set user details
-        setUserDetailsData(usersData.users || []);
-
-        // For user login data, perhaps use users with login info if available, else empty
-        setUserLoginData(usersData.users?.map(user => ({
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          loginCount: 0, // TODO: Add login count tracking
-          lastLogin: user.lastLogin ? new Date(user.lastLogin).toLocaleString() : "N/A",
-          loginDate: user.lastLogin ? new Date(user.lastLogin).toISOString().split('T')[0] : "N/A",
-          status: user.status,
-          totalLoginHours: "0 hrs", // TODO: Add login hours tracking
-        })) || []);
-
-        // Set inventory details
-        setInventoryDetailsData(inventoriesData.inventories?.map(inv => ({
-          id: inv.id,
-          name: inv.name,
-          department: inv.department,
-          incharge: inv.incharge,
-          itemCount: inv.itemCount || 0,
-          createdDate: inv.createdDate,
-          lastUpdated: inv.lastUpdated,
-          status: inv.status,
-        })) || []);
-
-        // Set department details
-        setDepartmentDetailsData(departmentsData.departments?.map(dept => ({
-          id: dept.id,
-          name: dept.name,
-          code: dept.code,
-          head: dept.head,
-          userCount: dept.userCount || 0,
-          inventoryCount: dept.inventoryCount || 0,
-          status: dept.status,
-          createdDate: dept.createdDate,
-        })) || []);
-
-        // Check if we got empty data - if so, use fallback mock data
-        const hasEmptyData = (!summaryData.adminSummary || Object.keys(summaryData.adminSummary).length === 0) &&
-                            (!usersData.users || usersData.users.length === 0) &&
-                            (!inventoriesData.inventories || inventoriesData.inventories.length === 0) &&
-                            (!departmentsData.departments || departmentsData.departments.length === 0);
-
-        if (hasEmptyData) {
-          console.log("API returned empty data, using fallback mock data for reports");
-          setStats([
-            { title: "Total Users", value: 15, icon: "people", color: "primary-800" },
-            { title: "Total Assets", value: 245, icon: "inventory_2", color: "info" },
-            { title: "Pending Requests", value: 8, icon: "request_quote", color: "warning" },
-            { title: "Inventories", value: 12, icon: "storehouse", color: "success" },
-          ]);
-          setUserDetailsData([
-            { id: 1, name: "Alice Johnson", email: "alice@example.com", role: "admin", department: "Information Technology", status: "active", createdDate: "2026-01-15" },
-            { id: 2, name: "Bob Smith", email: "bob@example.com", role: "inventory officer", department: "Information Technology", status: "active", createdDate: "2026-01-16" },
-            { id: 3, name: "Carol White", email: "carol@example.com", role: "admin", department: "Dean's Office", status: "active", createdDate: "2026-01-17" },
-            { id: 4, name: "David Brown", email: "david@example.com", role: "staff", department: "Dean's Office", status: "inactive", createdDate: "2026-01-18" },
-            { id: 5, name: "Emma Davis", email: "emma@example.com", role: "admin", department: "Computational Mathematics", status: "active", createdDate: "2026-01-19" },
-          ]);
-          setUserLoginData([
-            { id: 1, name: "Alice Johnson", email: "alice@example.com", loginCount: 45, lastLogin: "2026-05-03 09:30:00", loginDate: "2026-05-03", status: "active", totalLoginHours: "120 hrs" },
-            { id: 2, name: "Bob Smith", email: "bob@example.com", loginCount: 32, lastLogin: "2026-05-02 14:15:00", loginDate: "2026-05-02", status: "active", totalLoginHours: "95 hrs" },
-            { id: 3, name: "Carol White", email: "carol@example.com", loginCount: 28, lastLogin: "2026-05-01 11:45:00", loginDate: "2026-05-01", status: "active", totalLoginHours: "85 hrs" },
-          ]);
-          setInventoryDetailsData([
-            { id: 1, name: "Server Room", department: "Information Technology", incharge: "Alice Johnson", itemCount: 25, createdDate: "2026-01-15", lastUpdated: "2026-05-01", status: "active" },
-            { id: 2, name: "IT Equipment", department: "Information Technology", incharge: "Bob Smith", itemCount: 15, createdDate: "2026-01-16", lastUpdated: "2026-04-28", status: "active" },
-            { id: 3, name: "Office Supplies", department: "Dean's Office", incharge: "Carol White", itemCount: 8, createdDate: "2026-01-17", lastUpdated: "2026-04-30", status: "active" },
-          ]);
-          setDepartmentDetailsData([
-            { id: 1, name: "Information Technology", code: "IT", head: "CRJ Amalraj", userCount: 5, inventoryCount: 2, status: "active", createdDate: "2026-01-15" },
-            { id: 2, name: "Dean's Office", code: "DO", head: "Yashodara Karunarathne", userCount: 3, inventoryCount: 1, status: "active", createdDate: "2026-01-20" },
-            { id: 3, name: "Computational Mathematics", code: "CM", head: "YTS Piyatilake", userCount: 2, inventoryCount: 0, status: "inactive", createdDate: "2026-02-01" },
-          ]);
-        }
-
-      } catch (error) {
-        if (isMounted) {
-          console.error("Failed to load report data:", error);
-          setError(error.message || "Failed to load report data.");
-          // Set empty data on error
-          setStats([]);
-          setUserDetailsData([]);
-          setUserLoginData([]);
-          setInventoryDetailsData([]);
-          setDepartmentDetailsData([]);
-        }
-      } finally {
-        if (isMounted) {
-          setLoading(false);
-        }
-      }
-    };
-
-    loadData();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
+  // Department Details Report Data
+  const departmentDetailsData = [
+    {
+      id: 1,
+      name: "Information Technology",
+      code: "IT",
+      head: "CRJ Amalraj",
+      userCount: 12,
+      inventoryCount: 2,
+      status: "active",
+      createdDate: "2024-01-15",
+    },
+    {
+      id: 2,
+      name: "Dean's Office",
+      code: "DO",
+      head: "Yashodara Karunarathne",
+      userCount: 8,
+      inventoryCount: 2,
+      status: "active",
+      createdDate: "2024-01-20",
+    },
+    {
+      id: 3,
+      name: "Computational Mathematics",
+      code: "CM",
+      head: "YTS Piyatilake",
+      userCount: 5,
+      inventoryCount: 1,
+      status: "inactive",
+      createdDate: "2024-02-01",
+    },
+  ];
 
   const userDetailsColumns = [
     { field: "name", label: "Name", sortable: true },
@@ -451,15 +498,9 @@ const Reports = ({ layoutVariant = "admin", sidebarVariant }) => {
       />
 
       <div className="p-6 space-y-6">
-        {error && (
-          <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
-            {error}
-          </div>
-        )}
-
         {/* KPI Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {stats.map((stat, index) => (
+          {mockStats.map((stat, index) => (
             <Card key={index} icon={stat.icon}>
               <p className="text-sm text-text-light">{stat.title}</p>
               <p className={`text-3xl font-bold text-${stat.color} mt-2`}>{stat.value}</p>
@@ -517,69 +558,41 @@ const Reports = ({ layoutVariant = "admin", sidebarVariant }) => {
         <div className="mt-6">
           {activeTab === "user-details" && (
             <Card title="User Details Report" icon="people">
-              {loading ? (
-                <div className="text-center py-10 text-text-light">
-                  <span className="material-symbols-outlined text-5xl mb-2 block">hourglass_empty</span>
-                  Loading user details...
-                </div>
-              ) : (
-                <Table
-                  columns={userDetailsColumns}
-                  data={userDetailsData}
-                  rowsPerPage={10}
-                />
-              )}
+              <Table
+                columns={userDetailsColumns}
+                data={userDetailsData}
+                rowsPerPage={10}
+              />
             </Card>
           )}
 
           {activeTab === "user-login" && (
             <Card title="User Login Details Report" icon="login">
-              {loading ? (
-                <div className="text-center py-10 text-text-light">
-                  <span className="material-symbols-outlined text-5xl mb-2 block">hourglass_empty</span>
-                  Loading user login details...
-                </div>
-              ) : (
-                <Table
-                  columns={userLoginColumns}
-                  data={userLoginData}
-                  rowsPerPage={10}
-                />
-              )}
+              <Table
+                columns={userLoginColumns}
+                data={userLoginData}
+                rowsPerPage={10}
+              />
             </Card>
           )}
 
           {activeTab === "inventory-details" && (
             <Card title="Inventory Details Report" icon="inventory_2">
-              {loading ? (
-                <div className="text-center py-10 text-text-light">
-                  <span className="material-symbols-outlined text-5xl mb-2 block">hourglass_empty</span>
-                  Loading inventory details...
-                </div>
-              ) : (
-                <Table
-                  columns={inventoryDetailsColumns}
-                  data={inventoryDetailsData}
-                  rowsPerPage={10}
-                />
-              )}
+              <Table
+                columns={inventoryDetailsColumns}
+                data={inventoryDetailsData}
+                rowsPerPage={10}
+              />
             </Card>
           )}
 
           {activeTab === "department-details" && (
             <Card title="Department Details Report" icon="business">
-              {loading ? (
-                <div className="text-center py-10 text-text-light">
-                  <span className="material-symbols-outlined text-5xl mb-2 block">hourglass_empty</span>
-                  Loading department details...
-                </div>
-              ) : (
-                <Table
-                  columns={departmentDetailsColumns}
-                  data={departmentDetailsData}
-                  rowsPerPage={10}
-                />
-              )}
+              <Table
+                columns={departmentDetailsColumns}
+                data={departmentDetailsData}
+                rowsPerPage={10}
+              />
             </Card>
           )}
         </div>

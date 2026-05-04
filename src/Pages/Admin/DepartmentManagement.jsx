@@ -1,9 +1,7 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import AdminLayout from "../../Components/Layouts/AdminLayout";
 import { Card, Button, SearchBox, Table, Badge, Modal, FormInput, Select, EntityDetailsModal, PageHeader } from "../../Components/UI";
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
 
 const DepartmentManagement = () => {
   const navigate = useNavigate();
@@ -24,165 +22,87 @@ const DepartmentManagement = () => {
   const [assignType, setAssignType] = useState("user"); // user or inventory
   const [selectedDept, setSelectedDept] = useState(null);
 
-  const [departments, setDepartments] = useState([]);
-  const [users, setUsers] = useState([]);
-  const [inventories, setInventories] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const mockDepartments = [
+    {
+      id: 1,
+      name: "Information Technology",
+      code: "IT",
+      head: "CRJ Amalraj",
+      status: "active",
+      createdDate: "2026-01-15",
+      users: ["", "Bob Smith"],
+      inventories: ["Server Room", "IT Equipment"],
+    },
+    {
+      id: 2,
+      name: "Dean's Office",
+      code: "DO",
+      head: "Yashodara Karunarathne",
+      status: "active",
+      createdDate: "2026-01-20",
+      users: ["Carol White", "David Brown"],
+      inventories: ["Office Supplies", "Machinery"],
+    },
+    {
+      id: 3,
+      name: "Computational Mathematics",
+      code: "CM",
+      head: "YTS Piyatilake",
+      status: "inactive",
+      createdDate: "2026-02-01",
+      users: ["Emma Davis"],
+      inventories: ["HR Equipment"],
+    },
+  ];
 
-  useEffect(() => {
-    let isMounted = true;
+  const mockUsers = [
+    { id: 1, name: "Alice Johnson", email: "alice@example.com", role: "admin" },
+    { id: 2, name: "Bob Smith", email: "bob@example.com", role: "inventory officer" },
+    { id: 3, name: "Carol White", email: "carol@example.com", role: "admin" },
+    { id: 4, name: "David Brown", email: "david@example.com", role: "staff" },
+    { id: 5, name: "Emma Davis", email: "emma@example.com", role: "admin" },
+  ];
 
-    const loadData = async () => {
-      try {
-        setLoading(true);
-        setError("");
+  const mockInventories = [
+    { id: 1, name: "Server Room", type: "Computing" },
+    { id: 2, name: "IT Equipment", type: "Computing" },
+    { id: 3, name: "Office Supplies", type: "Supplies" },
+    { id: 4, name: "Machinery", type: "Equipment" },
+    { id: 5, name: "HR Equipment", type: "Equipment" },
+  ];
 
-        const [departmentsResponse, usersResponse, inventoriesResponse] = await Promise.all([
-          fetch(`${API_BASE_URL}/api/departments`),
-          fetch(`${API_BASE_URL}/api/users`),
-          fetch(`${API_BASE_URL}/api/inventories`),
-        ]);
+  const columns = [
+    {
+      field: "id",
+      label: "No",
+      sortable: false,
+      render: (_value, row) => filteredDepartments.length - filteredDepartments.findIndex((dept) => dept.id === row.id),
+    },
+    { field: "name", label: "Department Name", sortable: true },
+    { field: "code", label: "Code", sortable: true },
+    { field: "head", label: "Department Head", sortable: true },
+    {
+      field: "status",
+      label: "Status",
+      render: (value) => (
+        <Badge
+          label={value.charAt(0).toUpperCase() + value.slice(1)}
+          variant={value === "active" ? "success" : "warning"}
+          size="sm"
+        />
+      ),
+    },
+    { field: "createdDate", label: "Created Date" },
+  ];
 
-        const [departmentsData, usersData, inventoriesData] = await Promise.all([
-          departmentsResponse.json(),
-          usersResponse.json(),
-          inventoriesResponse.json(),
-        ]);
+  const actions = [
+    { label: "Edit", icon: "edit", onClick: (row) => handleEdit(row) },
+    { label: "Assign", icon: "person_add", onClick: (row) => handleAssignClick(row) },
+    { label: "Deactivate", icon: "block", onClick: (row) => console.log("Deactivate", row) },
+    { label: "Delete", icon: "delete", onClick: (row) => console.log("Delete", row) },
+  ];
 
-        if (!isMounted) return;
-
-        if (!departmentsResponse.ok || !departmentsData.success) {
-          throw new Error(departmentsData.error || departmentsData.message || "Failed to load departments.");
-        }
-
-        if (!usersResponse.ok || !usersData.success) {
-          throw new Error(usersData.error || usersData.message || "Failed to load users.");
-        }
-
-        if (!inventoriesResponse.ok || !inventoriesData.success) {
-          throw new Error(inventoriesData.error || inventoriesData.message || "Failed to load inventories.");
-        }
-
-        setDepartments(departmentsData.departments || []);
-        setUsers(usersData.users || []);
-        setInventories(inventoriesData.inventories || []);
-
-        // Check if we got empty data - if so, use fallback mock data
-        if ((!departmentsData.departments || departmentsData.departments.length === 0) &&
-            (!usersData.users || usersData.users.length === 0) &&
-            (!inventoriesData.inventories || inventoriesData.inventories.length === 0)) {
-          console.log("API returned empty data, using fallback mock data");
-          setDepartments([
-            {
-              id: 1,
-              name: "Information Technology",
-              code: "IT",
-              head: "CRJ Amalraj",
-              status: "active",
-              createdDate: "2026-01-15",
-              userCount: 5,
-              inventoryCount: 2,
-            },
-            {
-              id: 2,
-              name: "Dean's Office",
-              code: "DO",
-              head: "Yashodara Karunarathne",
-              status: "active",
-              createdDate: "2026-01-20",
-              userCount: 3,
-              inventoryCount: 1,
-            },
-            {
-              id: 3,
-              name: "Computational Mathematics",
-              code: "CM",
-              head: "YTS Piyatilake",
-              status: "inactive",
-              createdDate: "2026-02-01",
-              userCount: 2,
-              inventoryCount: 0,
-            },
-          ]);
-          setUsers([
-            { id: 1, name: "Alice Johnson", email: "alice@example.com", role: "admin", department: "Information Technology" },
-            { id: 2, name: "Bob Smith", email: "bob@example.com", role: "inventory officer", department: "Information Technology" },
-            { id: 3, name: "Carol White", email: "carol@example.com", role: "admin", department: "Dean's Office" },
-            { id: 4, name: "David Brown", email: "david@example.com", role: "staff", department: "Dean's Office" },
-            { id: 5, name: "Emma Davis", email: "emma@example.com", role: "admin", department: "Computational Mathematics" },
-          ]);
-          setInventories([
-            { id: 1, name: "Server Room", department: "Information Technology" },
-            { id: 2, name: "IT Equipment", department: "Information Technology" },
-            { id: 3, name: "Office Supplies", department: "Dean's Office" },
-          ]);
-        }
-      } catch (error) {
-        if (isMounted) {
-          console.error("Failed to load department data:", error);
-          setError(error.message || "Failed to load data.");
-          // Fallback to mock data for development
-          setDepartments([
-            {
-              id: 1,
-              name: "Information Technology",
-              code: "IT",
-              head: "CRJ Amalraj",
-              status: "active",
-              createdDate: "2026-01-15",
-              userCount: 5,
-              inventoryCount: 2,
-            },
-            {
-              id: 2,
-              name: "Dean's Office",
-              code: "DO",
-              head: "Yashodara Karunarathne",
-              status: "active",
-              createdDate: "2026-01-20",
-              userCount: 3,
-              inventoryCount: 1,
-            },
-            {
-              id: 3,
-              name: "Computational Mathematics",
-              code: "CM",
-              head: "YTS Piyatilake",
-              status: "inactive",
-              createdDate: "2026-02-01",
-              userCount: 2,
-              inventoryCount: 0,
-            },
-          ]);
-          setUsers([
-            { id: 1, name: "Alice Johnson", email: "alice@example.com", role: "admin", department: "Information Technology" },
-            { id: 2, name: "Bob Smith", email: "bob@example.com", role: "inventory officer", department: "Information Technology" },
-            { id: 3, name: "Carol White", email: "carol@example.com", role: "admin", department: "Dean's Office" },
-            { id: 4, name: "David Brown", email: "david@example.com", role: "staff", department: "Dean's Office" },
-            { id: 5, name: "Emma Davis", email: "emma@example.com", role: "admin", department: "Computational Mathematics" },
-          ]);
-          setInventories([
-            { id: 1, name: "Server Room", department: "Information Technology" },
-            { id: 2, name: "IT Equipment", department: "Information Technology" },
-            { id: 3, name: "Office Supplies", department: "Dean's Office" },
-          ]);
-        }
-      } finally {
-        if (isMounted) {
-          setLoading(false);
-        }
-      }
-    };
-
-    loadData();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
-  const filteredDepartments = departments.filter((dept) =>
+  const filteredDepartments = mockDepartments.filter((dept) =>
     dept.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     dept.code.toLowerCase().includes(searchTerm.toLowerCase())
   );
@@ -204,47 +124,6 @@ const DepartmentManagement = () => {
     setIsModalOpen(true);
   };
 
-  const handleAssignClick = (dept) => {
-    setSelectedDept(dept);
-    setAssignModalOpen(true);
-  };
-
-  const columns = [
-    { field: "id", label: "ID", sortable: true },
-    { field: "name", label: "Department Name", sortable: true },
-    { field: "code", label: "Code", sortable: true },
-    { field: "head", label: "Department Head", sortable: true },
-    {
-      field: "status",
-      label: "Status",
-      render: (value) => (
-        <Badge
-          label={value ? value.charAt(0).toUpperCase() + value.slice(1) : "Unknown"}
-          variant={value === "active" ? "success" : "warning"}
-          size="sm"
-        />
-      ),
-    },
-    { field: "userCount", label: "Users", sortable: true },
-    { field: "inventoryCount", label: "Inventories", sortable: true },
-    { field: "createdDate", label: "Created Date", sortable: true },
-  ];
-
-  const actions = [
-    {
-      label: "Edit",
-      icon: "edit",
-      onClick: handleEdit,
-      variant: "secondary",
-    },
-    {
-      label: "Assign",
-      icon: "person_add",
-      onClick: handleAssignClick,
-      variant: "primary",
-    },
-  ];
-
   const handleSubmit = (e) => {
     e.preventDefault();
     if (modalMode === "create") {
@@ -256,6 +135,11 @@ const DepartmentManagement = () => {
     setFormData({ name: "", code: "", head: "", description: "" });
     setModalMode("create");
     setSelectedDeptId(null);
+  };
+
+  const handleAssignClick = (dept) => {
+    setSelectedDept(dept);
+    setAssignModalOpen(true);
   };
 
   const handleViewDepartmentDetails = (department) => {
@@ -313,28 +197,15 @@ const DepartmentManagement = () => {
           icon="search"
         />
 
-        {error && (
-          <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
-            {error}
-          </div>
-        )}
-
         {/* Departments Table */}
         <Card title="All Departments" icon="business">
-          {loading ? (
-            <div className="text-center py-10 text-text-light">
-              <span className="material-symbols-outlined text-5xl mb-2 block">hourglass_empty</span>
-              Loading departments...
-            </div>
-          ) : (
-            <Table
-              columns={columns}
-              data={filteredDepartments}
-              actions={actions}
-              onRowClick={handleViewDepartmentDetails}
-              rowsPerPage={10}
-            />
-          )}
+          <Table
+            columns={columns}
+            data={filteredDepartments}
+            actions={actions}
+            onRowClick={handleViewDepartmentDetails}
+            rowsPerPage={10}
+          />
         </Card>
 
         {/* Department Details Modal */}
@@ -354,8 +225,18 @@ const DepartmentManagement = () => {
                 : "-",
             },
             { label: "Created Date", value: selectedDepartmentDetails?.createdDate },
-            { label: "Assigned Users", value: selectedDepartmentDetails?.userCount || 0 },
-            { label: "Assigned Inventories", value: selectedDepartmentDetails?.inventoryCount || 0 },
+            { label: "Assigned Users", value: selectedDepartmentDetails?.users?.filter(Boolean).length || 0 },
+            { label: "Assigned Inventories", value: selectedDepartmentDetails?.inventories?.length || 0 },
+            {
+              label: "Users",
+              value: selectedDepartmentDetails?.users?.filter(Boolean).join(", "),
+              fullWidth: true,
+            },
+            {
+              label: "Inventories",
+              value: selectedDepartmentDetails?.inventories?.join(", "),
+              fullWidth: true,
+            },
           ]}
         />
 
@@ -429,11 +310,11 @@ const DepartmentManagement = () => {
                 <div className="space-y-2">
                   <p className="text-sm font-semibold text-text-dark">Select Users to Assign</p>
                   <div className="space-y-2">
-                    {users.map((user) => (
+                    {mockUsers.map((user) => (
                       <label key={user.id} className="flex items-center gap-3 p-2 hover:bg-background-light rounded">
                         <input
                           type="checkbox"
-                          defaultChecked={user.department === selectedDept?.name}
+                          defaultChecked={selectedDept?.users?.includes(user.name)}
                           className="w-4 h-4 accent-primary-600"
                         />
                         <div className="flex-1">
@@ -448,11 +329,11 @@ const DepartmentManagement = () => {
                 <div className="space-y-2">
                   <p className="text-sm font-semibold text-text-dark">Select Inventories to Assign</p>
                   <div className="space-y-2">
-                    {inventories.map((inventory) => (
+                    {mockInventories.map((inventory) => (
                       <label key={inventory.id} className="flex items-center gap-3 p-2 hover:bg-background-light rounded">
                         <input
                           type="checkbox"
-                          defaultChecked={inventory.department === selectedDept?.name}
+                          defaultChecked={selectedDept?.inventories?.includes(inventory.name)}
                           className="w-4 h-4 accent-primary-600"
                         />
                         <div className="flex-1">

@@ -40,7 +40,33 @@ const InventoryManagement = () => {
   const [isSaving, setIsSaving] = useState(false);
 
   // Pending inventory creation requests
-  const [inventoryRequests, setInventoryRequests] = useState([]);
+  const [inventoryRequests, setInventoryRequests] = useState([
+    {
+      id: 201,
+      name: "Laboratory Equipment",
+      department: "Science",
+      requestedBy: "Frank Wilson",
+      requestedDate: "2026-01-24",
+      requestType: INVENTORY_REQUEST_TYPE.ADD_EXISTING,
+      approvalStatus: INVENTORY_REQUEST_STATUS.PENDING_HOD,
+      hodApprovedDate: null,
+      hodApprovedBy: null,
+      reason: "Existing faculty inventory to be added to the system",
+    },
+    {
+      id: 202,
+      name: "Sports Equipment",
+      department: "Physical Education",
+      requestedBy: "Grace Lee",
+      requestedDate: "2026-01-25",
+      requestType: INVENTORY_REQUEST_TYPE.CREATE_NEW,
+      approvalStatus: INVENTORY_REQUEST_STATUS.PENDING_ADMIN,
+      hodApprovedDate: "2026-01-26",
+      hodApprovedBy: "PE Department Head",
+      registrarApprovedDate: "2026-01-27",
+      reason: "Sports facilities expansion",
+    },
+  ]);
 
   useEffect(() => {
     let isMounted = true;
