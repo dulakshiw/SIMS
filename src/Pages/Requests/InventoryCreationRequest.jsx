@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import MainLayout from '../../Components/Layouts/MainLayout'
-import { Card, Button, FormInput, PageHeader } from '../../Components/UI'
+import { Card, Button, FormInput, PageHeader, Select } from '../../Components/UI'
 import { resolveSidebarVariant } from '../../utils/helpers'
 import { INVENTORY_REQUEST_TYPE } from '../../utils/constants'
 
@@ -23,14 +23,16 @@ const InventoryCreationRequest = () => {
   const sidebarVariant = resolveSidebarVariant(location.pathname, role)
   const [currentUser, setCurrentUser] = useState(getStoredUser)
   const [users, setUsers] = useState([])
+  const [departments, setDepartments] = useState([])
   const [requestError, setRequestError] = useState('')
   const [requestMessage, setRequestMessage] = useState('')
   const [optionsError, setOptionsError] = useState('')
   const [isSubmittingRequest, setIsSubmittingRequest] = useState(false)
   
-  // Determine request type from URL parameter or default to ADD_EXISTING
   const requestTypeParam = searchParams.get('type') || 'add'
-  const activeRequestType = requestTypeParam === 'new' ? INVENTORY_REQUEST_TYPE.CREATE_NEW : INVENTORY_REQUEST_TYPE.ADD_EXISTING
+  const [activeRequestType, setActiveRequestType] = useState(
+    requestTypeParam === 'new' ? INVENTORY_REQUEST_TYPE.CREATE_NEW : INVENTORY_REQUEST_TYPE.ADD_EXISTING
+  )
 
   const [formData, setFormData] = useState({
     name: '',
@@ -58,9 +60,19 @@ const InventoryCreationRequest = () => {
       try {
         setOptionsError('')
 
-        const usersResponse = await fetch(`${API_BASE_URL}/api/users`)
+        const [departmentsResponse, usersResponse] = await Promise.all([
+          fetch(`${API_BASE_URL}/api/departments`),
+          fetch(`${API_BASE_URL}/api/users`),
+        ])
 
-        const usersData = await usersResponse.json()
+        const [departmentsData, usersData] = await Promise.all([
+          departmentsResponse.json(),
+          usersResponse.json(),
+        ])
+
+        if (!departmentsResponse.ok || !departmentsData.success) {
+          throw new Error(departmentsData.error || departmentsData.message || 'Failed to load departments.')
+        }
 
         if (!usersResponse.ok || !usersData.success) {
           throw new Error(usersData.error || usersData.message || 'Failed to load users.')
@@ -70,10 +82,12 @@ const InventoryCreationRequest = () => {
           return
         }
 
+        setDepartments(departmentsData.departments || [])
         setUsers(usersData.users || [])
       } catch (error) {
         if (isMounted) {
           setUsers([])
+          setDepartments([])
           setOptionsError(error.message || 'Failed to load account details for inventory request.')
         }
       }
@@ -96,41 +110,77 @@ const InventoryCreationRequest = () => {
     [currentUser.email, currentUser.id, users]
   )
 
-  const accountDepartment = currentUser.department || currentUserRecord?.department || ''
+  const departmentOptions = useMemo(
+    () => departments.map((dept) => ({ value: dept.name, label: dept.name })),
+    [departments]
+  )
+
   const accountHolderName = currentUser.name || currentUserRecord?.name || ''
   const accountInchargeId = Number(currentUser.id || currentUserRecord?.id || 0)
 
-  const departmentHodLookup = useMemo(
-    () =>
-      users.reduce((lookup, user) => {
-        if (user.role === 'head_of_department' && user.department) {
-          lookup[user.department] = { id: user.id, name: user.name }
-        }
+  const selectedDepartmentHod = useMemo(() => {
+    const normalizedDepartment = String(formData.department || '').trim().toLowerCase()
+    if (!normalizedDepartment) return null
 
-        return lookup
-      }, {}),
-    [users]
-  )
+    const usersInDepartment = users.filter(
+      (user) => String(user.department || '').trim().toLowerCase() === normalizedDepartment
+    )
 
-  const assignedHod = departmentHodLookup[accountDepartment]
+    if (usersInDepartment.length === 0) return null
+
+    const normalize = (value) => String(value || '').trim().toLowerCase()
+
+    if (normalizedDepartment === 'information technology') {
+      const itHead = usersInDepartment.find(
+        (user) => normalize(user.designation) === 'head/dept. of it'
+      )
+      if (itHead) return { id: itHead.id, name: itHead.name }
+    }
+
+    if (normalizedDepartment === "dean's office") {
+      const assistantRegistrar = usersInDepartment.find(
+        (user) => normalize(user.designation) === 'assistant registrar'
+      )
+      if (assistantRegistrar) return { id: assistantRegistrar.id, name: assistantRegistrar.name }
+    }
+
+    const roleBasedHod = usersInDepartment.find(
+      (user) => normalize(user.role) === 'head_of_department'
+    )
+    if (roleBasedHod) return { id: roleBasedHod.id, name: roleBasedHod.name }
+
+    return null
+  }, [formData.department, users])
 
   useEffect(() => {
-    const nextDepartment = accountDepartment
-    const nextHod = assignedHod?.name || ''
-
-    if (formData.department !== nextDepartment || formData.Hod !== nextHod) {
-      setFormData((prev) => ({
-        ...prev,
-        department: nextDepartment,
-        Hod: nextHod,
-      }))
-    }
-  }, [accountDepartment, assignedHod?.name, formData.Hod, formData.department])
+    setFormData((prev) => ({
+      ...prev,
+      Hod: selectedDepartmentHod?.name || '',
+    }))
+  }, [selectedDepartmentHod])
 
   const handleInputChange = (e) => {
     const { name, value } = e.target
     setFormData((prev) => ({ ...prev, [name]: value }))
   }
+
+  const requestTypeOptions = [
+    {
+      value: INVENTORY_REQUEST_TYPE.ADD_EXISTING,
+      label: 'Add existing inventory to system',
+      note: 'Add inventory that is already maintained by the faculty. This request is forwarded to the Head of Department for approval and then to admin for activation.',
+    },
+    {
+      value: INVENTORY_REQUEST_TYPE.CREATE_NEW,
+      label: 'Create new Inventory',
+      note: 'Create a new inventory item that is not yet maintained by the faculty. This request is forwarded to the Head of Department for recommendation and then to Registrar for approval before admin activation.',
+    },
+  ]
+
+  const activeRequestTypeOption = requestTypeOptions.find((option) => option.value === activeRequestType)
+  const requestTypeNote = activeRequestTypeOption?.note || ''
+  const accountDepartment = String(formData.department || currentUser.department || '').trim()
+  const assignedHod = selectedDepartmentHod
 
   const handleSubmit = async (e) => {
     e?.preventDefault()
@@ -194,8 +244,8 @@ const InventoryCreationRequest = () => {
       setRequestMessage(
         data.message ||
           (activeRequestType === INVENTORY_REQUEST_TYPE.ADD_EXISTING
-            ? 'Inventory addition request submitted to your Head of Department for approval.'
-            : 'New inventory creation request submitted for approval.')
+            ? 'Inventory addition request submitted to your Head of Department for approval and admin activation.'
+            : 'New inventory creation request submitted for HOD recommendation and registrar approval before admin activation.')
       )
 
       // Reset form after successful submission
@@ -220,24 +270,17 @@ const InventoryCreationRequest = () => {
 
   const requestDescription =
     activeRequestType === INVENTORY_REQUEST_TYPE.ADD_EXISTING
-      ? 'Use this for inventories already used by the faculty. Only HOD approval is required.'
-      : 'Use this for creating a brand new inventory. This request proceeds through HOD, registrar, and admin approval.'
+      ? 'This request is forwarded to the Head of Department for approval and then to admin for activation.'
+      : 'This request is forwarded to the Head of Department for recommendation and then to Registrar for approval before admin activation.'
 
   return (
     <MainLayout variant={sidebarVariant}>
       <PageHeader
         title={requestTitle}
-        subtitle="Submit a new inventory creation request"
+        subtitle="Submit an inventory creation request for your department"
       />
 
       <div className="p-6 space-y-6">
-        {/* Info Card */}
-        <Card>
-        <div className="rounded bg-blue-50 px-4 py-3 text-sm text-red-800 border border-blue-500 font-bold text-center">
-            {requestDescription}
-          </div>
-        </Card>
-
         {/* Error Messages */}
         {requestError && (
           <div className="rounded bg-red-50 px-4 py-3 text-sm text-red-800 border border-red-500 font-bold text-center">
@@ -262,7 +305,25 @@ const InventoryCreationRequest = () => {
         {/* Form Card */}
         <Card title="Inventory Request Details" icon="playlist_add">
           <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Row 1: Name and Location */}
+            {/* Row 1: Request Type and note */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-end">
+              <Select
+                label="Request Type"
+                name="requestType"
+                options={requestTypeOptions.map(({ value, label }) => ({ value, label }))}
+                value={activeRequestType}
+                onChange={(value) => setActiveRequestType(value)}
+                placeholder="Select request type"
+                required
+              />
+              {requestTypeNote && (
+                <div className="rounded bg-yellow-100 px-4 py-3 text-sm text-text-dark border border-red-200 text-justify"> 
+                  {requestTypeNote}
+                </div>
+              )}
+            </div>
+
+            {/* Row 2: Name and Location */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <FormInput
                 label="Inventory Name"
@@ -289,7 +350,6 @@ const InventoryCreationRequest = () => {
                 label="Department"
                 name="department"
                 value={formData.department}
-                onChange={handleInputChange}
                 placeholder="Department"
                 disabled
                 required

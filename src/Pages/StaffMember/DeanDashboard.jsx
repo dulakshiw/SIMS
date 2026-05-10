@@ -13,20 +13,6 @@ const getStoredUser = () => {
   }
 };
 
-const getTimeOfDayGreeting = () => {
-  const hour = new Date().getHours();
-
-  if (hour < 12) {
-    return 'Good morning';
-  }
-
-  if (hour < 18) {
-    return 'Good afternoon';
-  }
-
-  return 'Good evening';
-};
-
 const getLastName = (fullName = 'User') => {
   const nameParts = String(fullName).trim().split(/\s+/).filter(Boolean);
   return nameParts[nameParts.length - 1] || 'User';
@@ -182,7 +168,7 @@ const DeanDashboard = () => {
   return (
     <MainLayout variant="dean">
       <PageHeader
-        title={greeting}
+        title="Dashboard"
         subtitle="Review HOD, registrar, and admin account requests before they move to admin activation."
         actions={
           <Button variant="secondary" icon="refresh" onClick={loadRequests} disabled={loading || actionLoadingId !== null}>

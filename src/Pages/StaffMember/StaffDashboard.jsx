@@ -213,16 +213,7 @@ const StaffDashboard = () => {
                 onClick={() => navigate(`/requests/inventory/staff`)}
                 icon="playlist_add"
               >
-                Add Inventory
-              </Button>
-            )}
-            {canRequestInventoryCreation && (
-              <Button
-                variant="primary"
-                onClick={() => navigate(`/requests/inventory/staff`)}
-                icon="playlist_add"
-              >
-                New Inventory Creation
+                Add New Inventory
               </Button>
             )}
           </div>

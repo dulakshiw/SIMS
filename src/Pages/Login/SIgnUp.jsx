@@ -14,12 +14,64 @@ const SignUp = () => {
     password: "",
     confirmPassword: "",
     department: "Information Technology",
-    designation: ""
+    designation: "Lecturer"
   });
 
   const [passwordStrength, setPasswordStrength] = useState(0);
   const [otherDesignation, setOtherDesignation] = useState("");
+  const [designationOptions, setDesignationOptions] = useState([
+    { value: "Lecturer", label: "Lecturer" },
+    { value: "Instructor", label: "Instructor" },
+    { value: "Technical Officer", label: "Technical Officer" },
+    { value: "Management Assistant", label: "Management Assistant" },
+    { value: "Laboratory Attendant", label: "Laboratory Attendant" },
+    { value: "Works Aide", label: "Works Aide" },
+    { value: "Other", label: "Other" },
+  ]);
   const [loading, setLoading] = useState(false);
+
+  React.useEffect(() => {
+    let isMounted = true;
+
+    const loadDesignations = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/designations`);
+        const data = await response.json();
+
+        if (!isMounted || !response.ok || !data.success || !Array.isArray(data.designations)) {
+          return;
+        }
+
+        const designationMap = new Map();
+        [
+          { value: "Lecturer", label: "Lecturer" },
+          { value: "Instructor", label: "Instructor" },
+          { value: "Technical Officer", label: "Technical Officer" },
+          { value: "Management Assistant", label: "Management Assistant" },
+          { value: "Laboratory Attendant", label: "Laboratory Attendant" },
+          { value: "Works Aide", label: "Works Aide" },
+        ].forEach((option) => designationMap.set(option.value, option));
+
+        data.designations.forEach((designation) => {
+          const name = String(designation.name || designation).trim();
+          if (name && name.toLowerCase() !== "other") {
+            designationMap.set(name, { value: name, label: name });
+          }
+        });
+
+        designationMap.set("Other", { value: "Other", label: "Other" });
+        setDesignationOptions([...designationMap.values()]);
+      } catch (error) {
+        console.error("Failed to load designations:", error);
+      }
+    };
+
+    loadDesignations();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -216,16 +268,15 @@ const SignUp = () => {
                   name="designation"
                   value={formData.designation}
                   onChange={handleChange}
+                  required
                   className="w-full px-4 py-2.5 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                   style={{ backgroundColor: '#F2F0F0' }}
                 >
-                  <option value="Lecturer">Lecturer</option>
-                  <option value="Instructor">Instructor</option>
-                  <option value="Technical Officer">Technical Officer</option>
-                  <option value="Management Assistant">Management Assistant</option>  
-                  <option value="Laboratory Attendant">Laboratory Attendant</option>
-                  <option value="Works Aide">Works Aide</option>
-                  <option value="Other">Other</option>
+                  {designationOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
                 </select>
               </div>
 

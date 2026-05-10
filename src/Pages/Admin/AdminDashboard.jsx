@@ -92,7 +92,7 @@ const AdminDashboard = () => {
   return (
     <AdminLayout>
       <PageHeader
-        title={greeting}
+        title="Dashboard"
         subtitle="System overview and management"
       />
       <div className="p-6 space-y-6">

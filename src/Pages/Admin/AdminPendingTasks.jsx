@@ -246,18 +246,17 @@ const AdminPendingTasks = () => {
     { field: "name", label: "Name", sortable: true },
     { field: "email", label: "Email" },
     {
-      field: "requestedRole",
-      label: "Requested Role",
+      field: "designation",
+      label: "Designation",
       render: (value) => (
         <Badge
-          label={ROLE_HIERARCHY[value]?.label || value.toUpperCase()}
+          label={value ? value : "N/A"}
           variant="info"
           size="sm"
         />
       ),
     },
     { field: "department", label: "Department", sortable: true },
-    { field: "requestedByDeptHead", label: "Recommended By" },
     { field: "requestedDate", label: "Date" },
     {
       field: "approvalStatus",

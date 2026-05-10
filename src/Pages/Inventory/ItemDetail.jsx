@@ -92,8 +92,22 @@ const ItemDetail = () => {
                   <h3 className="text-lg font-semibold">Confidential Details (Inventory Officer only)</h3>
                   <div><strong>QR Code:</strong> {item.QRCode || item.qrcode || '-'}</div>
                   <div><strong>QR Code 2:</strong> {item.QRCode2 || item.qrcode2 || '-'}</div>
-                  <div><strong>GIN File:</strong> {item.ginfile || '-'}</div>
-                  <div><strong>Image:</strong> {item.itemImage || '-'}</div>
+                  <div>
+                    <strong>GIN File:</strong>{' '}
+                    {item.ginfile ? (
+                      <a href={item.ginfile} target="_blank" rel="noreferrer" className="text-primary-700 underline">
+                        View GIN PDF
+                      </a>
+                    ) : '-'}
+                  </div>
+                  <div>
+                    <strong>Image:</strong>{' '}
+                    {item.itemImage ? (
+                      <a href={item.itemImage} target="_blank" rel="noreferrer" className="text-primary-700 underline">
+                        View attached file
+                      </a>
+                    ) : '-'}
+                  </div>
                 </div>
               </>
             )}

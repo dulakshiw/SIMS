@@ -37,7 +37,7 @@ const DepartmentManagement = () => {
       id: 2,
       name: "Dean's Office",
       code: "DO",
-      head: "Yashodara Karunarathne",
+      head: "Assistant Registrar/FIT",
       status: "active",
       createdDate: "2026-01-20",
       users: ["Carol White", "David Brown"],

@@ -91,11 +91,11 @@ const HodDashboard = () => {
     { field: 'name', label: 'Name', sortable: true },
     { field: 'email', label: 'Email', sortable: true },
     {
-      field: 'requestedRole',
-      label: 'Requested Role',
+      field: 'designation',
+      label: 'Designation',
       render: (value) => (
         <Badge
-          label={ROLE_HIERARCHY[value]?.label || value}
+          label={value || 'N/A'}
           variant="info"
           size="sm"
         />

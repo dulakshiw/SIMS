@@ -68,6 +68,9 @@ const AddNewItem = () => {
     location: "",
     remarks: ""
   });
+  const [ginExistingFile, setGinExistingFile] = useState("");
+  const [ginStatus, setGinStatus] = useState("");
+  const [ginCheckLoading, setGinCheckLoading] = useState(false);
 
   useEffect(() => {
     if (!isInchargeMode || !currentUser.id) {
@@ -110,7 +113,7 @@ const AddNewItem = () => {
     return () => {
       isMounted = false;
     };
-  }, [API_BASE_URL, currentUser.id, isInchargeMode, selectedInventoryId]);
+  }, [currentUser.id, isInchargeMode, selectedInventoryId]);
 
   useEffect(() => {
     let isMounted = true;
@@ -187,23 +190,100 @@ const AddNewItem = () => {
 
   const handleImageChange = (e) => {
     const file = e.target.files[0];
-    if (file) {
-      setItemData({
-        ...itemData,
-        itemImage: file
-      });
+    if (!file) {
+      return;
     }
+
+    const validImage = file.type === "application/pdf" || file.type.startsWith("image/");
+    if (!validImage) {
+      alert("Item image must be a PDF or image file.");
+      e.target.value = "";
+      return;
+    }
+
+    setItemData({
+      ...itemData,
+      itemImage: file
+    });
   };
 
   const handleGinFileChange = (e) => {
     const file = e.target.files[0];
+    if (ginExistingFile) {
+      alert("GIN already uploaded. No need to upload the PDF again.");
+      e.target.value = "";
+      return;
+    }
+
     if (file) {
+      if (file.type !== "application/pdf") {
+        alert("Only PDF files are allowed for GIN PDF uploads.");
+        e.target.value = "";
+        return;
+      }
       setItemData({
         ...itemData,
         ginfile: file
       });
     }
   };
+
+  const checkExistingGinFile = async (ginNoValue, signal) => {
+    if (!ginNoValue) {
+      setGinExistingFile("");
+      setGinStatus("");
+      setGinCheckLoading(false);
+      return;
+    }
+
+    setGinCheckLoading(true);
+    setGinStatus("");
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/items?ginNo=${encodeURIComponent(ginNoValue)}`, {
+        signal,
+      });
+      const data = await res.json();
+      if (res.ok && Array.isArray(data.items) && data.items.length > 0) {
+        const existing = data.items.find((item) => item.ginfile && item.ginfile.trim() !== "");
+        if (existing) {
+          setGinExistingFile(existing.ginfile);
+          setGinStatus("GIN already uploaded. This item will link to the existing GIN PDF.");
+          setItemData((prev) => ({ ...prev, ginfile: null }));
+          return;
+        }
+      }
+      setGinExistingFile("");
+      setGinStatus("");
+    } catch (err) {
+      if (err.name !== "AbortError") {
+        console.error(err);
+      }
+      setGinExistingFile("");
+      setGinStatus("");
+    } finally {
+      setGinCheckLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    const ginNoValue = String(itemData.ginNo || "").trim();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => {
+      if (ginNoValue) {
+        checkExistingGinFile(ginNoValue, controller.signal);
+      } else {
+        setGinExistingFile("");
+        setGinStatus("");
+        setGinCheckLoading(false);
+      }
+    }, 400);
+
+    return () => {
+      clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [itemData.ginNo]);
 
   // Generate QR value based on itemCode + serialNo + itemName (if any)
   const computeQRCodeValue = (code, serial, name) => {
@@ -572,11 +652,17 @@ const AddNewItem = () => {
         form.append('funding', !normalizedFunding && itemData.fundingOther ? itemData.fundingOther : normalizedFunding);
         form.append('receivedfrom', itemData.receivedfrom || '');
         form.append('warranty', !normalizedWarranty && itemData.warrantyOther ? itemData.warrantyOther : normalizedWarranty);
-        form.append('location', itemData.location || '');
         form.append('remarks', itemData.remarks || '');
 
-        if (itemData.itemImage) form.append('itemImage', itemData.itemImage);
-        if (itemData.ginfile) form.append('ginfile', itemData.ginfile);
+        if (itemData.itemImage) {
+          form.append('itemImage', itemData.itemImage);
+        }
+
+        if (ginExistingFile) {
+          form.append('ginfile', ginExistingFile);
+        } else if (itemData.ginfile) {
+          form.append('ginfile', itemData.ginfile);
+        }
 
         const res = await fetch(`${API_BASE_URL}/api/items`, {
           method: 'POST',
@@ -622,6 +708,9 @@ const AddNewItem = () => {
       location: "",
       remarks: ""
     });
+    setGinExistingFile("");
+    setGinStatus("");
+    setGinCheckLoading(false);
     setLocationAssignmentType("person");
     setSelectedLocationUserId("");
     setSelectedCommonPlace("");
@@ -901,15 +990,17 @@ const AddNewItem = () => {
 
                 {/* Item Image */}
                 <div className="space-y-2">
-                  <label className="block text-sm font-semibold text-text-dark">Item Image</label>
+                  <label className="block text-sm font-semibold text-text-dark">Item Image </label>
+                  
                   <input
                     type="file"
                     name="itemImage"
                     onChange={handleImageChange}
-                    accept="image/*"
+                    accept=".pdf,image/*"
                     style={{ backgroundColor: '#F2F0F0' }}
                     className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                   />
+                  
                   {itemData.itemImage && (
                     <p className="text-sm text-success mt-2">✓ {itemData.itemImage.name}</p>
                   )}
@@ -982,7 +1073,7 @@ const AddNewItem = () => {
                 <div className="space-y-2">
                   <label className="block text-sm font-semibold text-text-dark">GIN No</label>
                   <input
-                    type="number"
+                    type="text"
                     name="ginNo"
                     value={itemData.ginNo}
                     onChange={handleChange}
@@ -1000,9 +1091,31 @@ const AddNewItem = () => {
                     name="ginfile"
                     onChange={handleGinFileChange}
                     accept=".pdf"
+                    disabled={!!ginExistingFile}
                     style={{ backgroundColor: '#F2F0F0' }}
                     className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                   />
+                  {ginCheckLoading && (
+                    <p className="text-sm text-text-light mt-2">Checking for existing GIN PDF…</p>
+                  )}
+                  {ginStatus && (
+                    <p className="text-sm text-primary-700 mt-2">{ginStatus}</p>
+                  )}
+                  {ginExistingFile && (
+                    <p className="text-sm mt-2">
+                      <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-1 text-green-800">
+                        Existing GIN PDF linked
+                      </span>
+                      <a
+                        href={ginExistingFile}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="ml-2 text-primary-700 underline"
+                      >
+                        View linked PDF
+                      </a>
+                    </p>
+                  )}
                   {itemData.ginfile && (
                     <p className="text-sm text-success mt-2">✓ {itemData.ginfile.name}</p>
                   )}

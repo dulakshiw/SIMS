@@ -76,7 +76,36 @@ const storage = multer.diskStorage({
   },
 });
 
-const upload = multer({ storage, limits: { fileSize: 10 * 1024 * 1024 } });
+const upload = multer({
+  storage,
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowedItemImageTypes = [
+      "application/pdf",
+      "image/png",
+      "image/jpeg",
+      "image/jpg",
+      "image/gif",
+      "image/webp",
+    ];
+
+    if (file.fieldname === "itemImage") {
+      if (allowedItemImageTypes.includes(file.mimetype) || file.mimetype.startsWith("image/")) {
+        return cb(null, true);
+      }
+      return cb(new Error("Item Image must be a PDF or image file."));
+    }
+
+    if (file.fieldname === "ginfile") {
+      if (file.mimetype === "application/pdf") {
+        return cb(null, true);
+      }
+      return cb(new Error("GIN PDF must be a PDF file."));
+    }
+
+    cb(null, false);
+  },
+});
 
 const itemColumns = [
   "inventory_id",
@@ -169,19 +198,46 @@ const createInventoryItemsTable = async () => {
   );
 };
 
-const ensureInventoryItemsInventoryColumn = async () => {
+const ensureInventoryItemsColumns = async () => {
   const [tableRows] = await pool.query("SHOW TABLES");
   const tableNames = new Set(tableRows.map((row) => Object.values(row)[0]));
 
   if (!tableNames.has(DB_ITEMS_TABLE)) {
-    return new Set();
+    await createInventoryItemsTable();
   }
 
   const inventoryItemColumns = await getTableColumns(DB_ITEMS_TABLE);
+  const expectedColumns = {
+    inventory_id: "INT NULL",
+    itemName: "VARCHAR(255) DEFAULT ''",
+    itemCode: "VARCHAR(255) DEFAULT ''",
+    serialNo: "VARCHAR(255) DEFAULT ''",
+    serialNo2: "VARCHAR(255) DEFAULT ''",
+    model: "VARCHAR(255) DEFAULT ''",
+    QRCode: "VARCHAR(255) DEFAULT ''",
+    QRCode2: "VARCHAR(255) DEFAULT ''",
+    pageno: "VARCHAR(100) DEFAULT ''",
+    itemImage: "VARCHAR(255) DEFAULT ''",
+    value: "DECIMAL(12, 2) NULL",
+    purchaseDate: "DATE NULL",
+    ginNo: "VARCHAR(255) DEFAULT ''",
+    ginfile: "VARCHAR(255) DEFAULT ''",
+    poNo: "VARCHAR(255) DEFAULT ''",
+    supplier: "VARCHAR(255) DEFAULT ''",
+    funding: "VARCHAR(255) DEFAULT ''",
+    receivedfrom: "VARCHAR(255) DEFAULT ''",
+    warranty: "VARCHAR(255) DEFAULT ''",
+    location: "VARCHAR(255) DEFAULT ''",
+    remarks: "TEXT",
+    qrcodeUrl: "TEXT",
+    qrcode2Url: "TEXT",
+  };
 
-  if (!inventoryItemColumns.has("inventory_id")) {
-    await pool.query(`ALTER TABLE ${DB_ITEMS_TABLE} ADD COLUMN inventory_id INT NULL AFTER id`);
-    inventoryItemColumns.add("inventory_id");
+  for (const [column, definition] of Object.entries(expectedColumns)) {
+    if (!inventoryItemColumns.has(column)) {
+      await pool.query(`ALTER TABLE ${DB_ITEMS_TABLE} ADD COLUMN ${column} ${definition}`);
+      inventoryItemColumns.add(column);
+    }
   }
 
   return inventoryItemColumns;
@@ -220,6 +276,23 @@ const createAccountRequestsTable = async () => {
   );
 };
 
+const ensureAccountRequestsColumns = async () => {
+  try {
+    // Check if dept_head_approved_by_id column exists
+    const [columns] = await pool.query(
+      "SHOW COLUMNS FROM account_requests LIKE 'dept_head_approved_by_id'"
+    );
+    if (columns.length === 0) {
+      await pool.query(
+        "ALTER TABLE account_requests ADD COLUMN dept_head_approved_by_id INT NULL"
+      );
+      console.log("Added dept_head_approved_by_id column to account_requests table");
+    }
+  } catch (error) {
+    console.error("Error ensuring account_requests columns:", error.message);
+  }
+};
+
 const createInventoryCreationRequestsTable = async () => {
   await pool.query(
     `
@@ -234,7 +307,7 @@ const createInventoryCreationRequestsTable = async () => {
         hod_user_id INT NULL,
         requested_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         reason TEXT,
-        approval_status VARCHAR(50) DEFAULT 'pending_hod',
+        approval_status VARCHAR(50) DEFAULT 'pending_staff',
         hod_approved_date TIMESTAMP NULL,
         hod_approved_by_id INT NULL,
         registrar_approved_date TIMESTAMP NULL,
@@ -439,6 +512,22 @@ const getDesignationQueryParts = (schema, userAlias = "u", designationAlias = "d
   };
 };
 
+const getDesignationIdColumn = (schema) =>
+  schema.designationColumns.has("id")
+    ? "id"
+    : schema.designationColumns.has("designation_id")
+      ? "designation_id"
+      : null;
+
+const getDesignationNameColumn = (schema) =>
+  schema.designationColumns.has("name")
+    ? "name"
+    : schema.designationColumns.has("designation_name")
+      ? "designation_name"
+      : schema.designationColumns.has("designation")
+        ? "designation"
+        : null;
+
 const resolveDesignationId = async (schema, designationValue) => {
   const normalizedDesignation = String(designationValue ?? "").trim();
 
@@ -446,19 +535,8 @@ const resolveDesignationId = async (schema, designationValue) => {
     return null;
   }
 
-  const designationIdColumn = schema.designationColumns.has("id")
-    ? "id"
-    : schema.designationColumns.has("designation_id")
-      ? "designation_id"
-      : null;
-
-  const designationNameColumn = schema.designationColumns.has("name")
-    ? "name"
-    : schema.designationColumns.has("designation_name")
-      ? "designation_name"
-      : schema.designationColumns.has("designation")
-        ? "designation"
-        : null;
+  const designationIdColumn = getDesignationIdColumn(schema);
+  const designationNameColumn = getDesignationNameColumn(schema);
 
   if (!designationIdColumn || !designationNameColumn) {
     return null;
@@ -469,7 +547,25 @@ const resolveDesignationId = async (schema, designationValue) => {
     [normalizedDesignation.toLowerCase()]
   );
 
-  return designationRows[0]?.id ?? null;
+  if (designationRows[0]?.id) {
+    return designationRows[0].id;
+  }
+
+  const [insertResult] = await pool.execute(
+    `INSERT INTO ${schema.designationTableName} (${designationNameColumn}) VALUES (?)`,
+    [normalizedDesignation]
+  );
+
+  if (insertResult?.insertId) {
+    return insertResult.insertId;
+  }
+
+  const [newDesignationRows] = await pool.execute(
+    `SELECT ${designationIdColumn} AS id FROM ${schema.designationTableName} WHERE LOWER(${designationNameColumn}) = ? LIMIT 1`,
+    [normalizedDesignation.toLowerCase()]
+  );
+
+  return newDesignationRows[0]?.id ?? null;
 };
 
 const normalizeRoleForStorage = (roleValue) => normalizeUserRole(roleValue);
@@ -742,6 +838,30 @@ const ensureInventoryCreationRequestsTable = async () => {
     const afterClause = inventoryRequestColumns.has("id") ? "AFTER id" : "";
     await pool.query(`ALTER TABLE inventory_creation_requests ADD COLUMN request_type VARCHAR(50) DEFAULT 'new_inventory_creation' ${afterClause}`);
     inventoryRequestColumns.add("request_type");
+  }
+
+  if (!inventoryRequestColumns.has("name")) {
+    const afterClause = inventoryRequestColumns.has("request_type") ? "AFTER request_type" : "";
+    await pool.query(`ALTER TABLE inventory_creation_requests ADD COLUMN name VARCHAR(255) NULL ${afterClause}`);
+    inventoryRequestColumns.add("name");
+  }
+
+  if (!inventoryRequestColumns.has("department_id")) {
+    const afterClause = inventoryRequestColumns.has("name") ? "AFTER name" : "";
+    await pool.query(`ALTER TABLE inventory_creation_requests ADD COLUMN department_id INT NULL ${afterClause}`);
+    inventoryRequestColumns.add("department_id");
+  }
+
+  if (!inventoryRequestColumns.has("requested_by_id")) {
+    const afterClause = inventoryRequestColumns.has("department_id") ? "AFTER department_id" : "";
+    await pool.query(`ALTER TABLE inventory_creation_requests ADD COLUMN requested_by_id INT NULL ${afterClause}`);
+    inventoryRequestColumns.add("requested_by_id");
+  }
+
+  if (!inventoryRequestColumns.has("approval_status")) {
+    const afterClause = inventoryRequestColumns.has("reason") ? "AFTER reason" : inventoryRequestColumns.has("requested_date") ? "AFTER requested_date" : inventoryRequestColumns.has("requested_by_id") ? "AFTER requested_by_id" : "";
+    await pool.query(`ALTER TABLE inventory_creation_requests ADD COLUMN approval_status VARCHAR(50) DEFAULT 'pending_staff' ${afterClause}`);
+    inventoryRequestColumns.add("approval_status");
   }
 
   if (!inventoryRequestColumns.has("location")) {
@@ -1169,6 +1289,9 @@ app.get(
     const userJoin = accountRequestColumns.has("user_id")
       ? `LEFT JOIN users u ON u.${schema.userColumns.has("id") ? "id" : "user_id"} = ar.user_id`
       : "LEFT JOIN users u ON LOWER(u.email) = LOWER(ar.email)";
+    const deptHeadJoin = accountRequestColumns.has("dept_head_approved_by_id")
+      ? `LEFT JOIN users dh ON dh.${schema.userColumns.has("id") ? "id" : "user_id"} = ar.dept_head_approved_by_id`
+      : "";
     const createdDateColumn = accountRequestColumns.has("created_date") ? "ar.created_date" : "ar.requested_date";
     const requestTypeCondition = accountRequestColumns.has("request_type")
       ? "LOWER(COALESCE(ar.request_type, 'account_creation')) = ?"
@@ -1204,12 +1327,14 @@ app.get(
           ${roleSelection},
           ${departmentNameColumn} AS department_name,
           ${designationSelection},
-          u.status
+          u.status,
+          ${accountRequestColumns.has("dept_head_approved_by_id") ? `dh.${schema.userColumns.has("name") ? "name" : "full_name"}` : "NULL"} AS dept_head_approver_name
         FROM account_requests ar
         ${userJoin}
         ${roleJoin}
         ${departmentJoin}
         ${designationJoin}
+        ${deptHeadJoin}
         WHERE ${whereClauses.join(" AND ")}
         ORDER BY ${createdDateColumn} DESC, ar.id DESC
       `,
@@ -1231,7 +1356,7 @@ app.get(
         officeExtNo: row.requested_off_ext || "",
         approvalStatus: String(row.approval_status || "pending_dept_head").toLowerCase(),
         requestedDate: row.requested_date ? new Date(row.requested_date).toISOString().split("T")[0] : "",
-        requestedByDeptHead: "-",
+        requestedByDeptHead: row.dept_head_approver_name || "-",
         userStatus: String(row.status || "inactive").toLowerCase(),
       })),
     });
@@ -1710,9 +1835,18 @@ app.get(
       return res.json({ success: true, departments: [] });
     }
 
+    const departmentIdColumn = schema.departmentColumns.has("id") ? "id" : "department_id";
+    const departmentNameColumn = schema.departmentColumns.has("name") ? "name" : "department_name";
     const departmentCodeColumn = schema.departmentColumns.has("code") ? "code" : null;
     const departmentHeadIdColumn = schema.departmentColumns.has("head_id") ? "head_id" : null;
+    const departmentStatusColumn = schema.departmentColumns.has("status") ? "status" : null;
     const departmentCreatedDateColumn = schema.departmentColumns.has("created_date") ? "created_date" : null;
+    const userIdColumn = schema.userColumns.has("id") ? "id" : "user_id";
+    const userNameColumn = schema.userColumns.has("name") ? "name" : "full_name";
+
+    const headJoinClause = departmentHeadIdColumn
+      ? `LEFT JOIN users u ON u.${userIdColumn} = d.${departmentHeadIdColumn}`
+      : "LEFT JOIN users u ON 1 = 0";
 
     const [rows] = await pool.execute(
       `
@@ -1723,9 +1857,9 @@ app.get(
           ${departmentHeadIdColumn ? `d.${departmentHeadIdColumn}` : "NULL"} AS head_id,
           ${departmentStatusColumn ? `d.${departmentStatusColumn}` : "NULL"} AS status,
           ${departmentCreatedDateColumn ? `d.${departmentCreatedDateColumn}` : "NULL"} AS created_date,
-          u.name AS head_name
+          u.${userNameColumn} AS head_name
         FROM departments d
-        LEFT JOIN users u ON u.id = d.${departmentHeadIdColumn}
+        ${headJoinClause}
         ORDER BY d.${departmentNameColumn} ASC
       `
     );
@@ -1744,6 +1878,35 @@ app.get(
       }));
 
     return res.json({ success: true, departments });
+  })
+);
+
+app.get(
+  "/api/designations",
+  withDatabase(async (_req, res) => {
+    const schema = await getAuthSchema();
+
+    if (!schema.hasDesignationTable) {
+      return res.json({ success: true, designations: [] });
+    }
+
+    const designationIdColumn = getDesignationIdColumn(schema);
+    const designationNameColumn = getDesignationNameColumn(schema);
+
+    if (!designationIdColumn || !designationNameColumn) {
+      return res.json({ success: true, designations: [] });
+    }
+
+    const [rows] = await pool.execute(
+      `SELECT ${designationIdColumn} AS id, ${designationNameColumn} AS name FROM ${schema.designationTableName} ORDER BY ${designationNameColumn} ASC`
+    );
+
+    const designations = rows.map((row) => ({
+      id: row.id,
+      name: row.name || "",
+    }));
+
+    return res.json({ success: true, designations });
   })
 );
 
@@ -2527,7 +2690,7 @@ app.post(
     { name: "ginfile", maxCount: 1 },
   ]),
   withDatabase(async (req, res) => {
-    await ensureInventoryItemsInventoryColumn();
+    await ensureInventoryItemsColumns();
 
     // Merge text fields from req.body
     const payload = { ...req.body };
@@ -2564,7 +2727,7 @@ app.post(
 app.post(
   "/api/items/bulk",
   withDatabase(async (req, res) => {
-    await ensureInventoryItemsInventoryColumn();
+    await ensureInventoryItemsColumns();
     if (!Array.isArray(req.body)) {
       return res.status(400).json({ success: false, error: "Expected an array of items" });
     }
@@ -2602,7 +2765,7 @@ app.post(
   "/api/items/bulk-csv",
   upload.single("file"),
   withDatabase(async (req, res) => {
-    await ensureInventoryItemsInventoryColumn();
+    await ensureInventoryItemsColumns();
 
     if (!req.file) {
       return res.status(400).json({ success: false, error: "CSV file is required in field 'file'" });
@@ -2643,13 +2806,25 @@ app.post(
 app.get(
   "/api/items",
   withDatabase(async (req, res) => {
-    const inventoryItemColumns = await ensureInventoryItemsInventoryColumn();
-    const inventoryId = Number(req.query?.inventoryId ?? 0);
+    const inventoryItemColumns = await ensureInventoryItemsColumns();
+      const inventoryId = Number(req.query?.inventoryId ?? 0);
+    const ginNo = String(req.query?.ginNo ?? "").trim();
     const hasInventoryId = inventoryItemColumns.has("inventory_id");
-    const whereClause = Number.isInteger(inventoryId) && inventoryId > 0 && hasInventoryId
-      ? "WHERE inventory_id = ?"
-      : "";
-    const params = whereClause ? [inventoryId] : [];
+
+    const whereClauses = [];
+    const params = [];
+
+    if (ginNo) {
+      whereClauses.push("ginNo = ?");
+      params.push(ginNo);
+    }
+
+    if (Number.isInteger(inventoryId) && inventoryId > 0 && hasInventoryId) {
+      whereClauses.push("inventory_id = ?");
+      params.push(inventoryId);
+    }
+
+    const whereClause = whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : "";
 
     const [rows] = await pool.execute(
       `SELECT * FROM ${DB_ITEMS_TABLE} ${whereClause} ORDER BY updated_at DESC, created_at DESC, id DESC`,
@@ -2663,7 +2838,7 @@ app.get(
 app.get(
   "/api/items/:id",
   withDatabase(async (req, res) => {
-    await ensureInventoryItemsInventoryColumn();
+    await ensureInventoryItemsColumns();
     const itemId = Number(req.params.id);
 
     if (!Number.isInteger(itemId) || itemId <= 0) {
@@ -3010,7 +3185,7 @@ app.post(
     }
 
     const insertColumns = ["name", "department_id", "requested_by_id", "approval_status"];
-    const insertValues = [name, departmentId, requestedById, "pending_hod"];
+    const insertValues = [name, departmentId, requestedById, "pending_staff"];
 
     if (inventoryRequestColumns.has("request_type")) {
       insertColumns.push("request_type");
@@ -3062,7 +3237,8 @@ const startServer = async () => {
   try {
     await pool.query("SELECT 1");
     await ensureInventoriesLocationColumn();
-    await ensureInventoryItemsInventoryColumn();
+    await ensureInventoryItemsColumns();
+    await ensureAccountRequestsColumns();
     if (AUTO_CREATE_TABLES) {
       await createAccountRequestsTable();
       await createInventoryCreationRequestsTable();

@@ -9,7 +9,6 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000
 const CreateUser = () => {
   const navigate = useNavigate()
   const location = useLocation()
-  const singletonRoles = ['head_of_department', 'dean', 'registrar']
   const [otherDesignation, setOtherDesignation] = useState('')
   const [passwordStrength, setPasswordStrength] = useState(0)
   const [formData, setFormData] = useState({
@@ -17,7 +16,6 @@ const CreateUser = () => {
     email: '',
     mobileNo: '',
     officeExtNo: '',
-    role: 'staff',
     department: '',
     designation: '',
     password: '',
@@ -25,6 +23,7 @@ const CreateUser = () => {
   })
   const [users, setUsers] = useState([])
   const [departments, setDepartments] = useState([])
+  const [designations, setDesignations] = useState([])
   const [submitError, setSubmitError] = useState('')
   const [submitMessage, setSubmitMessage] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -34,14 +33,16 @@ const CreateUser = () => {
 
     const loadData = async () => {
       try {
-        const [usersResponse, departmentsResponse] = await Promise.all([
+        const [usersResponse, departmentsResponse, designationsResponse] = await Promise.all([
           fetch(`${API_BASE_URL}/api/users`),
           fetch(`${API_BASE_URL}/api/departments`),
+          fetch(`${API_BASE_URL}/api/designations`),
         ])
 
-        const [usersData, departmentsData] = await Promise.all([
+        const [usersData, departmentsData, designationsData] = await Promise.all([
           usersResponse.json(),
           departmentsResponse.json(),
+          designationsResponse.json(),
         ])
 
         if (!isMounted) return
@@ -50,8 +51,12 @@ const CreateUser = () => {
           setUsers(usersData.users || [])
         }
 
-        if (departmentsResponse.ok && departmentsData.success) {
-          setDepartments(departmentsData.departments || [])
+        if (departmentsResponse.ok) {
+          setDepartments(departmentsData.departments ?? departmentsData ?? [])
+        }
+
+        if (designationsResponse.ok) {
+          setDesignations(designationsData.designations ?? designationsData ?? [])
         }
       } catch (error) {
         console.error('Failed to load data:', error)
@@ -90,51 +95,41 @@ const CreateUser = () => {
     return 'bg-success'
   }
 
-  const hasDeanAccount = users.some((user) => user.role === 'dean')
-  const hasRegistrarAccount = users.some((user) => user.role === 'registrar')
-  const hasDepartmentHodAccount = users.some(
-    (user) => user.role === 'head_of_department' && user.department === formData.department
-  )
-
-  const createRoleOptions = [
-    { value: 'staff', label: ROLE_HIERARCHY.staff.label },
-    ...(!hasDepartmentHodAccount ? [{ value: 'head_of_department', label: ROLE_HIERARCHY.head_of_department.label }] : []),
-    ...(!hasDeanAccount ? [{ value: 'dean', label: ROLE_HIERARCHY.dean.label }] : []),
-    ...(!hasRegistrarAccount ? [{ value: 'registrar', label: ROLE_HIERARCHY.registrar.label }] : []),
-  ]
-
   const departmentOptions = useMemo(
-    () => departments.map((dept) => ({ value: dept.name, label: dept.name })),
+    () => departments
+      .map((dept) => ({
+        value: dept.id ?? dept.name ?? dept.code ?? '',
+        label: dept.name || dept.code || String(dept.id || ''),
+      }))
+      .filter((option) => option.value),
     [departments]
   )
 
-  const designationOptions = [
-    { value: 'Lecturer', label: 'Lecturer' },
-    { value: 'Senior Lecturer', label: 'Senior Lecturer' },
-    { value: 'Assistant Professor', label: 'Assistant Professor' },
-    { value: 'Associate Professor', label: 'Associate Professor' },
-    { value: 'Professor', label: 'Professor' },
-    { value: 'Technical Officer', label: 'Technical Officer' },
-    { value: 'Management Assistant', label: 'Management Assistant' },
-    { value: 'Lab Assistant', label: 'Lab Assistant' },
-    { value: 'Other', label: 'Other' },
-  ]
+  const designationOptions = React.useMemo(() => {
+    const baseOptions = [
+      { value: 'Lecturer', label: 'Lecturer' },
+      { value: 'Senior Lecturer', label: 'Senior Lecturer' },
+      { value: 'Assistant Professor', label: 'Assistant Professor' },
+      { value: 'Associate Professor', label: 'Associate Professor' },
+      { value: 'Professor', label: 'Professor' },
+      { value: 'Technical Officer', label: 'Technical Officer' },
+      { value: 'Management Assistant', label: 'Management Assistant' },
+      { value: 'Lab Assistant', label: 'Lab Assistant' },
+    ]
 
-  const isDirectProvisionedRole = ['head_of_department', 'dean', 'registrar', 'admin'].includes(formData.role)
-  const isRegistrarRole = formData.role === 'registrar'
+    const combined = new Map()
+    baseOptions.forEach((option) => combined.set(option.value, option))
 
-  useEffect(() => {
-    if (!createRoleOptions.some((option) => option.value === formData.role)) {
-      setFormData((prev) => ({ ...prev, role: 'staff' }))
-    }
-  }, [createRoleOptions, formData.role])
+    designations.forEach((designation) => {
+      const name = String(designation.name || designation).trim()
+      if (name && name.toLowerCase() !== 'other') {
+        combined.set(name, { value: name, label: name })
+      }
+    })
 
-  useEffect(() => {
-    if (isRegistrarRole && (formData.department || formData.designation)) {
-      setFormData((prev) => ({ ...prev, department: '', designation: '' }))
-      setOtherDesignation('')
-    }
-  }, [isRegistrarRole, formData.department, formData.designation])
+    combined.set('Other', { value: 'Other', label: 'Other' })
+    return [...combined.values()]
+  }, [designations])
 
   const handleSubmit = async (e) => {
     e?.preventDefault()
@@ -158,11 +153,7 @@ const CreateUser = () => {
       }
 
       // If "Other" is selected, use the custom designation
-      const finalDesignation = isRegistrarRole
-        ? ''
-        : formData.designation === 'Other'
-          ? otherDesignation
-          : formData.designation
+      const finalDesignation = formData.designation === 'Other' ? otherDesignation : formData.designation
 
       const response = await fetch(`${API_BASE_URL}/api/auth/signup`, {
         method: 'POST',
@@ -173,9 +164,9 @@ const CreateUser = () => {
           mobileNo: formData.mobileNo,
           officeExtNo: formData.officeExtNo,
           password: formData.password,
-          role: formData.role,
+          role: 'staff',
           createdByRole: 'admin',
-          department: isRegistrarRole ? '' : formData.department,
+          department: formData.department,
           designation: finalDesignation,
         }),
       })
@@ -217,9 +208,7 @@ const CreateUser = () => {
         {/* Info Card */}
         <Card>
           <div className="rounded bg-blue-50 px-4 py-3 text-sm text-blue-800 border border-blue-200">
-            {isDirectProvisionedRole
-              ? 'This role will be created and activated immediately.'
-              : 'This will create an account request that requires approval from department head and admin.'}
+            This will create an account request that requires approval from department head and admin.
           </div>
         </Card>
 
@@ -281,53 +270,39 @@ const CreateUser = () => {
               />
             </div>
 
-            {/* Row 3: Role and Department */}
+            {/* Row 3: Department and Designation */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <Select
-                label="Role"
-                name="role"
-                options={createRoleOptions}
-                value={formData.role}
-                onChange={handleSelectChange('role')}
+                label="Department"
+                name="department"
+                options={departmentOptions}
+                value={formData.department}
+                onChange={handleSelectChange('department')}
+                placeholder="Select department"
                 required
               />
 
-              {!isRegistrarRole && (
-                <Select
-                  label="Department"
-                  name="department"
-                  options={departmentOptions}
-                  value={formData.department}
-                  onChange={handleSelectChange('department')}
-                  placeholder="Select department"
-                  required
-                />
-              )}
+              <Select
+                label="Designation"
+                name="designation"
+                options={designationOptions}
+                value={formData.designation}
+                onChange={handleSelectChange('designation')}
+                placeholder="Select designation"
+                required
+              />
             </div>
 
-            {/* Row 4: Designation */}
-            {!isRegistrarRole && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <Select
-                  label="Designation"
-                  name="designation"
-                  options={designationOptions}
-                  value={formData.designation}
-                  onChange={handleSelectChange('designation')}
-                  placeholder="Select designation"
+            {formData.designation === 'Other' && (
+              <div className="grid grid-cols-1 gap-6">
+                <FormInput
+                  label="Other Designation"
+                  name="otherDesignation"
+                  value={otherDesignation}
+                  onChange={(e) => setOtherDesignation(e.target.value)}
+                  placeholder="Enter designation"
                   required
                 />
-
-                {formData.designation === 'Other' && (
-                  <FormInput
-                    label="Other Designation"
-                    name="otherDesignation"
-                    value={otherDesignation}
-                    onChange={(e) => setOtherDesignation(e.target.value)}
-                    placeholder="Enter designation"
-                    required
-                  />
-                )}
               </div>
             )}
 
@@ -374,7 +349,7 @@ const CreateUser = () => {
             {/* Action Buttons */}
             <div className="flex gap-4 pt-6 border-t border-border-lighter">
               <Button type="submit" variant="primary" disabled={isSubmitting}>
-                {isSubmitting ? 'Creating...' : (isDirectProvisionedRole ? 'Create & Activate User' : 'Submit Request')}
+                {isSubmitting ? 'Creating...' : 'Submit Request'}
               </Button>
               <Button type="button" variant="secondary" onClick={handleCancel}>
                 Cancel

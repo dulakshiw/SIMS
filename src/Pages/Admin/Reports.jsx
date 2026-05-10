@@ -218,7 +218,7 @@ const Reports = ({ layoutVariant = "admin", sidebarVariant }) => {
       id: 2,
       name: "Dean's Office",
       code: "DO",
-      head: "Yashodara Karunarathne",
+      head: "Assistant Registrar/FIT",
       userCount: 8,
       inventoryCount: 2,
       status: "active",

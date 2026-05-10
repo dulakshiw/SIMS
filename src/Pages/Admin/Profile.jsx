@@ -186,7 +186,7 @@ const Profile = () => {
       return
     }
 
-    const confirmed = window.confirm('Submit a deactivation request for your account? This will be sent to your Head of Department for review first, then to admin.')
+    const confirmed = window.confirm('Submit a deactivation request for your account? If you have any unreturned items or you are managing an inventory, you are not eligible for deactivation. This request will be sent to your Head of Department for review.')
 
     if (!confirmed) {
       return

@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import AdminLayout from '../../Components/Layouts/AdminLayout'
-import { Card, Button, FormInput, PageHeader } from '../../Components/UI'
+import { Card, Button, FormInput, PageHeader, Select } from '../../Components/UI'
+import { INVENTORY_REQUEST_TYPE } from '../../utils/constants'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000'
 
@@ -21,6 +22,20 @@ const CreateInventory = () => {
   const [submitError, setSubmitError] = useState('')
   const [submitMessage, setSubmitMessage] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [activeRequestType, setActiveRequestType] = useState(INVENTORY_REQUEST_TYPE.ADD_EXISTING)
+
+  const requestTypeOptions = [
+    {
+      value: INVENTORY_REQUEST_TYPE.ADD_EXISTING,
+      label: 'Add existing inventory to system',
+      note: 'Add inventory that is already maintained by the faculty.',
+    },
+    {
+      value: INVENTORY_REQUEST_TYPE.CREATE_NEW,
+      label: 'Create new Inventory',
+      note: 'Create a new inventory item that is not yet maintained by the faculty.',
+    },
+  ]
 
   useEffect(() => {
     let isMounted = true
@@ -58,6 +73,47 @@ const CreateInventory = () => {
     }
   }, [])
 
+  const selectedDepartmentHod = useMemo(() => {
+    const normalizedDepartment = String(formData.department || '').trim().toLowerCase()
+    if (!normalizedDepartment) return null
+
+    const usersInDepartment = users.filter(
+      (user) => String(user.department || '').trim().toLowerCase() === normalizedDepartment
+    )
+
+    if (usersInDepartment.length === 0) return null
+
+    const normalize = (value) => String(value || '').trim().toLowerCase()
+
+    if (normalizedDepartment === 'information technology') {
+      const itHead = usersInDepartment.find(
+        (user) => normalize(user.designation) === 'head/dept. of it'
+      )
+      if (itHead) return { id: itHead.id, name: itHead.name }
+    }
+
+    if (normalizedDepartment === "dean's office") {
+      const assistantRegistrar = usersInDepartment.find(
+        (user) => normalize(user.designation) === 'assistant registrar'
+      )
+      if (assistantRegistrar) return { id: assistantRegistrar.id, name: assistantRegistrar.name }
+    }
+
+    const roleBasedHod = usersInDepartment.find(
+      (user) => normalize(user.role) === 'head_of_department'
+    )
+    if (roleBasedHod) return { id: roleBasedHod.id, name: roleBasedHod.name }
+
+    return null
+  }, [formData.department, users])
+
+  useEffect(() => {
+    setFormData(prev => ({
+      ...prev,
+      Hod: selectedDepartmentHod?.name || '',
+    }))
+  }, [selectedDepartmentHod])
+
   const handleInputChange = (e) => {
     const { name, value } = e.target
     setFormData((prev) => ({ ...prev, [name]: value }))
@@ -68,18 +124,33 @@ const CreateInventory = () => {
     [departments]
   )
 
-  const inchargeOptions = useMemo(
-    () => users
-      .filter((user) => user.role === 'inventory_incharge' || user.designation === 'Technical Officer' || user.designation === 'Management Assistant')
-      .map((user) => ({ value: user.name, label: user.name })),
-    [users]
+  const selectedDepartment = useMemo(
+    () => departments.find((dept) => dept.name === formData.department) || null,
+    [departments, formData.department]
   )
 
-  const hodOptions = useMemo(
+  const inchargeOptions = useMemo(
     () => users
-      .filter((user) => user.role === 'head_of_department' || user.role === 'dean')
-      .map((user) => ({ value: user.name, label: user.name })),
-    [users]
+      .filter((user) => {
+        if (!formData.department) return false
+
+        const userDepartmentName = String(user.department || '').trim().toLowerCase()
+        const selectedDepartmentName = String(formData.department || '').trim().toLowerCase()
+        const isSameDepartmentByName = userDepartmentName && userDepartmentName === selectedDepartmentName
+
+        const isSameDepartmentById =
+          selectedDepartment?.id != null &&
+          user.departmentId != null &&
+          String(user.departmentId) === String(selectedDepartment.id)
+
+        const designation = String(user.designation || '').trim().toLowerCase()
+        const isAllowedDesignation =
+          designation === 'technical officer' || designation === 'management assistant'
+
+        return (isSameDepartmentByName || isSameDepartmentById) && isAllowedDesignation
+      })
+      .map((user) => ({ value: String(user.id), label: user.name })),
+    [users, formData.department, selectedDepartment]
   )
 
   const handleSubmit = async (e) => {
@@ -105,6 +176,12 @@ const CreateInventory = () => {
 
       if (!formData.department) {
         setSubmitError('Department is required.')
+        setIsSubmitting(false)
+        return
+      }
+
+      if (!formData.incharge) {
+        setSubmitError('In-charge person is required.')
         setIsSubmitting(false)
         return
       }
@@ -177,6 +254,27 @@ const CreateInventory = () => {
         {/* Form Card */}
         <Card title="Inventory Details" icon="inventory_2">
           <form onSubmit={handleSubmit} className="space-y-6">
+            {/* Request Type Selection */}
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-text-dark mb-2">
+                  Inventory Type
+                </label>
+                <select
+                  name="requestType"
+                  value={activeRequestType}
+                  onChange={(e) => setActiveRequestType(e.target.value)}
+                  className="w-full px-3 py-2 border border-border-lighter rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                >
+                  {requestTypeOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
             {/* Row 1: Name and Location */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <FormInput
@@ -229,6 +327,7 @@ const CreateInventory = () => {
                   value={formData.incharge}
                   onChange={handleInputChange}
                   className="w-full px-3 py-2 border border-border-lighter rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  required
                 >
                   <option value="">Select inventory officer</option>
                   {inchargeOptions.map((option) => (
@@ -242,24 +341,13 @@ const CreateInventory = () => {
 
             {/* Row 3: Department Head */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label className="block text-sm font-medium text-text-dark mb-2">
-                  Department Head
-                </label>
-                <select
-                  name="Hod"
-                  value={formData.Hod}
-                  onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-border-lighter rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                >
-                  <option value="">Select department head</option>
-                  {hodOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <FormInput
+                label="Department Head"
+                name="Hod"
+                value={formData.Hod}
+                readOnly
+                placeholder="Auto-selected based on department"
+              />
             </div>
 
             {/* Row 4: Description */}

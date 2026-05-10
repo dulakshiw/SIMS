@@ -40,22 +40,12 @@ const buildStaffNavItems = (currentUser) => {
 
   if (canCreateInventoryRequests) {
     items.push(
-      { id: "staff-inventory-request-actions", type: "section", label: "New Inventory Creation" },
       {
-        id: "staff-add-inventory-request",
-        type: "item",
-        label: "Add Inventory",
-        path: "/requests/inventory/staff",
-        icon: "playlist_add",
-        nested: true,
-      },
-      {
-        id: "staff-new-inventory-request",
+        id: "staff-inventory-request",
         type: "item",
         label: "New Inventory Creation",
         path: "/requests/inventory/staff",
-        icon: "add_box",
-        nested: true,
+        icon: "playlist_add",
       }
     );
   }
