@@ -37,6 +37,10 @@ const CreateInventory = () => {
     },
   ]
 
+  const activeRequestTypeOption = requestTypeOptions.find((option) => option.value === activeRequestType)
+  const requestTypeNote = activeRequestTypeOption?.note || ''
+
+
   useEffect(() => {
     let isMounted = true
 
@@ -186,33 +190,40 @@ const CreateInventory = () => {
         return
       }
 
-      const response = await fetch(`${API_BASE_URL}/api/inventories`, {
+      const approvalStatus = activeRequestType === INVENTORY_REQUEST_TYPE.ADD_EXISTING ? 'approved_by_hod' : 'approved_by_registrar'
+
+      const payload = {
+        requestedById: currentUser.id,
+        requestType: activeRequestType,
+        name: formData.name.trim(),
+        location: formData.location.trim(),
+        department: formData.department,
+        inchargeId: formData.incharge,
+        hodUserId: selectedDepartmentHod?.id || null,
+        description: formData.description.trim(),
+        approval_status: approvalStatus,
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/inventory-creation-requests`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: formData.name.trim(),
-          location: formData.location.trim(),
-          department: formData.department,
-          incharge: formData.incharge,
-          hod: formData.Hod,
-          description: formData.description.trim(),
-        }),
+        body: JSON.stringify(payload),
       })
 
       const data = await response.json().catch(() => ({}))
 
       if (!response.ok || !data.success) {
-        throw new Error(data.error || data.message || 'Failed to create inventory.')
+        throw new Error(data.error || data.message || 'Failed to submit inventory creation request.')
       }
 
-      setSubmitMessage(data.message || 'Inventory created successfully.')
+      setSubmitMessage(data.message || 'Inventory creation request submitted successfully.')
 
       // Reset form after successful submission
       setTimeout(() => {
         navigate('/admin/inventory')
       }, 2000)
     } catch (error) {
-      setSubmitError(error.message || 'Failed to create inventory.')
+      setSubmitError(error.message || 'Failed to submit inventory creation request.')
     } finally {
       setIsSubmitting(false)
     }
@@ -225,18 +236,11 @@ const CreateInventory = () => {
   return (
     <AdminLayout>
       <PageHeader
-        title="Create Inventory"
+        title="Create New Inventory"
         subtitle="Create a new inventory in the system"
       />
 
       <div className="p-6 space-y-6">
-        {/* Info Card */}
-        <Card>
-          <div className="rounded bg-blue-50 px-4 py-3 text-sm text-red-800 border border-blue-500 font-bold text-center">
-            Create a new inventory that can be managed by inventory officers and used to organize items.
-          </div>
-        </Card>
-
         {/* Error Messages */}
         {submitError && (
           <div className="rounded bg-red-50 px-4 py-3 text-sm text-red-800 border border-red-200 font-bold text-center">
@@ -254,25 +258,22 @@ const CreateInventory = () => {
         {/* Form Card */}
         <Card title="Inventory Details" icon="inventory_2">
           <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Request Type Selection */}
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-text-dark mb-2">
-                  Inventory Type
-                </label>
-                <select
-                  name="requestType"
-                  value={activeRequestType}
-                  onChange={(e) => setActiveRequestType(e.target.value)}
-                  className="w-full px-3 py-2 border border-border-lighter rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                >
-                  {requestTypeOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+            {/* Row 1: Inventory Type and note */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-end">
+              <Select
+                label="Inventory Type"
+                name="requestType"
+                options={requestTypeOptions.map(({ value, label }) => ({ value, label }))}
+                value={activeRequestType}
+                onChange={(value) => setActiveRequestType(value)}
+                placeholder="Select inventory type"
+                required
+              />
+              {requestTypeNote && (
+               <div className="rounded bg-yellow-100 px-4 py-3 text-sm text-text-dark border border-red-200 text-justify"> 
+                  {requestTypeNote}
+                </div>
+              )}
             </div>
 
             {/* Row 1: Name and Location */}
@@ -366,7 +367,7 @@ const CreateInventory = () => {
             {/* Action Buttons */}
             <div className="flex gap-4 pt-6 border-t border-border-lighter">
               <Button type="submit" variant="primary" disabled={isSubmitting}>
-                {isSubmitting ? 'Creating...' : 'Create Inventory'}
+                {isSubmitting ? 'Submitting...' : 'Submit Request'}
               </Button>
               <Button type="button" variant="secondary" onClick={handleCancel}>
                 Cancel

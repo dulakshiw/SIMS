@@ -1177,6 +1177,120 @@ app.get("/api/health", async (_req, res) => {
 });
 
 app.get(
+  "/api/inventory-creation-requests",
+  withDatabase(async (req, res) => {
+    const inventoryRequestColumns = await ensureInventoryCreationRequestsTable();
+    const schema = await getAuthSchema();
+    const hodUserId = Number(req.query?.hodUserId ?? 0);
+    const departmentIdFilter = Number(req.query?.departmentId ?? 0);
+    const approvalStatusFilter = String(req.query?.approvalStatus ?? "").trim().toLowerCase();
+
+    if (!inventoryRequestColumns.has("hod_user_id") || !Number.isInteger(hodUserId) || hodUserId <= 0) {
+      return res.json({ success: true, requests: [] });
+    }
+
+    const departmentJoinIdColumn = schema.departmentColumns.has("id") ? "id" : "department_id";
+    const departmentNameColumn = schema.departmentColumns.has("name")
+      ? "d.name"
+      : schema.departmentColumns.has("department_name")
+        ? "d.department_name"
+        : "NULL";
+    const userIdColumn = schema.userColumns.has("id") ? "id" : "user_id";
+    const userNameColumn = schema.userColumns.has("name") ? "name" : "full_name";
+
+    const whereParts = ["icr.hod_user_id = ?"];
+    const params = [hodUserId];
+
+    if (Number.isInteger(departmentIdFilter) && departmentIdFilter > 0 && inventoryRequestColumns.has("department_id")) {
+      whereParts.push("icr.department_id = ?");
+      params.push(departmentIdFilter);
+    }
+
+    if (approvalStatusFilter && inventoryRequestColumns.has("approval_status")) {
+      whereParts.push("LOWER(COALESCE(icr.approval_status, '')) = ?");
+      params.push(approvalStatusFilter);
+    }
+
+    const requestedDateCol = inventoryRequestColumns.has("requested_date") ? "icr.requested_date" : "icr.created_date";
+    const nameCol = inventoryRequestColumns.has("name") ? "icr.name" : "''";
+    const locationCol = inventoryRequestColumns.has("location") ? "icr.location" : "NULL";
+    const reasonCol = inventoryRequestColumns.has("reason") ? "icr.reason" : "NULL";
+    const requestTypeCol = inventoryRequestColumns.has("request_type") ? "icr.request_type" : "'new_inventory_creation'";
+    const statusCol = inventoryRequestColumns.has("approval_status") ? "icr.approval_status" : "'pending_staff'";
+    const deptIdCol = inventoryRequestColumns.has("department_id") ? "icr.department_id" : "NULL";
+    const requestedByCol = inventoryRequestColumns.has("requested_by_id") ? "icr.requested_by_id" : "NULL";
+    const inchargeCol = inventoryRequestColumns.has("incharge_user_id") ? "icr.incharge_user_id" : "NULL";
+
+    const departmentJoin = schema.hasDepartmentsTable && inventoryRequestColumns.has("department_id")
+      ? `LEFT JOIN departments d ON d.${departmentJoinIdColumn} = icr.department_id`
+      : "";
+    const requesterJoin = inventoryRequestColumns.has("requested_by_id")
+      ? `LEFT JOIN users rb ON rb.${userIdColumn} = icr.requested_by_id`
+      : "";
+    const inchargeJoin = inventoryRequestColumns.has("incharge_user_id")
+      ? `LEFT JOIN users inch ON inch.${userIdColumn} = icr.incharge_user_id`
+      : "";
+
+    const departmentNameSelect =
+      schema.hasDepartmentsTable && inventoryRequestColumns.has("department_id")
+        ? `${departmentNameColumn} AS department_name`
+        : "NULL AS department_name";
+
+    const requestedByNameSelect = inventoryRequestColumns.has("requested_by_id")
+      ? `rb.${userNameColumn} AS requested_by_name`
+      : "NULL AS requested_by_name";
+    const inchargeNameSelect = inventoryRequestColumns.has("incharge_user_id")
+      ? `inch.${userNameColumn} AS incharge_name`
+      : "NULL AS incharge_name";
+
+    const [rows] = await pool.execute(
+      `
+        SELECT
+          icr.id,
+          ${nameCol} AS name,
+          ${locationCol} AS location,
+          ${deptIdCol} AS department_id,
+          ${departmentNameSelect},
+          ${requestedByCol} AS requested_by_id,
+          ${inchargeCol} AS incharge_user_id,
+          ${requestedByNameSelect},
+          ${inchargeNameSelect},
+          ${requestTypeCol} AS request_type,
+          ${statusCol} AS approval_status,
+          ${reasonCol} AS reason,
+          ${requestedDateCol} AS requested_date
+        FROM inventory_creation_requests icr
+        ${departmentJoin}
+        ${requesterJoin}
+        ${inchargeJoin}
+        WHERE ${whereParts.join(" AND ")}
+        ORDER BY ${requestedDateCol} DESC, icr.id DESC
+      `,
+      params
+    );
+
+    return res.json({
+      success: true,
+      requests: rows.map((row) => ({
+        id: row.id,
+        name: row.name || "",
+        location: row.location || "",
+        departmentId: row.department_id ?? null,
+        department: row.department_name || "-",
+        requestType: String(row.request_type || "new_inventory_creation").toLowerCase(),
+        approvalStatus: String(row.approval_status || "pending_staff").toLowerCase(),
+        requestedDate: row.requested_date ? new Date(row.requested_date).toISOString().split("T")[0] : "",
+        requestedById: row.requested_by_id ?? null,
+        requestedByName: row.requested_by_name || "-",
+        inchargeUserId: row.incharge_user_id ?? null,
+        inchargeName: row.incharge_name || "-",
+        reason: row.reason || "",
+      })),
+    });
+  })
+);
+
+app.get(
   "/api/users",
   withDatabase(async (_req, res) => {
     const schema = await getAuthSchema();
@@ -1264,7 +1378,9 @@ app.get(
   withDatabase(async (req, res) => {
     const accountRequestColumns = await ensureAccountRequestsTable();
     const schema = await getAuthSchema();
-    const requestType = String(req.query?.requestType ?? "account_creation").trim().toLowerCase();
+    const requestTypeParam = String(req.query?.requestType ?? "account_creation").trim().toLowerCase();
+    const typeList = requestTypeParam.split(",").map((t) => t.trim()).filter(Boolean);
+    const requestTypes = typeList.length > 0 ? typeList : ["account_creation"];
     const requestedRoleFilter = String(req.query?.requestedRole ?? "").trim().toLowerCase();
     const statusFilter = String(req.query?.status ?? "").trim().toLowerCase();
     const userIdColumn = schema.userColumns.has("id") ? "u.id" : "u.user_id";
@@ -1293,11 +1409,21 @@ app.get(
       ? `LEFT JOIN users dh ON dh.${schema.userColumns.has("id") ? "id" : "user_id"} = ar.dept_head_approved_by_id`
       : "";
     const createdDateColumn = accountRequestColumns.has("created_date") ? "ar.created_date" : "ar.requested_date";
-    const requestTypeCondition = accountRequestColumns.has("request_type")
-      ? "LOWER(COALESCE(ar.request_type, 'account_creation')) = ?"
-      : "? = 'account_creation'";
+    let requestTypeCondition;
+    const queryParams = [];
+    if (accountRequestColumns.has("request_type")) {
+      if (requestTypes.length === 1) {
+        requestTypeCondition = "LOWER(COALESCE(ar.request_type, 'account_creation')) = ?";
+        queryParams.push(requestTypes[0]);
+      } else {
+        requestTypeCondition = `LOWER(COALESCE(ar.request_type, 'account_creation')) IN (${requestTypes.map(() => "?").join(", ")})`;
+        queryParams.push(...requestTypes);
+      }
+    } else {
+      requestTypeCondition = "? = 'account_creation'";
+      queryParams.push("account_creation");
+    }
     const whereClauses = [requestTypeCondition];
-    const queryParams = [requestType];
 
     if (requestedRoleFilter && accountRequestColumns.has("requested_role")) {
       whereClauses.push("LOWER(COALESCE(ar.requested_role, '')) = ?");
@@ -1313,6 +1439,7 @@ app.get(
       `
         SELECT
           ar.id,
+          ${accountRequestColumns.has("request_type") ? "ar.request_type" : "'account_creation'"} AS request_type,
           ${accountRequestColumns.has("requested_by_name") ? "ar.requested_by_name" : "NULL"} AS requested_by_name,
           ${accountRequestColumns.has("email") ? "ar.email" : "u.email"} AS email,
           ${accountRequestColumns.has("requested_role") ? "ar.requested_role" : "NULL"} AS requested_role,
@@ -1345,6 +1472,7 @@ app.get(
       success: true,
       requests: rows.map((row) => ({
         id: row.id,
+        requestType: String(row.request_type || "account_creation").toLowerCase(),
         userId: row.user_id ?? row.linked_user_id ?? null,
         name: row.linked_user_name || row.requested_by_name || row.email,
         email: row.email || "",
@@ -1396,9 +1524,10 @@ app.post(
 
     const request = requestRows[0];
     const requestType = String(request.request_type || "account_creation").toLowerCase();
+    const allowedWorkflowRequestTypes = new Set(["account_creation", "deactivation"]);
 
-    if (requestType !== "account_creation") {
-      return res.status(400).json({ success: false, message: "This approval route only supports account creation requests." });
+    if (!allowedWorkflowRequestTypes.has(requestType)) {
+      return res.status(400).json({ success: false, message: "Unsupported request type for this approval route." });
     }
 
     const currentStatus = String(request.approval_status || "pending_dept_head").toLowerCase();
@@ -1407,6 +1536,45 @@ app.post(
     if (approverRole === "admin") {
       if (currentStatus !== "pending_admin") {
         return res.status(409).json({ success: false, message: "This account request is not ready for admin approval." });
+      }
+
+      if (requestType === "deactivation") {
+        const userToDeactivate = Number(request.user_id ?? 0);
+
+        if (!Number.isInteger(userToDeactivate) || userToDeactivate <= 0) {
+          return res.status(400).json({ success: false, message: "Deactivation request is missing the target user." });
+        }
+
+        await updateStoredUserStatus(
+          schema,
+          userToDeactivate,
+          schema.hasUserRolesTable ? "Inactive" : "inactive"
+        );
+
+        const updateAssignments = [];
+        const updateValues = [];
+
+        if (accountRequestColumns.has("approval_status")) {
+          updateAssignments.push("approval_status = ?");
+          updateValues.push("approved_by_admin");
+        }
+
+        if (accountRequestColumns.has("admin_approved_date")) {
+          updateAssignments.push("admin_approved_date = CURRENT_TIMESTAMP");
+        }
+
+        if (accountRequestColumns.has("admin_approved_by_id")) {
+          updateAssignments.push("admin_approved_by_id = ?");
+          updateValues.push(approverUserId > 0 ? approverUserId : null);
+        }
+
+        updateValues.push(requestId);
+        await pool.execute(`UPDATE account_requests SET ${updateAssignments.join(", ")} WHERE id = ?`, updateValues);
+
+        return res.json({
+          success: true,
+          message: "Deactivation approved and the user account has been deactivated.",
+        });
       }
 
       const finalRole = normalizeRoleForStorage(request.requested_role || "staff");
@@ -1605,8 +1773,10 @@ app.post(
       return res.status(404).json({ success: false, message: "Account request not found." });
     }
 
-    if (String(requestRows[0].request_type || "account_creation").toLowerCase() !== "account_creation") {
-      return res.status(400).json({ success: false, message: "This rejection route only supports account creation requests." });
+    const rejectRequestType = String(requestRows[0].request_type || "account_creation").toLowerCase();
+
+    if (!["account_creation", "deactivation"].includes(rejectRequestType)) {
+      return res.status(400).json({ success: false, message: "This rejection route does not support this request type." });
     }
 
     await pool.execute(
@@ -1614,7 +1784,7 @@ app.post(
       [String(req.body?.reason || "Rejected during approval workflow"), requestId]
     );
 
-    return res.json({ success: true, message: "Account request rejected." });
+    return res.json({ success: true, message: "Request rejected." });
   })
 );
 
@@ -3141,6 +3311,151 @@ app.post(
       requestId: result.insertId,
       reviewerUserId: departmentHeadUserId,
     });
+  })
+);
+
+app.post(
+  "/api/inventory-creation-requests/:id/approve-hod",
+  withDatabase(async (req, res) => {
+    const requestId = Number(req.params.id);
+    const approverUserId = Number(req.body?.approverUserId ?? 0);
+    const inventoryRequestColumns = await ensureInventoryCreationRequestsTable();
+
+    if (!Number.isInteger(requestId) || requestId <= 0) {
+      return res.status(400).json({ success: false, message: "A valid inventory creation request id is required." });
+    }
+
+    if (!Number.isInteger(approverUserId) || approverUserId <= 0) {
+      return res.status(400).json({ success: false, message: "A valid approver user id is required." });
+    }
+
+    const [rows] = await pool.execute("SELECT * FROM inventory_creation_requests WHERE id = ? LIMIT 1", [requestId]);
+
+    if (rows.length === 0) {
+      return res.status(404).json({ success: false, message: "Inventory creation request not found." });
+    }
+
+    const inv = rows[0];
+    const hodCol = inventoryRequestColumns.has("hod_user_id");
+    const assignedHod = hodCol ? Number(inv.hod_user_id ?? 0) : 0;
+
+    if (hodCol && assignedHod !== approverUserId) {
+      return res.status(403).json({ success: false, message: "Only the assigned Head of Department can approve this request." });
+    }
+
+    const currentStatus = String(inv.approval_status || "pending_staff").toLowerCase();
+    const hodPendingStatuses = new Set(["pending_staff", "pending_hod"]);
+
+    if (!hodPendingStatuses.has(currentStatus)) {
+      return res.status(409).json({ success: false, message: "This request is not awaiting HOD approval." });
+    }
+
+    const requestType = String(inv.request_type || "new_inventory_creation").toLowerCase();
+    const nextStatus = requestType === "add_inventory" ? "approved_by_hod" : "pending_registrar";
+
+    const updateParts = [];
+    const updateValues = [];
+
+    if (inventoryRequestColumns.has("approval_status")) {
+      updateParts.push("approval_status = ?");
+      updateValues.push(nextStatus);
+    }
+
+    if (inventoryRequestColumns.has("hod_approved_date")) {
+      updateParts.push("hod_approved_date = CURRENT_TIMESTAMP");
+    }
+
+    if (inventoryRequestColumns.has("hod_approved_by_id")) {
+      updateParts.push("hod_approved_by_id = ?");
+      updateValues.push(approverUserId);
+    }
+
+    if (updateParts.length === 0) {
+      return res.status(500).json({ success: false, message: "Unable to update approval status." });
+    }
+
+    updateValues.push(requestId);
+    await pool.execute(
+      `UPDATE inventory_creation_requests SET ${updateParts.join(", ")} WHERE id = ?`,
+      updateValues
+    );
+
+    return res.json({
+      success: true,
+      message:
+        requestType === "add_inventory"
+          ? "Inventory addition approved by the Head of Department."
+          : "Inventory creation request approved by the Head of Department and forwarded to the registrar.",
+      approvalStatus: nextStatus,
+    });
+  })
+);
+
+app.post(
+  "/api/inventory-creation-requests/:id/reject",
+  withDatabase(async (req, res) => {
+    const requestId = Number(req.params.id);
+    const approverUserId = Number(req.body?.approverUserId ?? 0);
+    const reason = String(req.body?.reason ?? "Rejected by Head of Department").trim();
+    const inventoryRequestColumns = await ensureInventoryCreationRequestsTable();
+
+    if (!Number.isInteger(requestId) || requestId <= 0) {
+      return res.status(400).json({ success: false, message: "A valid inventory creation request id is required." });
+    }
+
+    if (!Number.isInteger(approverUserId) || approverUserId <= 0) {
+      return res.status(400).json({ success: false, message: "A valid approver user id is required." });
+    }
+
+    const [rows] = await pool.execute("SELECT * FROM inventory_creation_requests WHERE id = ? LIMIT 1", [requestId]);
+
+    if (rows.length === 0) {
+      return res.status(404).json({ success: false, message: "Inventory creation request not found." });
+    }
+
+    const inv = rows[0];
+    const hodCol = inventoryRequestColumns.has("hod_user_id");
+    const assignedHod = hodCol ? Number(inv.hod_user_id ?? 0) : 0;
+
+    if (hodCol && assignedHod !== approverUserId) {
+      return res.status(403).json({ success: false, message: "Only the assigned Head of Department can reject this request." });
+    }
+
+    const currentStatus = String(inv.approval_status || "pending_staff").toLowerCase();
+    const hodPendingStatuses = new Set(["pending_staff", "pending_hod"]);
+
+    if (!hodPendingStatuses.has(currentStatus)) {
+      return res.status(409).json({ success: false, message: "This request is not awaiting HOD approval." });
+    }
+
+    const updateParts = [];
+    const updateValues = [];
+
+    if (inventoryRequestColumns.has("approval_status")) {
+      updateParts.push("approval_status = ?");
+      updateValues.push("rejected");
+    }
+
+    if (inventoryRequestColumns.has("rejection_reason")) {
+      updateParts.push("rejection_reason = ?");
+      updateValues.push(reason.slice(0, 500));
+    }
+
+    if (inventoryRequestColumns.has("rejection_date")) {
+      updateParts.push("rejection_date = CURRENT_TIMESTAMP");
+    }
+
+    if (updateParts.length === 0) {
+      return res.status(500).json({ success: false, message: "Unable to reject request." });
+    }
+
+    updateValues.push(requestId);
+    await pool.execute(
+      `UPDATE inventory_creation_requests SET ${updateParts.join(", ")} WHERE id = ?`,
+      updateValues
+    );
+
+    return res.json({ success: true, message: "Inventory request rejected." });
   })
 );
 

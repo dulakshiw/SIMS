@@ -180,6 +180,23 @@ export const INVENTORY_REQUEST_TYPE = {
   CREATE_NEW: "new_inventory_creation",
 };
 
+export const INVENTORY_REQUEST_STATUS_META = {
+  pending_staff: { label: "Pending HOD review", variant: "warning" },
+  pending_hod: { label: "Pending HOD review", variant: "warning" },
+  approved_by_hod: { label: "HOD approved", variant: "info" },
+  pending_registrar: { label: "With registrar", variant: "info" },
+  approved_by_registrar: { label: "Registrar approved", variant: "info" },
+  pending_admin: { label: "With administrator", variant: "info" },
+  approved_by_admin: { label: "Approved", variant: "success" },
+  completed: { label: "Completed", variant: "success" },
+  rejected: { label: "Rejected", variant: "error" },
+};
+
+export const INVENTORY_REQUEST_TYPE_LABELS = {
+  add_inventory: "Add to existing inventory",
+  new_inventory_creation: "New inventory creation",
+};
+
 // Item Transfer/Disposal Status
 export const ITEM_REMARK_TYPE = {
   TRANSFERRED: "transferred",

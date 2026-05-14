@@ -20,6 +20,7 @@ const InventoryCreationRequest = () => {
   const location = useLocation()
   const { role } = useParams()
   const [searchParams] = useSearchParams()
+  const isAdminView = String(role || '').toLowerCase() === 'admin'
   const sidebarVariant = resolveSidebarVariant(location.pathname, role)
   const [currentUser, setCurrentUser] = useState(getStoredUser)
   const [users, setUsers] = useState([])
@@ -46,12 +47,12 @@ const InventoryCreationRequest = () => {
   useEffect(() => {
     const storedUser = getStoredUser()
     setCurrentUser(storedUser)
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
-      department: storedUser.department || '',
-      incharge: String(storedUser.id || '') || '',
+      department: isAdminView ? '' : storedUser.department || '',
+      incharge: isAdminView ? '' : String(storedUser.id || '') || '',
     }))
-  }, [])
+  }, [isAdminView])
 
   useEffect(() => {
     let isMounted = true
@@ -114,6 +115,33 @@ const InventoryCreationRequest = () => {
     () => departments.map((dept) => ({ value: dept.name, label: dept.name })),
     [departments]
   )
+
+  const inventoryOfficerOptions = useMemo(() => {
+    const normalizedDepartment = String(formData.department || '').trim().toLowerCase()
+    if (!normalizedDepartment) return []
+
+    const departmentUsers = users.filter(
+      (user) => String(user.department || '').trim().toLowerCase() === normalizedDepartment
+    )
+
+    const normalize = (value) => String(value || '').trim().toLowerCase()
+    const officerDesignation = (value) => {
+      const normalized = normalize(value)
+      return [
+        /\bto\b/i,
+        /\bma\b/i,
+        /technical officer/i,
+        /maintenance assistant/i,
+      ].some((regex) => regex.test(normalized))
+    }
+
+    return departmentUsers
+      .filter((user) => officerDesignation(user.designation) || normalize(user.role) === 'inventory_incharge')
+      .map((user) => ({
+        value: String(user.id),
+        label: `${user.name}${user.designation ? ` (${user.designation})` : ''}`,
+      }))
+  }, [formData.department, users])
 
   const accountHolderName = currentUser.name || currentUserRecord?.name || ''
   const accountInchargeId = Number(currentUser.id || currentUserRecord?.id || 0)
@@ -196,9 +224,10 @@ const InventoryCreationRequest = () => {
         name: formData.name.trim(),
         location: formData.location.trim(),
         department: accountDepartment,
-        inchargeId: accountInchargeId,
+        inchargeId: isAdminView ? Number(formData.incharge) : accountInchargeId,
         hodUserId: assignedHod?.id || null,
         description: formData.description.trim(),
+        approval_status: 'pending_staff',
       }
 
       // Basic client-side validation
@@ -215,7 +244,13 @@ const InventoryCreationRequest = () => {
       }
 
       if (!payload.department) {
-        setRequestError('Your account has no department assigned. Cannot submit request.')
+        setRequestError('Please select a department to submit the request.')
+        setIsSubmittingRequest(false)
+        return
+      }
+
+      if (isAdminView && !payload.inchargeId) {
+        setRequestError('Please select an inventory officer for the selected department.')
         setIsSubmittingRequest(false)
         return
       }
@@ -250,7 +285,7 @@ const InventoryCreationRequest = () => {
 
       // Reset form after successful submission
       setTimeout(() => {
-        navigate('/staff/dashboard')
+        navigate(dashboardPath)
       }, 2000)
     } catch (error) {
       setRequestError(error.message || 'Failed to submit inventory creation request.')
@@ -259,14 +294,13 @@ const InventoryCreationRequest = () => {
     }
   }
 
+  const dashboardPath = isAdminView ? '/admin/dashboard' : '/staff/dashboard'
+
   const handleCancel = () => {
-    navigate('/staff/dashboard')
+    navigate(dashboardPath)
   }
 
-  const requestTitle =
-    activeRequestType === INVENTORY_REQUEST_TYPE.ADD_EXISTING
-      ? 'Add Inventory Request'
-      : 'New Inventory Creation Request'
+  const requestTitle = 'Create New Inventory'
 
   const requestDescription =
     activeRequestType === INVENTORY_REQUEST_TYPE.ADD_EXISTING
@@ -346,20 +380,33 @@ const InventoryCreationRequest = () => {
 
             {/* Row 2: Department and HOD */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <FormInput
-                label="Department"
-                name="department"
-                value={formData.department}
-                placeholder="Department"
-                disabled
-                required
-              />
+              {isAdminView ? (
+                <Select
+                  label="Department"
+                  name="department"
+                  options={departmentOptions}
+                  value={formData.department}
+                  onChange={(value) => {
+                    setFormData((prev) => ({ ...prev, department: value, incharge: '' }))
+                  }}
+                  placeholder="Select department"
+                  required
+                />
+              ) : (
+                <FormInput
+                  label="Department"
+                  name="department"
+                  value={formData.department}
+                  placeholder="Department"
+                  disabled
+                  required
+                />
+              )}
 
               <FormInput
                 label="Head of Department"
                 name="Hod"
                 value={formData.Hod}
-                onChange={handleInputChange}
                 placeholder="Department HOD"
                 disabled
               />
@@ -367,15 +414,26 @@ const InventoryCreationRequest = () => {
 
             {/* Row 3: Inventory Officer */}
             <div className="grid grid-cols-1 gap-6">
-              <FormInput
-                label="Inventory Officer"
-                name="incharge"
-                value={accountHolderName}
-                onChange={handleInputChange}
-                placeholder="Inventory officer"
-                disabled
-                required
-              />
+              {isAdminView ? (
+                <Select
+                  label="Inventory Officer"
+                  name="incharge"
+                  options={inventoryOfficerOptions}
+                  value={formData.incharge}
+                  onChange={(value) => setFormData((prev) => ({ ...prev, incharge: value }))}
+                  placeholder="Select inventory officer"
+                  required
+                />
+              ) : (
+                <FormInput
+                  label="Inventory Officer"
+                  name="incharge"
+                  value={accountHolderName}
+                  placeholder="Inventory officer"
+                  disabled
+                  required
+                />
+              )}
             </div>
 
             {/* Row 4: Description */}

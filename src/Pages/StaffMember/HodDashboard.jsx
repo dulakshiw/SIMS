@@ -1,9 +1,30 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import MainLayout from '../../Components/Layouts/MainLayout';
 import { Badge, Button, Card, PageHeader, Table } from '../../Components/UI';
-import { ACCOUNT_REQUEST_STATUS, ACCOUNT_REQUEST_STATUS_META, ROLE_HIERARCHY } from '../../utils/constants';
+import {
+  ACCOUNT_REQUEST_STATUS,
+  ACCOUNT_REQUEST_STATUS_META,
+  INVENTORY_REQUEST_STATUS_META,
+  INVENTORY_REQUEST_TYPE_LABELS,
+} from '../../utils/constants';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
+
+const ACCOUNT_REQUEST_LABELS = {
+  account_creation: 'New account',
+  deactivation: 'Deactivation',
+};
+
+const HOD_PENDING_INVENTORY_STATUSES = new Set(['pending_staff', 'pending_hod']);
+
+const INVENTORY_DOWNSTREAM_STATUSES = new Set([
+  'approved_by_hod',
+  'pending_registrar',
+  'approved_by_registrar',
+  'pending_admin',
+  'approved_by_admin',
+  'completed',
+]);
 
 const getStoredUser = () => {
   try {
@@ -37,9 +58,11 @@ const getLastName = (fullName = 'User') => {
 const HodDashboard = () => {
   const [currentUser, setCurrentUser] = useState(getStoredUser);
   const [accountRequests, setAccountRequests] = useState([]);
+  const [inventoryRequests, setInventoryRequests] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [actionLoadingId, setActionLoadingId] = useState(null);
+  const [actionLoadingKey, setActionLoadingKey] = useState(null);
   const [error, setError] = useState('');
+  const [inventoryLoadError, setInventoryLoadError] = useState('');
 
   const departmentName = getDepartmentName(currentUser);
   const greeting = `${getTimeOfDayGreeting()} ${getLastName(currentUser.name || localStorage.getItem('username') || 'User')}`;
@@ -48,20 +71,50 @@ const HodDashboard = () => {
     try {
       setLoading(true);
       setError('');
+      setInventoryLoadError('');
       const storedUser = getStoredUser();
       setCurrentUser(storedUser);
 
-      const response = await fetch(`${API_BASE_URL}/api/account-requests?requestType=account_creation`);
-      const data = await response.json().catch(() => ({}));
+      const hodUserId = Number(storedUser.id ?? 0);
+      const accountUrl = `${API_BASE_URL}/api/account-requests?requestType=account_creation,deactivation`;
+      const inventoryUrl = Number.isInteger(hodUserId) && hodUserId > 0
+        ? `${API_BASE_URL}/api/inventory-creation-requests?hodUserId=${hodUserId}`
+        : null;
 
-      if (!response.ok || !data.success) {
-        throw new Error(data.message || data.error || 'Failed to load account requests.');
+      const accountResponse = await fetch(accountUrl);
+      const accountData = await accountResponse.json().catch(() => ({}));
+
+      if (!accountResponse.ok || !accountData.success) {
+        throw new Error(accountData.message || accountData.error || 'Failed to load account requests.');
       }
 
-      setAccountRequests(data.requests || []);
+      setAccountRequests(accountData.requests || []);
+
+      if (inventoryUrl) {
+        try {
+          const inventoryResponse = await fetch(inventoryUrl);
+          const inventoryData = await inventoryResponse.json().catch(() => ({}));
+
+          if (!inventoryResponse.ok || !inventoryData.success) {
+            setInventoryRequests([]);
+            setInventoryLoadError(inventoryData.message || inventoryData.error || 'Failed to load inventory creation requests.');
+          } else {
+            setInventoryRequests(inventoryData.requests || []);
+          }
+        } catch (invErr) {
+          setInventoryRequests([]);
+          setInventoryLoadError(invErr.message || 'Failed to load inventory creation requests.');
+        }
+      } else {
+        setInventoryRequests([]);
+        if (!hodUserId) {
+          setInventoryLoadError('Your profile is missing a user id, so inventory requests assigned to you cannot be loaded.');
+        }
+      }
     } catch (loadError) {
       setAccountRequests([]);
-      setError(loadError.message || 'Failed to load account requests.');
+      setInventoryRequests([]);
+      setError(loadError.message || 'Failed to load requests.');
     } finally {
       setLoading(false);
     }
@@ -71,49 +124,121 @@ const HodDashboard = () => {
     loadRequests();
   }, []);
 
-  const departmentRequests = useMemo(() => {
-    const departmentKey = String(departmentName).trim().toLowerCase();
+  const departmentKey = String(departmentName).trim().toLowerCase();
 
-    return accountRequests.filter((request) => {
-      if (!departmentKey || departmentKey === 'department') {
-        return false;
-      }
+  const departmentAccountRequests = useMemo(() => {
+    if (!departmentKey || departmentKey === 'department') {
+      return [];
+    }
 
-      return String(request.department || '').trim().toLowerCase() === departmentKey;
-    });
-  }, [accountRequests, departmentName]);
+    return accountRequests.filter(
+      (request) => String(request.department || '').trim().toLowerCase() === departmentKey
+    );
+  }, [accountRequests, departmentKey]);
 
-  const pendingRequests = departmentRequests.filter(
-    (request) => request.approvalStatus === ACCOUNT_REQUEST_STATUS.PENDING_DEPT_HEAD
-  );
+  const departmentInventoryRequests = useMemo(() => {
+    if (!departmentKey || departmentKey === 'department') {
+      return [];
+    }
 
-  const statusColumns = [
-    { field: 'name', label: 'Name', sortable: true },
-    { field: 'email', label: 'Email', sortable: true },
+    return inventoryRequests.filter(
+      (request) => String(request.department || '').trim().toLowerCase() === departmentKey
+    );
+  }, [inventoryRequests, departmentKey]);
+
+  const pendingReviewRows = useMemo(() => {
+    const rows = [];
+
+    departmentAccountRequests
+      .filter((r) => r.approvalStatus === ACCOUNT_REQUEST_STATUS.PENDING_DEPT_HEAD)
+      .forEach((r) => {
+        rows.push({
+          queueKey: `acc:${r.id}`,
+          source: 'account',
+          id: r.id,
+          requestLabel: ACCOUNT_REQUEST_LABELS[r.requestType] || r.requestType || 'Account',
+          subject: r.name || '—',
+          detail: r.email || '—',
+          department: r.department || '—',
+          requestedDate: r.requestedDate || '',
+          statusKey: r.approvalStatus,
+          statusKind: 'account',
+          _account: r,
+        });
+      });
+
+    departmentInventoryRequests
+      .filter((r) => HOD_PENDING_INVENTORY_STATUSES.has(String(r.approvalStatus || '').toLowerCase()))
+      .forEach((r) => {
+        const typeLabel = INVENTORY_REQUEST_TYPE_LABELS[r.requestType] || r.requestType || 'Inventory';
+        rows.push({
+          queueKey: `inv:${r.id}`,
+          source: 'inventory',
+          id: r.id,
+          requestLabel: typeLabel,
+          subject: r.name || '—',
+          detail: [r.requestedByName, r.location].filter(Boolean).join(' · ') || '—',
+          department: r.department || '—',
+          requestedDate: r.requestedDate || '',
+          statusKey: r.approvalStatus,
+          statusKind: 'inventory',
+          _inventory: r,
+        });
+      });
+
+    rows.sort((a, b) => String(b.requestedDate).localeCompare(String(a.requestedDate)) || a.queueKey.localeCompare(b.queueKey));
+    return rows;
+  }, [departmentAccountRequests, departmentInventoryRequests]);
+
+  const forwardedCount = useMemo(() => {
+    const accounts = departmentAccountRequests.filter(
+      (r) => r.approvalStatus === ACCOUNT_REQUEST_STATUS.PENDING_ADMIN
+    ).length;
+    const inventories = departmentInventoryRequests.filter((r) =>
+      INVENTORY_DOWNSTREAM_STATUSES.has(String(r.approvalStatus || '').toLowerCase())
+    ).length;
+    return accounts + inventories;
+  }, [departmentAccountRequests, departmentInventoryRequests]);
+
+  const rejectedCount = useMemo(() => {
+    const accounts = departmentAccountRequests.filter(
+      (r) => r.approvalStatus === ACCOUNT_REQUEST_STATUS.REJECTED
+    ).length;
+    const inventories = departmentInventoryRequests.filter(
+      (r) => String(r.approvalStatus || '').toLowerCase() === 'rejected'
+    ).length;
+    return accounts + inventories;
+  }, [departmentAccountRequests, departmentInventoryRequests]);
+
+  const statusBadge = (row) => {
+    if (row.statusKind === 'account') {
+      const config = ACCOUNT_REQUEST_STATUS_META[row.statusKey] || { label: row.statusKey, variant: 'secondary' };
+      return <Badge label={config.label} variant={config.variant} size="sm" />;
+    }
+    const config = INVENTORY_REQUEST_STATUS_META[row.statusKey] || { label: row.statusKey, variant: 'secondary' };
+    return <Badge label={config.label} variant={config.variant} size="sm" />;
+  };
+
+  const columns = [
     {
-      field: 'designation',
-      label: 'Designation',
-      render: (value) => (
-        <Badge
-          label={value || 'N/A'}
-          variant="info"
-          size="sm"
-        />
-      ),
+      field: 'requestLabel',
+      label: 'Request',
+      sortable: true,
+      render: (value) => <Badge label={value} variant="info" size="sm" />,
     },
+    { field: 'subject', label: 'Subject', sortable: true },
+    { field: 'detail', label: 'Details', sortable: true },
     { field: 'department', label: 'Department', sortable: true },
-    { field: 'requestedDate', label: 'Requested Date', sortable: true },
+    { field: 'requestedDate', label: 'Requested', sortable: true },
     {
-      field: 'approvalStatus',
+      field: 'statusKey',
       label: 'Status',
-      render: (value) => {
-        const config = ACCOUNT_REQUEST_STATUS_META[value] || { label: value, variant: 'secondary' };
-        return <Badge label={config.label} variant={config.variant} size="sm" />;
-      },
+      sortable: true,
+      render: (_value, row) => statusBadge(row),
     },
   ];
 
-  const updateRequestStatus = (requestId, nextStatus) => {
+  const updateAccountStatus = (requestId, nextStatus) => {
     setAccountRequests((prev) => prev.map((request) => (
       request.id === requestId
         ? { ...request, approvalStatus: nextStatus }
@@ -121,12 +246,29 @@ const HodDashboard = () => {
     )));
   };
 
-  const handleAction = async (request, actionType) => {
+  const updateInventoryStatus = (requestId, nextStatus) => {
+    setInventoryRequests((prev) => prev.map((request) => (
+      request.id === requestId
+        ? { ...request, approvalStatus: nextStatus }
+        : request
+    )));
+  };
+
+  const handleAccountAction = async (request, actionType) => {
     const isApprove = actionType === 'approve';
+    const isDeactivation = request.requestType === 'deactivation';
     const confirmed = window.confirm(
       isApprove
-        ? `Approve ${request.name}'s request and forward it to admin activation?`
-        : `Reject ${request.name}'s account request?`
+        ? (
+          isDeactivation
+            ? `Recommend approval of ${request.name}'s deactivation request and forward it to the administrator?`
+            : `Approve ${request.name}'s new account request and forward it to admin activation?`
+        )
+        : (
+          isDeactivation
+            ? `Reject ${request.name}'s deactivation request?`
+            : `Reject ${request.name}'s new account request?`
+        )
     );
 
     if (!confirmed) {
@@ -134,7 +276,7 @@ const HodDashboard = () => {
     }
 
     try {
-      setActionLoadingId(request.id);
+      setActionLoadingKey(`acc:${request.id}`);
       const response = await fetch(
         `${API_BASE_URL}/api/account-requests/${request.id}/${isApprove ? 'approve' : 'reject'}`,
         {
@@ -153,30 +295,69 @@ const HodDashboard = () => {
         throw new Error(data.message || data.error || `Failed to ${actionType} request.`);
       }
 
-      updateRequestStatus(
+      updateAccountStatus(
         request.id,
         isApprove ? ACCOUNT_REQUEST_STATUS.PENDING_ADMIN : ACCOUNT_REQUEST_STATUS.REJECTED
       );
     } catch (actionError) {
       window.alert(actionError.message || `Failed to ${actionType} request.`);
     } finally {
-      setActionLoadingId(null);
+      setActionLoadingKey(null);
     }
   };
 
-  const stats = [
-    { title: 'Awaiting Your Review', value: pendingRequests.length, icon: 'hourglass_empty' },
-    {
-      title: 'Forwarded To Admin',
-      value: departmentRequests.filter((request) => request.approvalStatus === ACCOUNT_REQUEST_STATUS.PENDING_ADMIN).length,
-      icon: 'forward',
-    },
-    {
-      title: 'Rejected Requests',
-      value: departmentRequests.filter((request) => request.approvalStatus === ACCOUNT_REQUEST_STATUS.REJECTED).length,
-      icon: 'cancel',
-    },
-  ];
+  const handleInventoryAction = async (request, actionType) => {
+    const isApprove = actionType === 'approve';
+    const typeLabel = INVENTORY_REQUEST_TYPE_LABELS[request.requestType] || 'This inventory request';
+    const confirmed = window.confirm(
+      isApprove
+        ? `Approve "${request.name}" (${typeLabel}) and send it to the next step in the workflow?`
+        : `Reject the inventory request "${request.name}"?`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setActionLoadingKey(`inv:${request.id}`);
+      const hodUserId = Number(currentUser.id ?? 0);
+      const url = isApprove
+        ? `${API_BASE_URL}/api/inventory-creation-requests/${request.id}/approve-hod`
+        : `${API_BASE_URL}/api/inventory-creation-requests/${request.id}/reject`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(
+          isApprove
+            ? { approverUserId: hodUserId }
+            : { approverUserId: hodUserId, reason: 'Rejected by Head of Department' }
+        ),
+      });
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || data.error || `Failed to ${actionType} inventory request.`);
+      }
+
+      updateInventoryStatus(
+        request.id,
+        isApprove ? String(data.approvalStatus || '').toLowerCase() : 'rejected'
+      );
+    } catch (actionError) {
+      window.alert(actionError.message || `Failed to ${actionType} inventory request.`);
+    } finally {
+      setActionLoadingKey(null);
+    }
+  };
+
+  const handleAction = (row, actionType) => {
+    if (row.source === 'account') {
+      handleAccountAction(row._account, actionType);
+      return;
+    }
+    handleInventoryAction(row._inventory, actionType);
+  };
 
   const actions = [
     {
@@ -191,20 +372,49 @@ const HodDashboard = () => {
     },
   ];
 
+  const stats = [
+    {
+      title: 'With registrar / admin',
+      value: forwardedCount,
+      icon: 'forward',
+    },
+    {
+      title: 'Rejected requests',
+      value: rejectedCount,
+      icon: 'cancel',
+    },
+  ];
+
+  const subtitleAwaiting = () => {
+    if (loading) {
+      return 'Loading requests for your department…';
+    }
+    if (error) {
+      return 'Fix the account request error above and refresh. Inventory messages appear separately if loading failed.';
+    }
+    if (!departmentKey || departmentKey === 'department') {
+      return 'Your profile needs a department name to filter requests for your department.';
+    }
+    if (pendingReviewRows.length === 0) {
+      return 'There are no requests waiting for your approval or recommendation right now.';
+    }
+    return `${pendingReviewRows.length} item${pendingReviewRows.length === 1 ? '' : 's'} need your review: new accounts, deactivations, and inventory creation or additions for your department.`;
+  };
+
   return (
     <MainLayout variant="hod">
       <PageHeader
         title={greeting}
-        subtitle="Review staff account requests for your department and forward approved requests to admin activation."
+        subtitle="Review new accounts, deactivation requests, and inventory creation or addition requests for your department. Approve or recommend items awaiting your review."
         actions={
-          <Button variant="secondary" icon="refresh" onClick={loadRequests} disabled={loading || actionLoadingId !== null}>
+          <Button variant="secondary" icon="refresh" onClick={loadRequests} disabled={loading || actionLoadingKey !== null}>
             Refresh
           </Button>
         }
       />
 
       <div className="p-6 space-y-6">
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           {stats.map((stat) => (
             <Card key={stat.title} icon={stat.icon} hover={false}>
               <p className="text-sm text-text-light">{stat.title}</p>
@@ -213,18 +423,19 @@ const HodDashboard = () => {
           ))}
         </div>
 
-        <Card title="Pending Department Approvals" subtitle="Only requests for your department that are still waiting for HOD review appear here.">
+        <Card title="Awaiting Your Review" subtitle={subtitleAwaiting()} icon="hourglass_empty">
           {error ? <p className="text-sm text-error">{error}</p> : null}
-          {!error && actionLoadingId !== null ? (
+          {inventoryLoadError ? <p className="text-sm text-warning mt-2">{inventoryLoadError}</p> : null}
+          {!error && actionLoadingKey !== null ? (
             <p className="mb-4 text-sm text-text-light">Updating request...</p>
           ) : null}
           <Table
-            columns={statusColumns}
-            data={pendingRequests}
+            columns={columns}
+            data={pendingReviewRows}
             actions={actions}
             searchable
             loading={loading}
-            paginated={pendingRequests.length > 10}
+            paginated={pendingReviewRows.length > 10}
             itemsPerPage={10}
           />
         </Card>

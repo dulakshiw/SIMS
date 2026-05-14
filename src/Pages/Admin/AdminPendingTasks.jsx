@@ -50,7 +50,7 @@ const AdminPendingTasks = () => {
 
   const loadAccountRequests = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/account-requests?requestType=account_creation`);
+      const response = await fetch(`${API_BASE_URL}/api/account-requests?requestType=account_creation,deactivation`);
       const data = await response.json();
 
       if (!response.ok || !data.success) {
@@ -131,6 +131,12 @@ const AdminPendingTasks = () => {
               r.id === item.id ? { ...r, approvalStatus: ACCOUNT_REQUEST_STATUS.APPROVED_BY_ADMIN } : r
             )
           );
+
+          if (item.requestType === "deactivation" && item.userId) {
+            setUsers((prev) =>
+              prev.map((u) => (Number(u.id) === Number(item.userId) ? { ...u, status: "inactive" } : u))
+            );
+          }
 
           if (data.user) {
             setUsers((prev) => {
@@ -419,10 +425,27 @@ const AdminPendingTasks = () => {
   const getConfirmText = () => {
     const { type, item } = confirmModal;
     if (!item) return {};
-    if (type === "approve-account")
-      return { title: "Approve Account", body: `Approve and create account for ${item.name}? They will be granted "${ROLE_HIERARCHY[item.requestedRole]?.label || item.requestedRole}" access.` };
-    if (type === "reject-account")
-      return { title: "Reject Account Request", body: `Reject account creation request for ${item.name}?` };
+    if (type === "approve-account") {
+      const isDeactivation = item.requestType === "deactivation";
+      return isDeactivation
+        ? {
+            title: "Approve Deactivation",
+            body: `Approve the deactivation request for ${item.name}? Their account will be set to inactive.`,
+          }
+        : {
+            title: "Approve Account",
+            body: `Approve and create account for ${item.name}? They will be granted "${ROLE_HIERARCHY[item.requestedRole]?.label || item.requestedRole}" access.`,
+          };
+    }
+    if (type === "reject-account") {
+      const isDeactivation = item.requestType === "deactivation";
+      return {
+        title: isDeactivation ? "Reject Deactivation Request" : "Reject Account Request",
+        body: isDeactivation
+          ? `Reject the deactivation request for ${item.name}?`
+          : `Reject account creation request for ${item.name}?`,
+      };
+    }
     if (type === "activate-user")
       return { title: "Activate User", body: `Activate ${item.name}'s account? They will be able to log in.` };
     if (type === "deactivate-user")
