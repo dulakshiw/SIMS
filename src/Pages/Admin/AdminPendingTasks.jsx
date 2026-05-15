@@ -2,51 +2,42 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import AdminLayout from "../../Components/Layouts/AdminLayout";
 import { Card, Button, Table, Badge, Modal, SearchBox, PageHeader } from "../../Components/UI";
-import { ACCOUNT_REQUEST_STATUS, ACCOUNT_REQUEST_STATUS_META, INVENTORY_REQUEST_STATUS, INVENTORY_REQUEST_TYPE, ROLE_HIERARCHY } from "../../utils/constants";
+import {
+  ACCOUNT_REQUEST_STATUS,
+  ACCOUNT_REQUEST_STATUS_META,
+  INVENTORY_REQUEST_STATUS,
+  INVENTORY_REQUEST_STATUS_META,
+  INVENTORY_REQUEST_TYPE,
+  ROLE_HIERARCHY,
+} from "../../utils/constants";
+
+const getStoredUser = () => {
+  try {
+    return JSON.parse(localStorage.getItem("currentUser") || "{}");
+  } catch {
+    return {};
+  }
+};
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
 
 const AdminPendingTasks = () => {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState("account-approvals");
+  const userRole = localStorage.getItem("userRole") || "admin";
+  const isRegistrar = userRole === "registrar";
+  const [activeTab, setActiveTab] = useState(isRegistrar ? "inventory-requests" : "account-approvals");
   const [searchTerm, setSearchTerm] = useState("");
 
   // -- Confirm modal state --
   const [confirmModal, setConfirmModal] = useState({ open: false, action: null, item: null, type: "" });
 
   const [accountRequests, setAccountRequests] = useState([]);
-  const [loadingErrors, setLoadingErrors] = useState({ accountRequests: "", users: "" });
+  const [loadingErrors, setLoadingErrors] = useState({ accountRequests: "", users: "", inventoryRequests: "" });
 
   // -- Users that need activate / deactivate action --
   const [users, setUsers] = useState([]);
 
-  // -- Inventory creation requests awaiting admin action (approved by HOD) --
-  const [inventoryRequests, setInventoryRequests] = useState([
-    {
-      id: 202,
-      name: "Sports Equipment",
-      department: "Physical Education",
-      requestedBy: "Grace Lee",
-      requestedDate: "2026-01-25",
-      requestType: INVENTORY_REQUEST_TYPE.CREATE_NEW,
-      approvalStatus: INVENTORY_REQUEST_STATUS.PENDING_ADMIN,
-      hodApprovedDate: "2026-01-26",
-      hodApprovedBy: "PE Department Head",
-      reason: "Sports facilities expansion",
-    },
-    {
-      id: 203,
-      name: "Medical Supplies",
-      department: "Health Sciences",
-      requestedBy: "Dr. Nimal Silva",
-      requestedDate: "2026-02-01",
-      requestType: INVENTORY_REQUEST_TYPE.CREATE_NEW,
-      approvalStatus: INVENTORY_REQUEST_STATUS.PENDING_ADMIN,
-      hodApprovedDate: "2026-02-02",
-      hodApprovedBy: "HS Department Head",
-      reason: "New clinic setup",
-    },
-  ]);
+  const [inventoryRequests, setInventoryRequests] = useState([]);
 
   const loadAccountRequests = async () => {
     try {
@@ -61,6 +52,38 @@ const AdminPendingTasks = () => {
       setLoadingErrors((prev) => ({ ...prev, accountRequests: "" }));
     } catch (error) {
       setLoadingErrors((prev) => ({ ...prev, accountRequests: error.message || "Failed to load account requests." }));
+    }
+  };
+
+  const loadInventoryRequests = async () => {
+    const approvalStatus = isRegistrar ? "pending_registrar" : "pending_admin";
+    const requestTypeQuery = isRegistrar ? "&requestType=new_inventory_creation" : "";
+
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/api/inventory-creation-requests?approvalStatus=${approvalStatus}${requestTypeQuery}`
+      );
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || data.error || "Failed to load inventory requests.");
+      }
+
+      setInventoryRequests(
+        (data.requests || []).map((request) => ({
+          ...request,
+          requestedBy: request.requestedByName || request.requestedBy || "—",
+          hodApprovedBy: request.hodApprovedBy || "—",
+          hodApprovedDate: request.hodApprovedDate || "",
+        }))
+      );
+      setLoadingErrors((prev) => ({ ...prev, inventoryRequests: "" }));
+    } catch (error) {
+      setInventoryRequests([]);
+      setLoadingErrors((prev) => ({
+        ...prev,
+        inventoryRequests: error.message || "Failed to load inventory requests.",
+      }));
     }
   };
 
@@ -81,8 +104,11 @@ const AdminPendingTasks = () => {
   };
 
   const refreshPendingTasks = () => {
-    loadAccountRequests();
-    loadUsers();
+    if (!isRegistrar) {
+      loadAccountRequests();
+      loadUsers();
+    }
+    loadInventoryRequests();
   };
 
   React.useEffect(() => {
@@ -224,18 +250,64 @@ const AdminPendingTasks = () => {
         .catch((error) => {
           window.alert(error.message || "Failed to deactivate user.");
         });
+    } else if (type === "approve-registrar-inventory") {
+      const registrarUser = getStoredUser();
+      fetch(`${API_BASE_URL}/api/inventory-creation-requests/${item.id}/approve-registrar`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ approverUserId: registrarUser.id ?? null }),
+      })
+        .then((response) => response.json().then((data) => ({ ok: response.ok, data })))
+        .then(({ ok, data }) => {
+          if (!ok || !data.success) {
+            throw new Error(data.message || data.error || "Failed to approve inventory request.");
+          }
+
+          setInventoryRequests((prev) => prev.filter((r) => r.id !== item.id));
+        })
+        .catch((error) => {
+          window.alert(error.message || "Failed to approve inventory request.");
+        });
     } else if (type === "approve-inventory") {
-      setInventoryRequests((prev) =>
-        prev.map((r) =>
-          r.id === item.id ? { ...r, approvalStatus: INVENTORY_REQUEST_STATUS.APPROVED_BY_ADMIN } : r
-        )
-      );
+      const adminUser = getStoredUser();
+      fetch(`${API_BASE_URL}/api/inventory-creation-requests/${item.id}/approve-admin`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ approverUserId: adminUser.id ?? null }),
+      })
+        .then((response) => response.json().then((data) => ({ ok: response.ok, data })))
+        .then(({ ok, data }) => {
+          if (!ok || !data.success) {
+            throw new Error(data.message || data.error || "Failed to approve inventory request.");
+          }
+
+          setInventoryRequests((prev) => prev.filter((r) => r.id !== item.id));
+        })
+        .catch((error) => {
+          window.alert(error.message || "Failed to approve inventory request.");
+        });
     } else if (type === "reject-inventory") {
-      setInventoryRequests((prev) =>
-        prev.map((r) =>
-          r.id === item.id ? { ...r, approvalStatus: INVENTORY_REQUEST_STATUS.REJECTED } : r
-        )
-      );
+      const currentUser = getStoredUser();
+      fetch(`${API_BASE_URL}/api/inventory-creation-requests/${item.id}/reject`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          approverUserId: currentUser.id ?? null,
+          approverRole: isRegistrar ? "registrar" : "admin",
+          reason: isRegistrar ? "Rejected from registrar pending tasks" : "Rejected from admin pending tasks",
+        }),
+      })
+        .then((response) => response.json().then((data) => ({ ok: response.ok, data })))
+        .then(({ ok, data }) => {
+          if (!ok || !data.success) {
+            throw new Error(data.message || data.error || "Failed to reject inventory request.");
+          }
+
+          setInventoryRequests((prev) => prev.filter((r) => r.id !== item.id));
+        })
+        .catch((error) => {
+          window.alert(error.message || "Failed to reject inventory request.");
+        });
     }
 
     setConfirmModal({ open: false, action: null, item: null, type: "" });
@@ -359,14 +431,7 @@ const AdminPendingTasks = () => {
       field: "approvalStatus",
       label: "Status",
       render: (value) => {
-        const map = {
-          pending_admin: { label: "Pending Admin Approval", variant: "warning" },
-          approved_by_hod: { label: "HOD Approved", variant: "info" },
-          approved_by_admin: { label: "Approved", variant: "success" },
-          approved_by_registrar: { label: "Approved", variant: "success" },
-          rejected: { label: "Rejected", variant: "error" },
-        };
-        const cfg = map[value] || { label: value, variant: "secondary" };
+        const cfg = INVENTORY_REQUEST_STATUS_META[value] || { label: value, variant: "secondary" };
         return <Badge label={cfg.label} variant={cfg.variant} size="sm" />;
       },
     },
@@ -374,9 +439,13 @@ const AdminPendingTasks = () => {
 
   const inventoryRequestActions = [
     {
-      label: "Approve & Create",
+      label: isRegistrar ? "Approve & Forward" : "Approve & Create",
       icon: "check_circle",
-      onClick: (row) => openConfirm("approve", row, "approve-inventory"),
+      onClick: (row) => openConfirm(
+        "approve",
+        row,
+        isRegistrar ? "approve-registrar-inventory" : "approve-inventory"
+      ),
     },
     {
       label: "Reject",
@@ -395,9 +464,7 @@ const AdminPendingTasks = () => {
       .map((request) => Number(request.userId))
       .filter((userId) => Number.isInteger(userId) && userId > 0)
   );
-  const pendingInventoryRequests = inventoryRequests.filter(
-    (r) => r.requestType === INVENTORY_REQUEST_TYPE.CREATE_NEW && r.approvalStatus === INVENTORY_REQUEST_STATUS.PENDING_ADMIN
-  );
+  const pendingInventoryRequests = inventoryRequests;
   const inactiveUsers = users.filter(
     (u) => u.status === "inactive" && !blockedAccountUserIds.has(Number(u.id))
   );
@@ -450,8 +517,18 @@ const AdminPendingTasks = () => {
       return { title: "Activate User", body: `Activate ${item.name}'s account? They will be able to log in.` };
     if (type === "deactivate-user")
       return { title: "Deactivate User", body: `Deactivate ${item.name}'s account? They will lose system access.` };
-    if (type === "approve-inventory")
-      return { title: "Approve Inventory Creation", body: `Approve creation of the "${item.name}" inventory for ${item.department}?` };
+    if (type === "approve-registrar-inventory") {
+      return {
+        title: "Approve for Admin Activation",
+        body: `Approve "${item.name}" for ${item.department} and forward it to the administrator for activation?`,
+      };
+    }
+    if (type === "approve-inventory") {
+      const isAddExisting = item.requestType === INVENTORY_REQUEST_TYPE.ADD_EXISTING;
+      return isAddExisting
+        ? { title: "Activate Inventory", body: `Activate the existing inventory "${item.name}" for ${item.department} in the system?` }
+        : { title: "Approve Inventory Creation", body: `Approve creation of the "${item.name}" inventory for ${item.department}?` };
+    }
     if (type === "reject-inventory")
       return { title: "Reject Inventory Request", body: `Reject the inventory creation request for "${item.name}"?` };
     return {};
@@ -460,32 +537,45 @@ const AdminPendingTasks = () => {
   const { title: confirmTitle, body: confirmBody } = getConfirmText();
   const isDestructive = confirmModal.type?.startsWith("reject") || confirmModal.type === "deactivate-user";
 
-  const tabs = [
-    {
-      id: "account-approvals",
-      label: "Account Approvals",
-      icon: "how_to_reg",
-      count: pendingAccountRequests.length,
-    },
-    {
-      id: "user-activation",
-      label: "User Activation",
-      icon: "manage_accounts",
-      count: inactiveUsers.length,
-    },
-    {
-      id: "inventory-requests",
-      label: "Inventory Requests",
-      icon: "inventory_2",
-      count: pendingInventoryRequests.length,
-    },
-  ];
+  const tabs = isRegistrar
+    ? [
+        {
+          id: "inventory-requests",
+          label: "Inventory Requests",
+          icon: "inventory_2",
+          count: pendingInventoryRequests.length,
+        },
+      ]
+    : [
+        {
+          id: "account-approvals",
+          label: "Account Approvals",
+          icon: "how_to_reg",
+          count: pendingAccountRequests.length,
+        },
+        {
+          id: "user-activation",
+          label: "User Activation",
+          icon: "manage_accounts",
+          count: inactiveUsers.length,
+        },
+        {
+          id: "inventory-requests",
+          label: "Inventory Requests",
+          icon: "inventory_2",
+          count: pendingInventoryRequests.length,
+        },
+      ];
 
   return (
     <AdminLayout>
       <PageHeader
         title="Pending Tasks"
-        subtitle="Actions requiring admin approval or intervention"
+        subtitle={
+          isRegistrar
+            ? "Inventory creation requests awaiting registrar approval"
+            : "Actions requiring admin approval or intervention"
+        }
         actions={
           <>
             {totalPending > 0 ? (
@@ -576,9 +666,11 @@ const AdminPendingTasks = () => {
           icon="search"
         />
 
-        {(loadingErrors.accountRequests || loadingErrors.users) && (
+        {(loadingErrors.accountRequests || loadingErrors.users || loadingErrors.inventoryRequests) && (
           <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
-            {loadingErrors.accountRequests || loadingErrors.users}
+            {[loadingErrors.accountRequests, loadingErrors.users, loadingErrors.inventoryRequests]
+              .filter(Boolean)
+              .join(" ")}
           </div>
         )}
 
@@ -631,11 +723,15 @@ const AdminPendingTasks = () => {
         )}
 
         {activeTab === "inventory-requests" && (
-          <Card title="Inventory Creation Requests (HOD Approved)" icon="inventory_2">
+          <Card
+            title={isRegistrar ? "Inventory Requests (Awaiting Registrar)" : "Inventory Requests (Awaiting Admin)"}
+            icon="inventory_2"
+          >
             <div className="space-y-4">
               <p className="text-sm text-text-light bg-background-light p-3 rounded">
-                These inventory creation requests have been recommended by the HOD and are awaiting
-                your approval. Approving will create the inventory in the system.
+                {isRegistrar
+                  ? "New inventory creation requests approved by the HOD are listed here. Approve to forward them to the administrator for activation."
+                  : "New inventory creation and existing inventory addition requests approved by the HOD (or registrar) are listed here. Approve to create or activate the inventory in the system."}
               </p>
               {filteredInventoryRequests.length === 0 ? (
                 <div className="text-center py-10 text-text-light">

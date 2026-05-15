@@ -15,7 +15,7 @@ const ACCOUNT_REQUEST_LABELS = {
   deactivation: 'Deactivation',
 };
 
-const HOD_PENDING_INVENTORY_STATUSES = new Set(['pending_staff', 'pending_hod']);
+const HOD_PENDING_INVENTORY_STATUSES = new Set(['pending_hod', 'pending_staff']);
 
 const INVENTORY_DOWNSTREAM_STATUSES = new Set([
   'approved_by_hod',
@@ -55,6 +55,13 @@ const getLastName = (fullName = 'User') => {
   return nameParts[nameParts.length - 1] || 'User';
 };
 
+const mapPendingRows = (rows) => {
+  const sorted = [...rows].sort(
+    (a, b) => String(b.requestedDate).localeCompare(String(a.requestedDate)) || a.queueKey.localeCompare(b.queueKey)
+  );
+  return sorted.map((row, index) => ({ ...row, rowNo: index + 1 }));
+};
+
 const HodDashboard = () => {
   const [currentUser, setCurrentUser] = useState(getStoredUser);
   const [accountRequests, setAccountRequests] = useState([]);
@@ -63,6 +70,7 @@ const HodDashboard = () => {
   const [actionLoadingKey, setActionLoadingKey] = useState(null);
   const [error, setError] = useState('');
   const [inventoryLoadError, setInventoryLoadError] = useState('');
+  const [activeReviewTab, setActiveReviewTab] = useState('accounts');
 
   const departmentName = getDepartmentName(currentUser);
   const greeting = `${getTimeOfDayGreeting()} ${getLastName(currentUser.name || localStorage.getItem('username') || 'User')}`;
@@ -146,49 +154,48 @@ const HodDashboard = () => {
     );
   }, [inventoryRequests, departmentKey]);
 
-  const pendingReviewRows = useMemo(() => {
-    const rows = [];
-
-    departmentAccountRequests
+  const pendingAccountRows = useMemo(() => {
+    const rows = departmentAccountRequests
       .filter((r) => r.approvalStatus === ACCOUNT_REQUEST_STATUS.PENDING_DEPT_HEAD)
-      .forEach((r) => {
-        rows.push({
-          queueKey: `acc:${r.id}`,
-          source: 'account',
-          id: r.id,
-          requestLabel: ACCOUNT_REQUEST_LABELS[r.requestType] || r.requestType || 'Account',
-          subject: r.name || '—',
-          detail: r.email || '—',
-          department: r.department || '—',
-          requestedDate: r.requestedDate || '',
-          statusKey: r.approvalStatus,
-          statusKind: 'account',
-          _account: r,
-        });
-      });
+      .map((r) => ({
+        queueKey: `acc:${r.id}`,
+        source: 'account',
+        id: r.id,
+        requestLabel: ACCOUNT_REQUEST_LABELS[r.requestType] || r.requestType || 'Account',
+        requestedBy: r.name || '—',
+        location: '—',
+        requestedDate: r.requestedDate || '',
+        statusKey: r.approvalStatus,
+        statusKind: 'account',
+        _account: r,
+      }));
 
-    departmentInventoryRequests
+    return mapPendingRows(rows);
+  }, [departmentAccountRequests]);
+
+  const pendingInventoryRows = useMemo(() => {
+    const rows = departmentInventoryRequests
       .filter((r) => HOD_PENDING_INVENTORY_STATUSES.has(String(r.approvalStatus || '').toLowerCase()))
-      .forEach((r) => {
+      .map((r) => {
         const typeLabel = INVENTORY_REQUEST_TYPE_LABELS[r.requestType] || r.requestType || 'Inventory';
-        rows.push({
+        return {
           queueKey: `inv:${r.id}`,
           source: 'inventory',
           id: r.id,
           requestLabel: typeLabel,
-          subject: r.name || '—',
-          detail: [r.requestedByName, r.location].filter(Boolean).join(' · ') || '—',
-          department: r.department || '—',
+          requestedBy: r.requestedByName || '—',
+          location: r.location || '—',
           requestedDate: r.requestedDate || '',
           statusKey: r.approvalStatus,
           statusKind: 'inventory',
           _inventory: r,
-        });
+        };
       });
 
-    rows.sort((a, b) => String(b.requestedDate).localeCompare(String(a.requestedDate)) || a.queueKey.localeCompare(b.queueKey));
-    return rows;
-  }, [departmentAccountRequests, departmentInventoryRequests]);
+    return mapPendingRows(rows);
+  }, [departmentInventoryRequests]);
+
+  const pendingReviewCount = pendingAccountRows.length + pendingInventoryRows.length;
 
   const forwardedCount = useMemo(() => {
     const accounts = departmentAccountRequests.filter(
@@ -219,17 +226,35 @@ const HodDashboard = () => {
     return <Badge label={config.label} variant={config.variant} size="sm" />;
   };
 
-  const columns = [
+  const accountColumns = [
+    { field: 'rowNo', label: 'No', sortable: false },
     {
       field: 'requestLabel',
-      label: 'Request',
+      label: 'Request type',
       sortable: true,
       render: (value) => <Badge label={value} variant="info" size="sm" />,
     },
-    { field: 'subject', label: 'Subject', sortable: true },
-    { field: 'detail', label: 'Details', sortable: true },
-    { field: 'department', label: 'Department', sortable: true },
-    { field: 'requestedDate', label: 'Requested', sortable: true },
+    { field: 'requestedBy', label: 'Requested by', sortable: true },
+    { field: 'requestedDate', label: 'Requested date', sortable: true },
+    {
+      field: 'statusKey',
+      label: 'Status',
+      sortable: true,
+      render: (_value, row) => statusBadge(row),
+    },
+  ];
+
+  const inventoryColumns = [
+    { field: 'rowNo', label: 'No', sortable: false },
+    {
+      field: 'requestLabel',
+      label: 'Request type',
+      sortable: true,
+      render: (value) => <Badge label={value} variant="info" size="sm" />,
+    },
+    { field: 'requestedBy', label: 'Requested by', sortable: true },
+    { field: 'location', label: 'Location', sortable: true },
+    { field: 'requestedDate', label: 'Requested date', sortable: true },
     {
       field: 'statusKey',
       label: 'Status',
@@ -309,9 +334,14 @@ const HodDashboard = () => {
   const handleInventoryAction = async (request, actionType) => {
     const isApprove = actionType === 'approve';
     const typeLabel = INVENTORY_REQUEST_TYPE_LABELS[request.requestType] || 'This inventory request';
+    const isAddExisting = request.requestType === 'add_inventory';
     const confirmed = window.confirm(
       isApprove
-        ? `Approve "${request.name}" (${typeLabel}) and send it to the next step in the workflow?`
+        ? (
+          isAddExisting
+            ? `Approve "${request.name}" (${typeLabel}) and forward it to the administrator for activation?`
+            : `Approve "${request.name}" (${typeLabel}) and send it to the registrar for the next step?`
+        )
         : `Reject the inventory request "${request.name}"?`
     );
 
@@ -395,11 +425,14 @@ const HodDashboard = () => {
     if (!departmentKey || departmentKey === 'department') {
       return 'Your profile needs a department name to filter requests for your department.';
     }
-    if (pendingReviewRows.length === 0) {
+    if (pendingReviewCount === 0) {
       return 'There are no requests waiting for your approval or recommendation right now.';
     }
-    return `${pendingReviewRows.length} item${pendingReviewRows.length === 1 ? '' : 's'} need your review: new accounts, deactivations, and inventory creation or additions for your department.`;
+    return `${pendingReviewCount} item${pendingReviewCount === 1 ? '' : 's'} need your review across account and inventory requests for your department.`;
   };
+
+  const activeTabRows = activeReviewTab === 'accounts' ? pendingAccountRows : pendingInventoryRows;
+  const activeTabColumns = activeReviewTab === 'accounts' ? accountColumns : inventoryColumns;
 
   return (
     <MainLayout variant="hod">
@@ -425,17 +458,50 @@ const HodDashboard = () => {
 
         <Card title="Awaiting Your Review" subtitle={subtitleAwaiting()} icon="hourglass_empty">
           {error ? <p className="text-sm text-error">{error}</p> : null}
-          {inventoryLoadError ? <p className="text-sm text-warning mt-2">{inventoryLoadError}</p> : null}
+          {inventoryLoadError && activeReviewTab === 'inventory' ? (
+            <p className="text-sm text-warning mt-2">{inventoryLoadError}</p>
+          ) : null}
           {!error && actionLoadingKey !== null ? (
             <p className="mb-4 text-sm text-text-light">Updating request...</p>
           ) : null}
+
+          <div className="border-b border-border-light mb-6">
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setActiveReviewTab('accounts')}
+                className={`px-6 py-3 border-b-2 font-medium transition-colors ${
+                  activeReviewTab === 'accounts'
+                    ? 'border-primary-600 text-primary-600'
+                    : 'border-transparent text-text-light hover:text-text-dark'
+                }`}
+              >
+                Account Creations / Deactivations
+                {pendingAccountRows.length > 0 ? ` (${pendingAccountRows.length})` : ''}
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveReviewTab('inventory')}
+                className={`px-6 py-3 border-b-2 font-medium transition-colors ${
+                  activeReviewTab === 'inventory'
+                    ? 'border-primary-600 text-primary-600'
+                    : 'border-transparent text-text-light hover:text-text-dark'
+                }`}
+              >
+                Inventory Creations
+                {pendingInventoryRows.length > 0 ? ` (${pendingInventoryRows.length})` : ''}
+              </button>
+            </div>
+          </div>
+
           <Table
-            columns={columns}
-            data={pendingReviewRows}
+            key={activeReviewTab}
+            columns={activeTabColumns}
+            data={activeTabRows}
             actions={actions}
             searchable
             loading={loading}
-            paginated={pendingReviewRows.length > 10}
+            paginated={activeTabRows.length > 10}
             itemsPerPage={10}
           />
         </Card>

@@ -227,7 +227,6 @@ const InventoryCreationRequest = () => {
         inchargeId: isAdminView ? Number(formData.incharge) : accountInchargeId,
         hodUserId: assignedHod?.id || null,
         description: formData.description.trim(),
-        approval_status: 'pending_staff',
       }
 
       // Basic client-side validation

@@ -189,6 +189,7 @@ export const INVENTORY_REQUEST_STATUS_META = {
   pending_admin: { label: "With administrator", variant: "info" },
   approved_by_admin: { label: "Approved", variant: "success" },
   completed: { label: "Completed", variant: "success" },
+  "process completed": { label: "Completed", variant: "success" },
   rejected: { label: "Rejected", variant: "error" },
 };
 

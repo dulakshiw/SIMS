@@ -535,7 +535,7 @@ const InventoryManagement = () => {
           <Card title="Inventory Creation Requests" icon="request_quote">
             <div className="space-y-4">
               <p className="text-sm text-text-light bg-background-light p-3 rounded">
-                New inventory creation requests appear here after earlier approvals. Existing inventory additions are completed with HOD approval and do not require admin approval again.
+                New inventory creation requests appear here after earlier approvals. Existing inventory additions are forwarded to admin for activation after HOD approval.
               </p>
               <Table
                 columns={requestColumns}

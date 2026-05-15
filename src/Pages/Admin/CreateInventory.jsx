@@ -190,8 +190,6 @@ const CreateInventory = () => {
         return
       }
 
-      const approvalStatus = activeRequestType === INVENTORY_REQUEST_TYPE.ADD_EXISTING ? 'approved_by_hod' : 'approved_by_registrar'
-
       const payload = {
         requestedById: currentUser.id,
         requestType: activeRequestType,
@@ -201,7 +199,6 @@ const CreateInventory = () => {
         inchargeId: formData.incharge,
         hodUserId: selectedDepartmentHod?.id || null,
         description: formData.description.trim(),
-        approval_status: approvalStatus,
       }
 
       const response = await fetch(`${API_BASE_URL}/api/inventory-creation-requests`, {
