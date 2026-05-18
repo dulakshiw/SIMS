@@ -1,15 +1,36 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import AdminLayout from "../../Components/Layouts/AdminLayout";
 import { Card, Button, SearchBox, Table, Badge, Modal, FormInput, Select, EntityDetailsModal, PageHeader } from "../../Components/UI";
-import { INVENTORY_REQUEST_STATUS, INVENTORY_REQUEST_TYPE } from "../../utils/constants";
+import {
+  INVENTORY_REQUEST_STATUS,
+  INVENTORY_REQUEST_STATUS_META,
+  INVENTORY_REQUEST_TYPE,
+  INVENTORY_REQUEST_TYPE_LABELS,
+} from "../../utils/constants";
 import { canCreateInventory } from "../../utils/permissionUtils";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
 const ALLOWED_INCHARGE_DESIGNATIONS = new Set(["Technical Officer", "Management Assistant"]);
 
+const getStoredUser = () => {
+  try {
+    return JSON.parse(localStorage.getItem("currentUser") || "{}");
+  } catch {
+    return {};
+  }
+};
+
+const formatDetailValue = (value) => {
+  if (value === 0) {
+    return "0";
+  }
+  return value || "—";
+};
+
 const InventoryManagement = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const currentUserRole = localStorage.getItem("userRole") || "admin";
   const [searchTerm, setSearchTerm] = useState("");
   const [activeTab, setActiveTab] = useState("inventories"); // inventories or requests
@@ -39,34 +60,12 @@ const InventoryManagement = () => {
   const [submitError, setSubmitError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
 
-  // Pending inventory creation requests
-  const [inventoryRequests, setInventoryRequests] = useState([
-    {
-      id: 201,
-      name: "Laboratory Equipment",
-      department: "Science",
-      requestedBy: "Frank Wilson",
-      requestedDate: "2026-01-24",
-      requestType: INVENTORY_REQUEST_TYPE.ADD_EXISTING,
-      approvalStatus: INVENTORY_REQUEST_STATUS.PENDING_HOD,
-      hodApprovedDate: null,
-      hodApprovedBy: null,
-      reason: "Existing faculty inventory to be added to the system",
-    },
-    {
-      id: 202,
-      name: "Sports Equipment",
-      department: "Physical Education",
-      requestedBy: "Grace Lee",
-      requestedDate: "2026-01-25",
-      requestType: INVENTORY_REQUEST_TYPE.CREATE_NEW,
-      approvalStatus: INVENTORY_REQUEST_STATUS.PENDING_ADMIN,
-      hodApprovedDate: "2026-01-26",
-      hodApprovedBy: "PE Department Head",
-      registrarApprovedDate: "2026-01-27",
-      reason: "Sports facilities expansion",
-    },
-  ]);
+  const [inventoryRequests, setInventoryRequests] = useState([]);
+  const [inventoryRequestsLoading, setInventoryRequestsLoading] = useState(true);
+  const [inventoryRequestsError, setInventoryRequestsError] = useState("");
+  const [requestActionLoadingId, setRequestActionLoadingId] = useState(null);
+  const [selectedRequestDetails, setSelectedRequestDetails] = useState(null);
+  const [isRequestDetailModalOpen, setIsRequestDetailModalOpen] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -142,6 +141,64 @@ const InventoryManagement = () => {
       isMounted = false;
     };
   }, []);
+
+  const loadInventoryRequests = useCallback(async () => {
+    try {
+      setInventoryRequestsLoading(true);
+      setInventoryRequestsError("");
+
+      const response = await fetch(
+        `${API_BASE_URL}/api/inventory-creation-requests?adminQueue=true`
+      );
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || data.error || "Failed to load inventory creation requests.");
+      }
+
+      setInventoryRequests(
+        (data.requests || []).map((request) => ({
+          ...request,
+          requestedBy: request.requestedByName || request.requestedBy || "—",
+          hodApprovedBy: request.hodApprovedBy || "—",
+          hodApprovedDate: request.hodApprovedDate || "",
+        }))
+      );
+    } catch (error) {
+      setInventoryRequests([]);
+      setInventoryRequestsError(error.message || "Unable to load inventory creation requests.");
+    } finally {
+      setInventoryRequestsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (location.state?.activeTab === "requests") {
+      setActiveTab("requests");
+    }
+  }, [location.state?.activeTab]);
+
+  useEffect(() => {
+    loadInventoryRequests();
+  }, [loadInventoryRequests]);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      loadInventoryRequests();
+    }, 15000);
+
+    const handleFocus = () => {
+      loadInventoryRequests();
+      refreshInventories().catch(() => {});
+    };
+
+    window.addEventListener("focus", handleFocus);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", handleFocus);
+    };
+  }, [loadInventoryRequests]);
 
   const departmentOptions = useMemo(
     () => departments.map((department) => ({ value: department.name, label: department.name })),
@@ -258,34 +315,11 @@ const InventoryManagement = () => {
       field: "approvalStatus",
       label: "Status",
       render: (value) => {
-        const statusConfig = {
-          pending_hod: { label: "Pending HOD Review", variant: "warning" },
-          pending_staff: { label: "Pending HOD Review", variant: "warning" },
-          approved_by_hod: { label: "HOD Approved", variant: "info" },
-          pending_registrar: { label: "Awaiting Registrar", variant: "info" },
-          pending_admin: { label: "Awaiting Admin", variant: "warning" },
-          approved_by_admin: { label: "Approved", variant: "success" },
-          approved_by_registrar: { label: "Approved", variant: "success" },
-          completed: { label: "Completed", variant: "success" },
-          rejected: { label: "Rejected", variant: "error" },
-        };
-        const config = statusConfig[value] || { label: value, variant: "secondary" };
+        const config = INVENTORY_REQUEST_STATUS_META[value] || { label: value, variant: "secondary" };
         return <Badge label={config.label} variant={config.variant} size="sm" />;
       },
     },
-  ];
-
-  const requestActions = [
-    {
-      label: "Approve",
-      icon: "check_circle",
-      onClick: (row) => handleApproveRequest(row),
-    },
-    {
-      label: "Reject",
-      icon: "cancel",
-      onClick: (row) => handleRejectRequest(row),
-    },
+    { field: "reason", label: "Reason" },
   ];
 
   const filteredInventories = inventories.filter((inv) =>
@@ -293,48 +327,142 @@ const InventoryManagement = () => {
     inv.department.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const filteredRequests = inventoryRequests.filter((req) =>
-    req.requestType !== INVENTORY_REQUEST_TYPE.ADD_EXISTING && (
-    req.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    req.department.toLowerCase().includes(searchTerm.toLowerCase())
-    ));
+  const filteredRequests = inventoryRequests.filter(
+    (req) =>
+      req.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      String(req.department || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+      String(req.requestedBy || "").toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
-  const handleApproveRequest = (request) => {
-    // Update approval status
-    setInventoryRequests((prev) =>
-      prev.map((r) =>
-        r.id === request.id
-          ? {
-              ...r,
-              approvalStatus:
-                request.approvalStatus === INVENTORY_REQUEST_STATUS.PENDING_HOD ||
-                request.approvalStatus === INVENTORY_REQUEST_STATUS.PENDING_STAFF
-                  ? INVENTORY_REQUEST_STATUS.APPROVED_BY_HOD
-                  : request.approvalStatus === INVENTORY_REQUEST_STATUS.PENDING_REGISTRAR
-                    ? INVENTORY_REQUEST_STATUS.APPROVED_BY_REGISTRAR
-                    : INVENTORY_REQUEST_STATUS.APPROVED_BY_ADMIN,
-              hodApprovedDate:
-                request.approvalStatus === INVENTORY_REQUEST_STATUS.PENDING_HOD ||
-                request.approvalStatus === INVENTORY_REQUEST_STATUS.PENDING_STAFF
-                  ? new Date().toISOString().split("T")[0]
-                  : r.hodApprovedDate,
-            }
-          : r
-      )
+  const handleApproveRequest = async (request) => {
+    const typeLabel = request.requestType === INVENTORY_REQUEST_TYPE.ADD_EXISTING
+      ? "add this inventory to the system"
+      : "create this inventory in the system";
+    const confirmed = window.confirm(
+      `Approve and ${typeLabel} for "${request.name}" (${request.department})?`
     );
-    console.log("Approved inventory request:", request.name);
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setRequestActionLoadingId(request.id);
+      const adminUser = getStoredUser();
+      const response = await fetch(
+        `${API_BASE_URL}/api/inventory-creation-requests/${request.id}/approve-admin`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ approverUserId: adminUser.id ?? null }),
+        }
+      );
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || data.error || "Failed to approve inventory request.");
+      }
+
+      setInventoryRequests((prev) => prev.filter((item) => item.id !== request.id));
+      setIsRequestDetailModalOpen(false);
+      setSelectedRequestDetails(null);
+      await refreshInventories();
+    } catch (error) {
+      window.alert(error.message || "Failed to approve inventory request.");
+    } finally {
+      setRequestActionLoadingId(null);
+    }
   };
 
-  const handleRejectRequest = (request) => {
-    setInventoryRequests((prev) =>
-      prev.map((r) =>
-        r.id === request.id
-          ? { ...r, approvalStatus: INVENTORY_REQUEST_STATUS.REJECTED }
-          : r
-      )
-    );
-    console.log("Rejected inventory request:", request.name);
+  const handleRejectRequest = async (request) => {
+    const confirmed = window.confirm(`Reject the inventory request for "${request.name}"?`);
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setRequestActionLoadingId(request.id);
+      const adminUser = getStoredUser();
+      const response = await fetch(
+        `${API_BASE_URL}/api/inventory-creation-requests/${request.id}/reject`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            approverUserId: adminUser.id ?? null,
+            approverRole: "admin",
+            reason: "Rejected from inventory management",
+          }),
+        }
+      );
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || data.error || "Failed to reject inventory request.");
+      }
+
+      setInventoryRequests((prev) => prev.filter((item) => item.id !== request.id));
+      setIsRequestDetailModalOpen(false);
+      setSelectedRequestDetails(null);
+    } catch (error) {
+      window.alert(error.message || "Failed to reject inventory request.");
+    } finally {
+      setRequestActionLoadingId(null);
+    }
   };
+
+  const closeRequestDetailModal = () => {
+    if (requestActionLoadingId !== null) {
+      return;
+    }
+    setIsRequestDetailModalOpen(false);
+    setSelectedRequestDetails(null);
+  };
+
+  const handleViewRequestDetails = (request) => {
+    setSelectedRequestDetails(request);
+    setIsRequestDetailModalOpen(true);
+  };
+
+  const buildInventoryRequestDetailFields = (request) => {
+    const statusConfig = INVENTORY_REQUEST_STATUS_META[request.approvalStatus] || {
+      label: request.approvalStatus,
+    };
+    const typeLabel = INVENTORY_REQUEST_TYPE_LABELS[request.requestType] || request.requestType;
+
+    return [
+      { label: "Request type", value: typeLabel },
+      { label: "Inventory name", value: request.name },
+      { label: "Department", value: request.department },
+      { label: "Location", value: request.location },
+      { label: "Requested by", value: request.requestedByName || request.requestedBy },
+      { label: "Inventory officer", value: request.inchargeName },
+      { label: "HOD approved by", value: request.hodApprovedBy },
+      { label: "HOD approval date", value: request.hodApprovedDate },
+      { label: "Request date", value: request.requestedDate },
+      { label: "Status", value: statusConfig.label },
+      {
+        label: "Submitted by",
+        value: request.isAdminSubmitted ? "Administrator" : "Staff member",
+      },
+      { label: "Reason", value: request.reason, fullWidth: true },
+    ];
+  };
+
+  const requestDetailModalTitle = selectedRequestDetails
+    ? `${INVENTORY_REQUEST_TYPE_LABELS[selectedRequestDetails.requestType] || "Inventory"} request`
+    : "Request details";
+
+  const requestDetailFields = selectedRequestDetails
+    ? buildInventoryRequestDetailFields(selectedRequestDetails)
+    : [];
+
+  const isSelectedRequestLoading = selectedRequestDetails
+    ? requestActionLoadingId === selectedRequestDetails.id
+    : false;
+
+  const canActOnSelectedRequest = Boolean(selectedRequestDetails?.canAdminAct);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -489,7 +617,10 @@ const InventoryManagement = () => {
         <div className="border-b border-border-light">
           <div className="flex gap-2">
             <button
-              onClick={() => setActiveTab("inventories")}
+              onClick={() => {
+                setActiveTab("inventories");
+                closeRequestDetailModal();
+              }}
               className={`px-6 py-3 border-b-2 font-medium transition-colors ${
                 activeTab === "inventories"
                   ? "border-primary-600 text-primary-600"
@@ -499,7 +630,10 @@ const InventoryManagement = () => {
               All Inventories
             </button>
             <button
-              onClick={() => setActiveTab("requests")}
+              onClick={() => {
+                setActiveTab("requests");
+                closeRequestDetailModal();
+              }}
               className={`px-6 py-3 border-b-2 font-medium transition-colors ${
                 activeTab === "requests"
                   ? "border-primary-600 text-primary-600"
@@ -528,24 +662,102 @@ const InventoryManagement = () => {
               data={filteredInventories}
               actions={actions}
               onRowClick={handleViewInventoryDetails}
-              rowsPerPage={10}
+              paginated
+              itemsPerPage={10}
             />
           </Card>
         ) : (
           <Card title="Inventory Creation Requests" icon="request_quote">
             <div className="space-y-4">
               <p className="text-sm text-text-light bg-background-light p-3 rounded">
-                New inventory creation requests appear here after earlier approvals. Existing inventory additions are forwarded to admin for activation after HOD approval.
+                Includes admin-submitted inventory requests (from Create Inventory) while they await HOD and other
+                approvals, and staff requests ready for admin activation. Approve and reject are enabled only when the
+                request is awaiting admin activation.
               </p>
-              <Table
-                columns={requestColumns}
-                data={filteredRequests}
-                actions={requestActions}
-                rowsPerPage={10}
-              />
+              {inventoryRequestsError ? (
+                <p className="text-sm text-error">{inventoryRequestsError}</p>
+              ) : null}
+              {inventoryRequestsLoading ? (
+                <p className="text-sm text-text-light p-4">Loading inventory creation requests...</p>
+              ) : filteredRequests.length === 0 ? (
+                <div className="text-center py-10 text-text-light">
+                  <span className="material-symbols-outlined text-5xl mb-2 block">check_circle</span>
+                  No inventory requests awaiting admin activation
+                </div>
+              ) : (
+                <Table
+                  columns={requestColumns}
+                  data={filteredRequests}
+                  onRowClick={handleViewRequestDetails}
+                  paginated
+                  itemsPerPage={10}
+                />
+              )}
             </div>
           </Card>
         )}
+
+        <Modal
+          isOpen={isRequestDetailModalOpen}
+          onClose={closeRequestDetailModal}
+          title={requestDetailModalTitle}
+          size="lg"
+          footer={(
+            <div className="flex flex-wrap justify-end gap-3">
+              <Button variant="secondary" onClick={closeRequestDetailModal} disabled={isSelectedRequestLoading}>
+                Close
+              </Button>
+              {canActOnSelectedRequest ? (
+                <>
+                  <Button
+                    variant="danger"
+                    icon="cancel"
+                    onClick={() => handleRejectRequest(selectedRequestDetails)}
+                    disabled={isSelectedRequestLoading}
+                    loading={isSelectedRequestLoading}
+                  >
+                    Reject
+                  </Button>
+                  <Button
+                    variant="primary"
+                    icon="check_circle"
+                    onClick={() => handleApproveRequest(selectedRequestDetails)}
+                    disabled={isSelectedRequestLoading}
+                    loading={isSelectedRequestLoading}
+                  >
+                    Approve
+                  </Button>
+                </>
+              ) : null}
+            </div>
+          )}
+        >
+          <div className="space-y-4">
+            <div className="bg-background-light p-4 rounded-lg">
+              <p className="text-sm text-text-light">Inventory</p>
+              <p className="text-lg font-semibold text-text-dark">
+                {formatDetailValue(selectedRequestDetails?.name)}
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+              {requestDetailFields.map((detail) => (
+                <div key={detail.label} className={detail.fullWidth ? "md:col-span-2" : ""}>
+                  <p className="text-text-light">{detail.label}</p>
+                  <p className="font-semibold text-text-dark whitespace-pre-wrap">
+                    {formatDetailValue(detail.value)}
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            <p className="text-xs text-text-light">
+              {canActOnSelectedRequest
+                ? "Approve to create or activate this inventory in the system, or reject to decline the request."
+                : "This request is still awaiting HOD or registrar approval. Approve and reject will be available when it reaches admin activation."}
+            </p>
+          </div>
+        </Modal>
 
         {/* Inventory Details Modal */}
         <EntityDetailsModal

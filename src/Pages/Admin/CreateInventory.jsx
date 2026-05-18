@@ -217,7 +217,7 @@ const CreateInventory = () => {
 
       // Reset form after successful submission
       setTimeout(() => {
-        navigate('/admin/inventory')
+        navigate('/admin/inventory', { state: { activeTab: 'requests' } })
       }, 2000)
     } catch (error) {
       setSubmitError(error.message || 'Failed to submit inventory creation request.')

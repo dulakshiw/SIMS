@@ -50,10 +50,20 @@ const buildStaffNavItems = (currentUser) => {
     );
   }
 
+  if (hasAssignedInventories || canCreateInventoryRequests) {
+    items.push({ id: "staff-inventories", type: "section", label: "Inventories" });
+    items.push({
+      id: "staff-my-inventories",
+      type: "item",
+      label: "My Inventories",
+      path: "/inventory/list/incharge",
+      icon: "inventory",
+      nested: true,
+    });
+  }
+
   if (hasAssignedInventories) {
     items.push(
-      { id: "staff-inventories", type: "section", label: "Inventories" },
-      { id: "staff-my-inventories", type: "item", label: "My Inventories", path: "/inventory/list/incharge", icon: "inventory", nested: true },
       { id: "staff-add-item", type: "item", label: "Add New Item", path: "/inventory/add/incharge", icon: "playlist_add", nested: true },
       { id: "staff-transfers", type: "item", label: "Transfers", path: "/inventory/transfers/list/incharge", icon: "compare_arrows", nested: true },
       { id: "staff-disposals", type: "item", label: "Disposals", path: "/inventory/disposals/list/incharge", icon: "delete_sweep", nested: true },

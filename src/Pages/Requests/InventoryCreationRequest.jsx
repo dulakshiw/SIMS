@@ -284,7 +284,7 @@ const InventoryCreationRequest = () => {
 
       // Reset form after successful submission
       setTimeout(() => {
-        navigate(dashboardPath)
+        navigate(successRedirectPath)
       }, 2000)
     } catch (error) {
       setRequestError(error.message || 'Failed to submit inventory creation request.')
@@ -294,6 +294,7 @@ const InventoryCreationRequest = () => {
   }
 
   const dashboardPath = isAdminView ? '/admin/dashboard' : '/staff/dashboard'
+  const successRedirectPath = isAdminView ? dashboardPath : '/inventory/list/incharge'
 
   const handleCancel = () => {
     navigate(dashboardPath)

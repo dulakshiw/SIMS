@@ -348,6 +348,9 @@ const normalizeUserRole = (roleValue) => {
 
   const roleAliases = {
     admin: "admin",
+    system_administrator: "admin",
+    system_admin: "admin",
+    administrator: "admin",
     registrar: "registrar",
     staff: "staff",
     staff_member: "staff",
@@ -658,6 +661,98 @@ const resolveDesignationId = async (schema, designationValue) => {
 
 const normalizeRoleForStorage = (roleValue) => normalizeUserRole(roleValue);
 
+const isAdminRole = (roleValue) => normalizeUserRole(roleValue) === "admin";
+
+const ADMIN_ROLE_LITERALS = ["admin", "system administrator", "system_administrator", "system admin", "administrator"];
+
+const getAdminRoleInListSql = () =>
+  ADMIN_ROLE_LITERALS.map((role) => `'${role.replace(/'/g, "''")}'`).join(", ");
+
+const getAdminUserIds = async (schema) => {
+  const userIdColumn = getUserPrimaryKeyColumn(schema);
+  const roleInList = getAdminRoleInListSql();
+
+  if (schema.userColumns.has("role")) {
+    const [rows] = await pool.execute(
+      `SELECT ${userIdColumn} AS user_id FROM users WHERE LOWER(TRIM(COALESCE(role, ''))) IN (${roleInList})`
+    );
+    return rows.map((row) => Number(row.user_id)).filter((id) => Number.isInteger(id) && id > 0);
+  }
+
+  if (schema.userColumns.has("role_id")) {
+    const [tableRows] = await pool.query("SHOW TABLES LIKE 'user_roles'");
+    if (tableRows.length > 0) {
+      const [rows] = await pool.execute(
+        `
+          SELECT u.${userIdColumn} AS user_id
+          FROM users u
+          INNER JOIN user_roles ur ON ur.role_id = u.role_id
+          WHERE LOWER(TRIM(COALESCE(ur.user_role, ''))) IN (${roleInList})
+        `
+      );
+      return rows.map((row) => Number(row.user_id)).filter((id) => Number.isInteger(id) && id > 0);
+    }
+  }
+
+  return [];
+};
+
+const buildRequesterIsAdminSql = (schema) => {
+  const inList = getAdminRoleInListSql();
+
+  if (schema.userColumns.has("role")) {
+    return `LOWER(TRIM(COALESCE(rb.role, ''))) IN (${inList})`;
+  }
+
+  if (schema.userColumns.has("role_id")) {
+    return `LOWER(TRIM(COALESCE(rbur.user_role, ''))) IN (${inList})`;
+  }
+
+  return "0 = 1";
+};
+
+const usesUserRolesForRequester = (schema) =>
+  schema.userColumns.has("role_id") && !schema.userColumns.has("role");
+
+const resolveRequestingUserRole = async (schema, userId) => {
+  const normalizedUserId = Number(userId ?? 0);
+
+  if (!Number.isInteger(normalizedUserId) || normalizedUserId <= 0) {
+    return null;
+  }
+
+  const userIdColumn = schema.userColumns.has("id") ? "id" : "user_id";
+  const roleSelection = schema.userColumns.has("role")
+    ? "role AS role"
+    : schema.hasUserRolesTable
+      ? "role_id AS role_id"
+      : null;
+
+  if (!roleSelection) {
+    return null;
+  }
+
+  const [rows] = await pool.execute(
+    `SELECT ${roleSelection} FROM users WHERE ${userIdColumn} = ? LIMIT 1`,
+    [normalizedUserId]
+  );
+
+  if (rows.length === 0) {
+    return null;
+  }
+
+  if (schema.userColumns.has("role")) {
+    return normalizeUserRole(rows[0].role);
+  }
+
+  const [roleRows] = await pool.execute(
+    "SELECT user_role FROM user_roles WHERE role_id = ? LIMIT 1",
+    [rows[0].role_id]
+  );
+
+  return normalizeUserRole(roleRows[0]?.user_role ?? null);
+};
+
 const getSignupStoredRole = (requestedRole) => {
   const normalizedRole = normalizeRoleForStorage(requestedRole);
 
@@ -881,39 +976,80 @@ const getTableColumns = async (tableName) => {
   return new Set(rows.map((row) => row.Field));
 };
 
+const addAccountRequestColumnIfMissing = async (columns, columnName, definition, preferredAfterColumn = null) => {
+  if (columns.has(columnName)) {
+    return;
+  }
+
+  const afterColumn = preferredAfterColumn && columns.has(preferredAfterColumn)
+    ? preferredAfterColumn
+    : null;
+  const afterClause = afterColumn ? ` AFTER ${afterColumn}` : "";
+
+  await pool.query(
+    `ALTER TABLE account_requests ADD COLUMN ${columnName} ${definition}${afterClause}`
+  );
+  columns.add(columnName);
+};
+
 const ensureAccountRequestsTable = async () => {
   await createAccountRequestsTable();
   const accountRequestColumns = await getTableColumns("account_requests");
 
-  if (!accountRequestColumns.has("requested_password")) {
-    await pool.query("ALTER TABLE account_requests ADD COLUMN requested_password VARCHAR(255) NULL AFTER requested_department_id");
-    accountRequestColumns.add("requested_password");
-  }
-
-  if (!accountRequestColumns.has("requested_designation")) {
-    await pool.query("ALTER TABLE account_requests ADD COLUMN requested_designation VARCHAR(255) NULL AFTER requested_password");
-    accountRequestColumns.add("requested_designation");
-  }
-
-  if (!accountRequestColumns.has("requested_mobile_no")) {
-    await pool.query("ALTER TABLE account_requests ADD COLUMN requested_mobile_no VARCHAR(50) NULL AFTER requested_designation");
-    accountRequestColumns.add("requested_mobile_no");
-  }
-
-  if (!accountRequestColumns.has("requested_off_ext")) {
-    await pool.query("ALTER TABLE account_requests ADD COLUMN requested_off_ext VARCHAR(50) NULL AFTER requested_mobile_no");
-    accountRequestColumns.add("requested_off_ext");
-  }
-
-  if (!accountRequestColumns.has("dean_approved_date")) {
-    await pool.query("ALTER TABLE account_requests ADD COLUMN dean_approved_date TIMESTAMP NULL AFTER dept_head_approved_by_id");
-    accountRequestColumns.add("dean_approved_date");
-  }
-
-  if (!accountRequestColumns.has("dean_approved_by_id")) {
-    await pool.query("ALTER TABLE account_requests ADD COLUMN dean_approved_by_id INT NULL AFTER dean_approved_date");
-    accountRequestColumns.add("dean_approved_by_id");
-  }
+  await addAccountRequestColumnIfMissing(
+    accountRequestColumns,
+    "requested_password",
+    "VARCHAR(255) NULL",
+    "requested_department_id"
+  );
+  await addAccountRequestColumnIfMissing(
+    accountRequestColumns,
+    "requested_designation",
+    "VARCHAR(255) NULL",
+    "requested_password"
+  );
+  await addAccountRequestColumnIfMissing(
+    accountRequestColumns,
+    "requested_mobile_no",
+    "VARCHAR(50) NULL",
+    "requested_designation"
+  );
+  await addAccountRequestColumnIfMissing(
+    accountRequestColumns,
+    "requested_off_ext",
+    "VARCHAR(50) NULL",
+    "requested_mobile_no"
+  );
+  await addAccountRequestColumnIfMissing(
+    accountRequestColumns,
+    "dept_head_approved_by_id",
+    "INT NULL",
+    "dept_head_approved_date"
+  );
+  await addAccountRequestColumnIfMissing(
+    accountRequestColumns,
+    "dean_approved_date",
+    "TIMESTAMP NULL",
+    "dept_head_approved_by_id"
+  );
+  await addAccountRequestColumnIfMissing(
+    accountRequestColumns,
+    "dean_approved_by_id",
+    "INT NULL",
+    "dean_approved_date"
+  );
+  await addAccountRequestColumnIfMissing(
+    accountRequestColumns,
+    "request_reason",
+    "VARCHAR(500) NULL",
+    accountRequestColumns.has("rejection_date") ? "rejection_date" : "rejection_reason"
+  );
+  await addAccountRequestColumnIfMissing(
+    accountRequestColumns,
+    "submitted_by_role",
+    "VARCHAR(50) NULL",
+    accountRequestColumns.has("request_reason") ? "request_reason" : "user_id"
+  );
 
   return accountRequestColumns;
 };
@@ -994,6 +1130,35 @@ const ensureInventoryCreationRequestsTable = async () => {
     const afterClause = inventoryRequestColumns.has("admin_approved_date") ? "AFTER admin_approved_date" : "";
     await pool.query(`ALTER TABLE inventory_creation_requests ADD COLUMN admin_approved_by_id INT NULL ${afterClause}`);
     inventoryRequestColumns.add("admin_approved_by_id");
+  }
+
+  if (!inventoryRequestColumns.has("submitted_by_role")) {
+    const afterClause = inventoryRequestColumns.has("requested_by_id") ? "AFTER requested_by_id" : "";
+    await pool.query(`ALTER TABLE inventory_creation_requests ADD COLUMN submitted_by_role VARCHAR(50) NULL ${afterClause}`);
+    inventoryRequestColumns.add("submitted_by_role");
+  }
+
+  if (inventoryRequestColumns.has("submitted_by_role") && inventoryRequestColumns.has("requested_by_id")) {
+    const schema = await getAuthSchema();
+    const userIdColumn = schema.userColumns.has("id") ? "id" : "user_id";
+    const requesterAdminMatch = buildRequesterIsAdminSql(schema).replace(/\brb\./g, "u.").replace(/\brbur\./g, "ur.");
+
+    if (requesterAdminMatch !== "0 = 1") {
+      const roleJoin = !schema.userColumns.has("role") && schema.hasUserRolesTable
+        ? "LEFT JOIN user_roles ur ON ur.role_id = u.role_id"
+        : "";
+
+      await pool.query(
+        `
+          UPDATE inventory_creation_requests icr
+          INNER JOIN users u ON u.${userIdColumn} = icr.requested_by_id
+          ${roleJoin}
+          SET icr.submitted_by_role = 'admin'
+          WHERE icr.submitted_by_role IS NULL
+            AND ${requesterAdminMatch}
+        `
+      );
+    }
   }
 
   return inventoryRequestColumns;
@@ -1287,9 +1452,28 @@ app.get(
     const departmentIdFilter = Number(req.query?.departmentId ?? 0);
     const approvalStatusFilter = String(req.query?.approvalStatus ?? "").trim().toLowerCase();
     const requestTypeFilter = String(req.query?.requestType ?? "").trim().toLowerCase();
+    const adminQueue = String(req.query?.adminQueue ?? "").trim().toLowerCase() === "true";
+    const inchargeUserId = Number(req.query?.inchargeUserId ?? 0);
+    const requestedByUserId = Number(req.query?.requestedByUserId ?? req.query?.userId ?? 0);
+    const pendingOnly = String(req.query?.pendingOnly ?? "").trim().toLowerCase() === "true";
     const hasHodFilter = Number.isInteger(hodUserId) && hodUserId > 0 && inventoryRequestColumns.has("hod_user_id");
+    const hasInchargeFilter =
+      Number.isInteger(inchargeUserId) &&
+      inchargeUserId > 0 &&
+      inventoryRequestColumns.has("incharge_user_id");
+    const hasRequestedByFilter =
+      Number.isInteger(requestedByUserId) &&
+      requestedByUserId > 0 &&
+      inventoryRequestColumns.has("requested_by_id");
 
-    if (!hasHodFilter && !approvalStatusFilter && !requestTypeFilter) {
+    if (
+      !hasHodFilter &&
+      !approvalStatusFilter &&
+      !requestTypeFilter &&
+      !adminQueue &&
+      !hasInchargeFilter &&
+      !hasRequestedByFilter
+    ) {
       return res.json({ success: true, requests: [] });
     }
 
@@ -1326,12 +1510,81 @@ app.get(
       params.push(requestTypeFilter);
     }
 
+    if (hasInchargeFilter || hasRequestedByFilter) {
+      const staffIdentityParts = [];
+
+      if (hasInchargeFilter) {
+        staffIdentityParts.push("icr.incharge_user_id = ?");
+        params.push(inchargeUserId);
+      }
+
+      if (hasRequestedByFilter) {
+        staffIdentityParts.push("icr.requested_by_id = ?");
+        params.push(requestedByUserId);
+      }
+
+      whereParts.push(
+        staffIdentityParts.length > 1
+          ? `(${staffIdentityParts.join(" OR ")})`
+          : staffIdentityParts[0]
+      );
+
+      if (pendingOnly) {
+        if (inventoryRequestColumns.has("created_inventory_id")) {
+          whereParts.push("(icr.created_inventory_id IS NULL OR icr.created_inventory_id = 0)");
+        }
+        if (inventoryRequestColumns.has("approval_status")) {
+          whereParts.push("LOWER(COALESCE(icr.approval_status, '')) NOT IN ('rejected')");
+        }
+      }
+    }
+
+    if (adminQueue && inventoryRequestColumns.has("approval_status")) {
+      const inProgressStatuses = ["pending_hod", "pending_staff", "pending_registrar", "approved_by_hod"];
+      const inProgressPlaceholders = inProgressStatuses.map(() => "?").join(", ");
+      const inProgressDbStatuses = inProgressStatuses.map((status) => toDbInventoryApprovalStatus(status));
+      const adminUserIds = await getAdminUserIds(schema);
+      const adminIdentityParts = [];
+
+      if (inventoryRequestColumns.has("submitted_by_role")) {
+        adminIdentityParts.push("LOWER(COALESCE(icr.submitted_by_role, '')) = 'admin'");
+      }
+
+      if (adminUserIds.length > 0 && inventoryRequestColumns.has("requested_by_id")) {
+        adminIdentityParts.push(
+          `icr.requested_by_id IN (${adminUserIds.map(() => "?").join(", ")})`
+        );
+      }
+
+      const adminIdentityMatch = adminIdentityParts.length > 0
+        ? `(${adminIdentityParts.join(" OR ")})`
+        : "0 = 1";
+
+      whereParts.push(
+        `(
+          LOWER(COALESCE(icr.approval_status, '')) = ?
+          OR (
+            ${adminIdentityMatch}
+            AND LOWER(COALESCE(icr.approval_status, '')) IN (${inProgressPlaceholders})
+          )
+        )`
+      );
+      params.push(
+        toDbInventoryApprovalStatus("pending_admin"),
+        ...adminUserIds,
+        ...inProgressDbStatuses
+      );
+    }
+
     const requestedDateCol = inventoryRequestColumns.has("requested_date") ? "icr.requested_date" : "icr.created_date";
     const nameCol = inventoryRequestColumns.has("name") ? "icr.name" : "''";
     const locationCol = inventoryRequestColumns.has("location") ? "icr.location" : "NULL";
     const reasonCol = inventoryRequestColumns.has("reason") ? "icr.reason" : "NULL";
     const requestTypeCol = inventoryRequestColumns.has("request_type") ? "icr.request_type" : "'new_inventory_creation'";
     const statusCol = inventoryRequestColumns.has("approval_status") ? "icr.approval_status" : "'pending_hod'";
+    const submittedByRoleCol = inventoryRequestColumns.has("submitted_by_role")
+      ? "icr.submitted_by_role"
+      : "NULL AS submitted_by_role";
     const deptIdCol = inventoryRequestColumns.has("department_id") ? "icr.department_id" : "NULL";
     const requestedByCol = inventoryRequestColumns.has("requested_by_id") ? "icr.requested_by_id" : "NULL";
     const inchargeCol = inventoryRequestColumns.has("incharge_user_id") ? "icr.incharge_user_id" : "NULL";
@@ -1343,6 +1596,14 @@ app.get(
     const requesterJoin = inventoryRequestColumns.has("requested_by_id")
       ? `LEFT JOIN users rb ON rb.${userIdColumn} = icr.requested_by_id`
       : "";
+    const requesterRoleJoin = usesUserRolesForRequester(schema)
+      ? "LEFT JOIN user_roles rbur ON rbur.role_id = rb.role_id"
+      : "";
+    const requesterRoleSelection = schema.userColumns.has("role")
+      ? "rb.role AS requester_role"
+      : usesUserRolesForRequester(schema)
+        ? "rbur.user_role AS requester_role"
+        : "NULL AS requester_role";
     const inchargeJoin = inventoryRequestColumns.has("incharge_user_id")
       ? `LEFT JOIN users inch ON inch.${userIdColumn} = icr.incharge_user_id`
       : "";
@@ -1367,6 +1628,9 @@ app.get(
     const hodApprovedDateSelect = inventoryRequestColumns.has("hod_approved_date")
       ? "icr.hod_approved_date"
       : "NULL AS hod_approved_date";
+    const createdInventoryIdSelect = inventoryRequestColumns.has("created_inventory_id")
+      ? "icr.created_inventory_id"
+      : "NULL AS created_inventory_id";
 
     const [rows] = await pool.execute(
       `
@@ -1383,13 +1647,17 @@ app.get(
           ${inchargeNameSelect},
           ${hodApprovedBySelect},
           ${hodApprovedDateSelect},
+          ${createdInventoryIdSelect},
           ${requestTypeCol} AS request_type,
           ${statusCol} AS approval_status,
           ${reasonCol} AS reason,
-          ${requestedDateCol} AS requested_date
+          ${requestedDateCol} AS requested_date,
+          ${requesterRoleSelection},
+          ${submittedByRoleCol}
         FROM inventory_creation_requests icr
         ${departmentJoin}
         ${requesterJoin}
+        ${requesterRoleJoin}
         ${inchargeJoin}
         ${hodApproverJoin}
         WHERE ${whereParts.join(" AND ")}
@@ -1418,7 +1686,11 @@ app.get(
         hodApprovedDate: row.hod_approved_date
           ? new Date(row.hod_approved_date).toISOString().split("T")[0]
           : "",
+        createdInventoryId: row.created_inventory_id ?? null,
         reason: row.reason || "",
+        submittedByRole: normalizeUserRole(row.submitted_by_role || row.requester_role || ""),
+        isAdminSubmitted: isAdminRole(row.submitted_by_role || row.requester_role || ""),
+        canAdminAct: fromDbInventoryApprovalStatus(row.approval_status || "pending_hod") === "pending_admin",
       })),
     });
   })
@@ -1517,6 +1789,7 @@ app.get(
     const requestTypes = typeList.length > 0 ? typeList : ["account_creation"];
     const requestedRoleFilter = String(req.query?.requestedRole ?? "").trim().toLowerCase();
     const statusFilter = String(req.query?.status ?? "").trim().toLowerCase();
+    const adminQueue = String(req.query?.adminQueue ?? "").trim().toLowerCase() === "true";
     const userIdColumn = schema.userColumns.has("id") ? "u.id" : "u.user_id";
     const userNameColumn = schema.userColumns.has("name") ? "u.name" : "u.full_name";
     const roleSelection = schema.userColumns.has("role")
@@ -1569,6 +1842,25 @@ app.get(
       queryParams.push(statusFilter);
     }
 
+    if (adminQueue && accountRequestColumns.has("approval_status")) {
+      const submittedByRoleClause = accountRequestColumns.has("submitted_by_role")
+        ? "LOWER(COALESCE(ar.submitted_by_role, '')) = 'admin'"
+        : "0 = 1";
+      whereClauses.push(
+        `(
+          LOWER(COALESCE(ar.approval_status, '')) = 'pending_admin'
+          OR (
+            ${submittedByRoleClause}
+            AND LOWER(COALESCE(ar.approval_status, '')) IN ('pending_dept_head', 'pending_dean')
+          )
+        )`
+      );
+    }
+
+    const submittedByRoleSelect = accountRequestColumns.has("submitted_by_role")
+      ? "ar.submitted_by_role"
+      : "NULL AS submitted_by_role";
+
     const [rows] = await pool.execute(
       `
         SELECT
@@ -1589,7 +1881,8 @@ app.get(
           ${departmentNameColumn} AS department_name,
           ${designationSelection},
           u.status,
-          ${accountRequestColumns.has("dept_head_approved_by_id") ? `dh.${schema.userColumns.has("name") ? "name" : "full_name"}` : "NULL"} AS dept_head_approver_name
+          ${accountRequestColumns.has("dept_head_approved_by_id") ? `dh.${schema.userColumns.has("name") ? "name" : "full_name"}` : "NULL"} AS dept_head_approver_name,
+          ${submittedByRoleSelect}
         FROM account_requests ar
         ${userJoin}
         ${roleJoin}
@@ -1620,6 +1913,8 @@ app.get(
         requestedDate: row.requested_date ? new Date(row.requested_date).toISOString().split("T")[0] : "",
         requestedByDeptHead: row.dept_head_approver_name || "-",
         userStatus: String(row.status || "inactive").toLowerCase(),
+        submittedByRole: normalizeUserRole(row.submitted_by_role || ""),
+        canAdminAct: String(row.approval_status || "pending_dept_head").toLowerCase() === "pending_admin",
       })),
     });
   })
@@ -2953,9 +3248,18 @@ app.post(
         requestInsertValues.push(requiresDeanApproval ? "pending_dean" : "pending_dept_head");
       }
 
+      if (accountRequestColumns.has("submitted_by_role") && isAdminManagedSignup) {
+        requestInsertColumns.push("submitted_by_role");
+        requestInsertValues.push("admin");
+      }
+
       if (accountRequestColumns.has("request_reason")) {
         requestInsertColumns.push("request_reason");
-        requestInsertValues.push(`Signup requested with target role: ${requestedRole}`);
+        requestInsertValues.push(
+          isAdminManagedSignup
+            ? `Administrator submitted account request for ${requestedRole.replace(/_/g, " ")}.`
+            : `Signup requested with target role: ${requestedRole}`
+        );
       }
 
       const requestPlaceholders = requestInsertColumns.map(() => "?").join(", ");
@@ -2970,7 +3274,9 @@ app.post(
           ? "Admin account request submitted successfully. Your account will stay pending until dean and admin approval."
           : requiresDeanApproval
             ? "Account request submitted successfully. Your account will stay pending until dean and admin approval."
-            : "Staff account request submitted successfully. Your account will stay pending until HOD review and admin activation.",
+            : isAdminManagedSignup
+              ? "Account request submitted for HOD review. It is listed under User Management → Pending Approvals; approve or reject will be available after the HOD approves."
+              : "Staff account request submitted successfully. Your account will stay pending until HOD review and admin activation.",
         request: {
           id: requestResult.insertId,
           name: fullName,
@@ -2979,6 +3285,7 @@ app.post(
           department,
           designation,
           approvalStatus: requiresDeanApproval ? "pending_dean" : "pending_dept_head",
+          submittedByRole: isAdminManagedSignup ? "admin" : "",
           adminRequest,
         },
       });
@@ -3843,6 +4150,7 @@ app.post(
       return res.status(400).json({ success: false, message: "No active Head of Department is assigned to the selected department." });
     }
 
+    const requesterRole = await resolveRequestingUserRole(schema, requestedById);
     const insertColumns = ["name", "department_id", "requested_by_id", "approval_status"];
     const insertValues = [name, departmentId, requestedById, toDbInventoryApprovalStatus("pending_hod")];
 
@@ -3871,19 +4179,30 @@ app.post(
       insertValues.push(reason);
     }
 
+    if (inventoryRequestColumns.has("submitted_by_role") && requesterRole) {
+      insertColumns.push("submitted_by_role");
+      insertValues.push(isAdminRole(requesterRole) ? "admin" : normalizeRoleForStorage(requesterRole));
+    }
+
     const placeholders = insertColumns.map(() => "?").join(", ");
     const [result] = await pool.execute(
       `INSERT INTO inventory_creation_requests (${insertColumns.join(", ")}) VALUES (${placeholders})`,
       insertValues
     );
 
+    const isAdminSubmitted = requesterRole === "admin";
+
     return res.status(201).json({
       success: true,
-      message: normalizedRequestType === "add_inventory"
-        ? "Inventory addition request submitted to your Head of Department for approval. After HOD approval, it will be forwarded to the administrator for activation."
-        : "New inventory creation request submitted for HOD review. After HOD approval, it will proceed to registrar and admin approval.",
+      message: isAdminSubmitted
+        ? "Inventory request submitted for HOD review. It is listed under Inventory Management → Creation Requests; approve or reject will be available after required approvals."
+        : normalizedRequestType === "add_inventory"
+          ? "Inventory addition request submitted to your Head of Department for approval. After HOD approval, it will be forwarded to the administrator for activation."
+          : "New inventory creation request submitted for HOD review. After HOD approval, it will proceed to registrar and admin approval.",
       requestId: result.insertId,
       requestType: normalizedRequestType,
+      approvalStatus: "pending_hod",
+      submittedByRole: requesterRole || "",
     });
   })
 );

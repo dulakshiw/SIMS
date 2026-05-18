@@ -11,6 +11,8 @@ const Table = ({
   paginated = true,
   itemsPerPage = 10,
   onRowClick,
+  getRowActions,
+  pendingActionLabel = "Awaiting prior approval",
   loading = false,
   className = "",
 }) => {
@@ -120,7 +122,7 @@ const Table = ({
                       </div>
                     </th>
                   ))}
-                  {actions && <th className="px-6 py-4 text-left text-sm font-semibold text-text-dark">Actions</th>}
+                  {(actions || getRowActions) && <th className="px-6 py-4 text-left text-sm font-semibold text-text-dark">Actions</th>}
                 </tr>
               </thead>
               <tbody>
@@ -135,20 +137,30 @@ const Table = ({
                         {col.render ? col.render(row[col.field], row) : row[col.field]}
                       </td>
                     ))}
-                    {actions && (
+                    {(actions || getRowActions) && (
                       <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex gap-2">
-                          {actions.map((action, actionIndex) => (
-                            <Button
-                              key={actionIndex}
-                              variant="ghost"
-                              size="sm"
-                              icon={action.icon}
-                              onClick={() => action.onClick && action.onClick(row)}
-                              title={action.label}
-                            />
-                          ))}
-                        </div>
+                        {(() => {
+                          const rowActions = getRowActions ? getRowActions(row) : actions;
+                          if (!rowActions?.length) {
+                            return (
+                              <span className="text-xs text-text-light">{pendingActionLabel}</span>
+                            );
+                          }
+                          return (
+                            <div className="flex gap-2">
+                              {rowActions.map((action, actionIndex) => (
+                                <Button
+                                  key={actionIndex}
+                                  variant="ghost"
+                                  size="sm"
+                                  icon={action.icon}
+                                  onClick={() => action.onClick && action.onClick(row)}
+                                  title={action.label}
+                                />
+                              ))}
+                            </div>
+                          );
+                        })()}
                       </td>
                     )}
                   </tr>

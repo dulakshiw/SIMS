@@ -184,7 +184,7 @@ const CreateUser = () => {
 
       // Reset form after successful submission
       setTimeout(() => {
-        navigate('/admin/users')
+        navigate('/admin/users', { state: { activeTab: 'pending-approvals' } })
       }, 2000)
     } catch (error) {
       setSubmitError(error.message || 'Failed to submit account request.')
@@ -208,7 +208,7 @@ const CreateUser = () => {
         {/* Info Card */}
         <Card>
           <div className="rounded bg-blue-50 px-4 py-3 text-sm text-blue-800 border border-blue-200">
-            This will create an account request that requires approval from department head and admin.
+            Submitted requests appear under User Management → Pending Approvals immediately and start with HOD review. Approve and reject actions become available there after the HOD (and dean, when required) approves.
           </div>
         </Card>
 

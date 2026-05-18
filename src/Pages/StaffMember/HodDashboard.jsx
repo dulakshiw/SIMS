@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import MainLayout from '../../Components/Layouts/MainLayout';
-import { Badge, Button, Card, PageHeader, Table } from '../../Components/UI';
+import { Badge, Button, Card, Modal, PageHeader, Table } from '../../Components/UI';
 import {
   ACCOUNT_REQUEST_STATUS,
   ACCOUNT_REQUEST_STATUS_META,
   INVENTORY_REQUEST_STATUS_META,
   INVENTORY_REQUEST_TYPE_LABELS,
+  ROLE_HIERARCHY,
 } from '../../utils/constants';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
@@ -62,6 +63,13 @@ const mapPendingRows = (rows) => {
   return sorted.map((row, index) => ({ ...row, rowNo: index + 1 }));
 };
 
+const formatDetailValue = (value) => {
+  if (value === 0) {
+    return '0';
+  }
+  return value || '—';
+};
+
 const HodDashboard = () => {
   const [currentUser, setCurrentUser] = useState(getStoredUser);
   const [accountRequests, setAccountRequests] = useState([]);
@@ -71,6 +79,8 @@ const HodDashboard = () => {
   const [error, setError] = useState('');
   const [inventoryLoadError, setInventoryLoadError] = useState('');
   const [activeReviewTab, setActiveReviewTab] = useState('accounts');
+  const [selectedReviewRow, setSelectedReviewRow] = useState(null);
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
 
   const departmentName = getDepartmentName(currentUser);
   const greeting = `${getTimeOfDayGreeting()} ${getLastName(currentUser.name || localStorage.getItem('username') || 'User')}`;
@@ -324,6 +334,8 @@ const HodDashboard = () => {
         request.id,
         isApprove ? ACCOUNT_REQUEST_STATUS.PENDING_ADMIN : ACCOUNT_REQUEST_STATUS.REJECTED
       );
+      setIsDetailModalOpen(false);
+      setSelectedReviewRow(null);
     } catch (actionError) {
       window.alert(actionError.message || `Failed to ${actionType} request.`);
     } finally {
@@ -374,6 +386,8 @@ const HodDashboard = () => {
         request.id,
         isApprove ? String(data.approvalStatus || '').toLowerCase() : 'rejected'
       );
+      setIsDetailModalOpen(false);
+      setSelectedReviewRow(null);
     } catch (actionError) {
       window.alert(actionError.message || `Failed to ${actionType} inventory request.`);
     } finally {
@@ -382,6 +396,9 @@ const HodDashboard = () => {
   };
 
   const handleAction = (row, actionType) => {
+    if (!row) {
+      return;
+    }
     if (row.source === 'account') {
       handleAccountAction(row._account, actionType);
       return;
@@ -389,18 +406,99 @@ const HodDashboard = () => {
     handleInventoryAction(row._inventory, actionType);
   };
 
-  const actions = [
-    {
-      label: 'Approve',
-      icon: 'check_circle',
-      onClick: (row) => handleAction(row, 'approve'),
-    },
-    {
-      label: 'Reject',
-      icon: 'cancel',
-      onClick: (row) => handleAction(row, 'reject'),
-    },
-  ];
+  const closeDetailModal = () => {
+    if (actionLoadingKey !== null) {
+      return;
+    }
+    setIsDetailModalOpen(false);
+    setSelectedReviewRow(null);
+  };
+
+  const handleViewRowDetails = (row) => {
+    setSelectedReviewRow(row);
+    setIsDetailModalOpen(true);
+  };
+
+  const buildAccountDetailFields = (request) => {
+    const isDeactivation = request.requestType === 'deactivation';
+    const statusConfig = ACCOUNT_REQUEST_STATUS_META[request.approvalStatus] || {
+      label: request.approvalStatus,
+    };
+
+    return [
+      {
+        label: 'Request type',
+        value: ACCOUNT_REQUEST_LABELS[request.requestType] || request.requestType,
+      },
+      { label: 'Name', value: request.name },
+      { label: 'Email', value: request.email },
+      {
+        label: isDeactivation ? 'Current role' : 'Requested role',
+        value: ROLE_HIERARCHY[request.requestedRole]?.label || request.requestedRole,
+      },
+      { label: 'Department', value: request.department },
+      { label: 'Designation', value: request.designation },
+      { label: 'Mobile number', value: request.mobileNo },
+      { label: 'Office extension', value: request.officeExtNo },
+      ...(isDeactivation
+        ? [{
+          label: 'Current account status',
+          value: request.userStatus
+            ? request.userStatus.charAt(0).toUpperCase() + request.userStatus.slice(1)
+            : '—',
+        }]
+        : []),
+      { label: 'Requested date', value: request.requestedDate },
+      { label: 'Status', value: statusConfig.label },
+    ];
+  };
+
+  const buildInventoryDetailFields = (request) => {
+    const statusConfig = INVENTORY_REQUEST_STATUS_META[request.approvalStatus] || {
+      label: request.approvalStatus,
+    };
+    const typeLabel = INVENTORY_REQUEST_TYPE_LABELS[request.requestType] || request.requestType;
+
+    return [
+      { label: 'Request type', value: typeLabel },
+      { label: 'Inventory name', value: request.name },
+      { label: 'Department', value: request.department },
+      { label: 'Location', value: request.location },
+      { label: 'Requested by', value: request.requestedByName },
+      { label: 'Inventory officer', value: request.inchargeName },
+      { label: 'Requested date', value: request.requestedDate },
+      { label: 'Status', value: statusConfig.label },
+      { label: 'Reason', value: request.reason, fullWidth: true },
+    ];
+  };
+
+  const detailModalTitle = selectedReviewRow
+    ? (
+      selectedReviewRow.source === 'account'
+        ? `${ACCOUNT_REQUEST_LABELS[selectedReviewRow._account?.requestType] || 'Account'} request`
+        : `${INVENTORY_REQUEST_TYPE_LABELS[selectedReviewRow._inventory?.requestType] || 'Inventory'} request`
+    )
+    : 'Request details';
+
+  const detailModalSelectedName = selectedReviewRow
+    ? (
+      selectedReviewRow.source === 'account'
+        ? selectedReviewRow._account?.name
+        : selectedReviewRow._inventory?.name
+    )
+    : null;
+
+  const detailFields = selectedReviewRow
+    ? (
+      selectedReviewRow.source === 'account'
+        ? buildAccountDetailFields(selectedReviewRow._account)
+        : buildInventoryDetailFields(selectedReviewRow._inventory)
+    )
+    : [];
+
+  const isSelectedRowLoading = selectedReviewRow
+    ? actionLoadingKey === selectedReviewRow.queueKey
+    : false;
 
   const stats = [
     {
@@ -469,7 +567,10 @@ const HodDashboard = () => {
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
-                onClick={() => setActiveReviewTab('accounts')}
+                onClick={() => {
+                  setActiveReviewTab('accounts');
+                  closeDetailModal();
+                }}
                 className={`px-6 py-3 border-b-2 font-medium transition-colors ${
                   activeReviewTab === 'accounts'
                     ? 'border-primary-600 text-primary-600'
@@ -481,7 +582,10 @@ const HodDashboard = () => {
               </button>
               <button
                 type="button"
-                onClick={() => setActiveReviewTab('inventory')}
+                onClick={() => {
+                  setActiveReviewTab('inventory');
+                  closeDetailModal();
+                }}
                 className={`px-6 py-3 border-b-2 font-medium transition-colors ${
                   activeReviewTab === 'inventory'
                     ? 'border-primary-600 text-primary-600'
@@ -498,13 +602,67 @@ const HodDashboard = () => {
             key={activeReviewTab}
             columns={activeTabColumns}
             data={activeTabRows}
-            actions={actions}
+            onRowClick={handleViewRowDetails}
             searchable
             loading={loading}
             paginated={activeTabRows.length > 10}
             itemsPerPage={10}
           />
         </Card>
+
+        <Modal
+          isOpen={isDetailModalOpen}
+          onClose={closeDetailModal}
+          title={detailModalTitle}
+          size="lg"
+          footer={(
+            <div className="flex flex-wrap justify-end gap-3">
+              <Button variant="secondary" onClick={closeDetailModal} disabled={isSelectedRowLoading}>
+                Close
+              </Button>
+              <Button
+                variant="danger"
+                icon="cancel"
+                onClick={() => handleAction(selectedReviewRow, 'reject')}
+                disabled={isSelectedRowLoading}
+                loading={isSelectedRowLoading}
+              >
+                Reject
+              </Button>
+              <Button
+                variant="primary"
+                icon="check_circle"
+                onClick={() => handleAction(selectedReviewRow, 'approve')}
+                disabled={isSelectedRowLoading}
+                loading={isSelectedRowLoading}
+              >
+                Accept
+              </Button>
+            </div>
+          )}
+        >
+          <div className="space-y-4">
+            <div className="bg-background-light p-4 rounded-lg">
+              <p className="text-sm text-text-light">
+                {selectedReviewRow?.source === 'inventory' ? 'Inventory' : 'Applicant'}
+              </p>
+              <p className="text-lg font-semibold text-text-dark">{formatDetailValue(detailModalSelectedName)}</p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+              {detailFields.map((detail) => (
+                <div key={detail.label} className={detail.fullWidth ? 'md:col-span-2' : ''}>
+                  <p className="text-text-light">{detail.label}</p>
+                  <p className="font-semibold text-text-dark whitespace-pre-wrap">{formatDetailValue(detail.value)}</p>
+                </div>
+              ))}
+            </div>
+
+            <p className="text-xs text-text-light">
+              Accept to forward this request to the next step, or reject to decline it.
+            </p>
+          </div>
+        </Modal>
       </div>
     </MainLayout>
   );

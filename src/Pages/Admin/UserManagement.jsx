@@ -75,7 +75,7 @@ const UserManagement = () => {
     try {
       setAccountRequestsLoading(true);
       setAccountRequestsError("");
-      const response = await fetch(`${API_BASE_URL}/api/account-requests?requestType=account_creation`);
+      const response = await fetch(`${API_BASE_URL}/api/account-requests?requestType=account_creation&adminQueue=true`);
       const data = await response.json();
 
       if (!response.ok || !data.success) {
@@ -186,6 +186,12 @@ const UserManagement = () => {
       onClick: (row) => handleRejectAccount(row),
     },
   ];
+
+  useEffect(() => {
+    if (location.state?.activeTab === "pending-approvals") {
+      setActiveTab("pending-approvals");
+    }
+  }, [location.state?.activeTab]);
 
   useEffect(() => {
     loadUsers();
@@ -600,11 +606,12 @@ const UserManagement = () => {
 
   const filteredRequests = accountRequests.filter(
     (request) =>
-      request.approvalStatus === ACCOUNT_REQUEST_STATUS.PENDING_ADMIN &&
-      (
-        request.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        request.email.toLowerCase().includes(searchTerm.toLowerCase())
-      )
+      request.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      request.email.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const getAccountRequestActions = (row) => (
+    row.canAdminAct ? requestActions : []
   );
   const blockedAccountUserIds = new Set(
     accountRequests
@@ -618,9 +625,7 @@ const UserManagement = () => {
   const inactiveUsers = users.filter(
     (u) => u.status === "inactive" && !blockedAccountUserIds.has(Number(u.id))
   ).length;
-  const pendingRequests = accountRequests.filter(
-    (r) => r.approvalStatus === ACCOUNT_REQUEST_STATUS.PENDING_ADMIN
-  ).length;
+  const pendingRequests = accountRequests.length;
   const hideSummaryCards = location.state?.hideSummaryCards === true;
 
   const modalFooter = (
@@ -762,10 +767,27 @@ const UserManagement = () => {
           </Card>
         ) : (
           <Card>
+            <p className="mb-4 text-sm text-text-light bg-background-light p-3 rounded">
+              Includes admin-submitted user requests (from Create User) while they await HOD review, and all requests ready
+              for admin activation after HOD (and dean, when required) approval. Approve and reject are enabled only when
+              the request is awaiting admin activation.
+            </p>
             {accountRequestsLoading ? (
               <p className="text-sm text-text-light p-4">Loading account requests...</p>
+            ) : filteredRequests.length === 0 ? (
+              <div className="text-center py-10 text-text-light">
+                <span className="material-symbols-outlined text-5xl mb-2 block">check_circle</span>
+                No account requests awaiting admin activation
+              </div>
             ) : (
-              <Table columns={accountRequestColumns} data={filteredRequests} actions={requestActions} paginated itemsPerPage={10} />
+              <Table
+                columns={accountRequestColumns}
+                data={filteredRequests}
+                getRowActions={getAccountRequestActions}
+                pendingActionLabel="Awaiting HOD / dean approval"
+                paginated
+                itemsPerPage={10}
+              />
             )}
           </Card>
         )}
