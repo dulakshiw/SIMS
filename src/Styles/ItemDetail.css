@@ -1,0 +1,276 @@
+/* Screen: hide print-only elements */
+.item-detail-print-page-header,
+.item-detail-print-page-footer,
+.item-detail-print-item-heading,
+.item-detail-print-status,
+.item-detail-print-url {
+  display: none;
+}
+
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 16mm 8mm 14mm 8mm;
+  }
+
+  html,
+  body {
+    width: 100%;
+    height: auto;
+    background: #fff !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Print only the item detail sheet — single page */
+  body * {
+    visibility: hidden;
+  }
+
+  .item-detail-print-sheet,
+  .item-detail-print-sheet * {
+    visibility: visible;
+  }
+
+  .item-detail-print-sheet {
+    page-break-after: avoid;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  /* Hide app chrome (not print page header/footer) */
+  aside,
+  nav,
+  .header,
+  .footer,
+  .no-print,
+  .no-print * {
+    display: none !important;
+    visibility: hidden !important;
+  }
+
+  /* Reset layout wrappers */
+  .flex.h-screen,
+  .flex-1.flex.flex-col,
+  main,
+  .item-detail-print-root {
+    display: block !important;
+    height: auto !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+  }
+
+  .ml-64,
+  .ml-20 {
+    margin-left: 0 !important;
+  }
+
+  .max-w-7xl {
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .item-detail-print-sheet {
+    position: relative;
+    width: 100%;
+    padding-top: 12mm;
+    padding-bottom: 10mm;
+    max-height: 100vh;
+    overflow: hidden;
+  }
+
+  /* System header — fixed on every printed page */
+  .item-detail-print-page-header {
+    display: flex !important;
+    align-items: center;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 12mm;
+    padding: 0 8mm;
+    background-color: #0b3b5b !important;
+    color: #fff !important;
+    box-shadow: none;
+    z-index: 10000;
+  }
+
+  .item-detail-print-page-header-title {
+    margin: 0;
+    font-size: 10pt;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    color: #fff !important;
+    line-height: 1.2;
+  }
+
+  /* Printed date/time — fixed footer */
+  .item-detail-print-page-footer {
+    display: flex !important;
+    align-items: center;
+    justify-content: flex-end;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 10mm;
+    padding: 0 8mm;
+    border-top: 1px solid #ccc;
+    background: #fff !important;
+    font-size: 8pt;
+    color: #444;
+    z-index: 10000;
+  }
+
+  .item-detail-print-area {
+    display: block !important;
+    position: relative;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 3mm !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    background: #fff !important;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  .item-detail-print-item-heading {
+    display: block !important;
+    margin-bottom: 2mm;
+    padding-bottom: 2mm;
+    border-bottom: 1px solid #ccc;
+  }
+
+  .item-detail-print-item-heading h1 {
+    font-size: 12pt;
+    font-weight: 700;
+    color: #111;
+    margin: 0 0 1mm;
+    line-height: 1.2;
+  }
+
+  .item-detail-print-item-heading p {
+    font-size: 8pt;
+    color: #444;
+    margin: 0;
+  }
+
+  /* Single-page 3-column layout for all fields */
+  .item-detail-print-content {
+    display: grid !important;
+    grid-template-columns: repeat(3, 1fr);
+    column-gap: 4mm;
+    row-gap: 2mm;
+    align-content: start;
+  }
+
+  .item-detail-print-content > .grid,
+  .item-detail-print-content > div:not(.item-detail-print-full-width) {
+    display: contents !important;
+  }
+
+  .item-detail-print-content .mt-8,
+  .item-detail-print-content .border-t,
+  .item-detail-print-content .pt-8 {
+    margin-top: 0 !important;
+    padding-top: 0 !important;
+    border-top: none !important;
+  }
+
+  .item-detail-print-full-width {
+    grid-column: 1 / -1;
+    margin-top: 1mm !important;
+    padding-top: 1mm !important;
+    border-top: 1px solid #ddd !important;
+  }
+
+  .item-detail-field {
+    break-inside: avoid;
+    page-break-inside: avoid;
+    min-width: 0;
+  }
+
+  .item-detail-field .space-y-3 {
+    display: flex;
+    flex-direction: column;
+    gap: 1mm;
+  }
+
+  .item-detail-print-area p.text-xs {
+    font-size: 6.5pt;
+    color: #555;
+    margin: 0 0 0.5mm;
+    line-height: 1.1;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+  }
+
+  .item-detail-print-area .text-sm,
+  .item-detail-print-area .item-detail-field > div {
+    font-size: 7.5pt;
+    color: #111;
+    line-height: 1.25;
+  }
+
+  .item-detail-print-area .font-mono {
+    font-size: 6.5pt;
+    word-break: break-all;
+    line-height: 1.2;
+  }
+
+  .item-detail-print-area img {
+    max-height: 18mm !important;
+    max-width: 18mm !important;
+    width: auto !important;
+    height: auto !important;
+    object-fit: contain;
+    padding: 0.5mm !important;
+    border: 1px solid #ccc !important;
+    border-radius: 0 !important;
+  }
+
+  .item-detail-print-area .max-h-64,
+  .item-detail-print-area .h-44,
+  .item-detail-print-area .w-44 {
+    max-height: 18mm !important;
+    max-width: 18mm !important;
+    height: auto !important;
+    width: auto !important;
+  }
+
+  .item-detail-print-full-width .whitespace-pre-wrap {
+    font-size: 7pt;
+    line-height: 1.25;
+    max-height: 12mm;
+    overflow: hidden;
+  }
+
+  .item-detail-print-hide {
+    display: none !important;
+  }
+
+  .item-detail-print-status,
+  .item-detail-print-url {
+    display: inline !important;
+    font-weight: 600;
+    word-break: break-all;
+    font-size: 7pt;
+  }
+
+  .item-detail-print-url {
+    font-weight: 400;
+  }
+
+  .item-detail-print-area .badge,
+  .item-detail-print-area [class*="Badge"] {
+    border: 1px solid #333 !important;
+    padding: 0.5mm 1mm !important;
+    font-size: 7pt !important;
+  }
+}

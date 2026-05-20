@@ -6,8 +6,17 @@ import fs from "fs";
 import path from "path";
 import multer from "multer";
 import { parse as csvParse } from "csv-parse/sync";
+import { sendAccountActivationEmail } from "./emailService.js";
 
 dotenv.config();
+
+const notifyAccountActivated = async ({ email, name }) => {
+  try {
+    await sendAccountActivationEmail({ email, name });
+  } catch (error) {
+    console.error("[email] Account activation notification failed:", error.message);
+  }
+};
 
 const app = express();
 const PORT = Number(process.env.PORT) || 4000;
@@ -68,6 +77,8 @@ if (!fs.existsSync(UPLOAD_DIR)) {
   fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 }
 
+app.use("/uploads", express.static(UPLOAD_DIR));
+
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, UPLOAD_DIR),
   filename: (req, file, cb) => {
@@ -80,27 +91,26 @@ const upload = multer({
   storage,
   limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    const allowedItemImageTypes = [
-      "application/pdf",
-      "image/png",
-      "image/jpeg",
-      "image/jpg",
-      "image/gif",
-      "image/webp",
-    ];
+    const allowedItemImageTypes = ["image/png", "image/jpeg", "image/jpg"];
+    const allowedItemImageExtensions = [".jpg", ".jpeg", ".png"];
 
     if (file.fieldname === "itemImage") {
-      if (allowedItemImageTypes.includes(file.mimetype) || file.mimetype.startsWith("image/")) {
+      const ext = path.extname(file.originalname).toLowerCase();
+      if (
+        allowedItemImageTypes.includes(file.mimetype) ||
+        allowedItemImageExtensions.includes(ext)
+      ) {
         return cb(null, true);
       }
-      return cb(new Error("Item Image must be a PDF or image file."));
+      return cb(new Error("Item image must be a JPG, JPEG, or PNG file."));
     }
 
     if (file.fieldname === "ginfile") {
-      if (file.mimetype === "application/pdf") {
+      const ext = path.extname(file.originalname).toLowerCase();
+      if (file.mimetype === "application/pdf" || ext === ".pdf") {
         return cb(null, true);
       }
-      return cb(new Error("GIN PDF must be a PDF file."));
+      return cb(new Error("GIN PDF must be a .pdf file."));
     }
 
     cb(null, false);
@@ -146,8 +156,14 @@ const normalizeItemPayload = (payload = {}) => ({
   QRCode2: payload.QRCode2 ?? payload.qrcode2 ?? "",
   pageno: payload.pageno ?? "",
   itemImage: payload.itemImage ?? payload.itemimage ?? "",
-  value: payload.value ?? "",
-  purchaseDate: payload.purchaseDate ?? payload.purchasedate ?? null,
+  value:
+    payload.value === "" || payload.value == null
+      ? null
+      : Number.isFinite(Number(payload.value))
+        ? Number(payload.value)
+        : null,
+  purchaseDate:
+    String(payload.purchaseDate ?? payload.purchasedate ?? "").trim() || null,
   ginNo: payload.ginNo ?? payload.ginno ?? "",
   ginfile: payload.ginfile ?? "",
   poNo: payload.poNo ?? payload.pono ?? "",
@@ -161,7 +177,155 @@ const normalizeItemPayload = (payload = {}) => ({
   qrcode2Url: payload.qrcode2Url ?? payload.QRCode2Url ?? "",
 });
 
-const buildInsertValues = (item) => itemColumns.map((column) => item[column]);
+const ITEM_DB_COLUMN_ALIASES = {
+  inventory_id: ["inventory_id"],
+  itemName: ["itemName", "item_name"],
+  itemCode: ["itemCode", "item_code"],
+  serialNo: ["serialNo", "serial_no"],
+  serialNo2: ["serialNo2", "serial_no2"],
+  model: ["model"],
+  QRCode: ["QRCode", "qr_code", "qrcode"],
+  QRCode2: ["QRCode2", "qr_code2", "qrcode2"],
+  pageno: ["pageno", "page_no"],
+  itemImage: ["itemImage", "item_image"],
+  value: ["value"],
+  purchaseDate: ["purchaseDate", "purchase_date"],
+  ginNo: ["ginNo", "gin_no"],
+  ginfile: ["ginfile", "gin_file"],
+  poNo: ["poNo", "po_no"],
+  supplier: ["supplier"],
+  funding: ["funding"],
+  receivedfrom: ["receivedfrom", "received_from"],
+  warranty: ["warranty"],
+  location: ["location"],
+  remarks: ["remarks"],
+  qrcodeUrl: ["qrcodeUrl", "qrcode_url"],
+  qrcode2Url: ["qrcode2Url", "qrcode2_url"],
+};
+
+const getItemInsertSpec = (dbColumns) => {
+  const spec = [];
+  for (const logicalKey of itemColumns) {
+    const aliases = ITEM_DB_COLUMN_ALIASES[logicalKey] || [logicalKey];
+    for (const alias of aliases) {
+      if (dbColumns.has(alias)) {
+        spec.push({ column: alias, logicalKey });
+      }
+    }
+  }
+  return spec;
+};
+
+const buildInsertValues = (item, insertSpec) =>
+  insertSpec.map(({ logicalKey }) => {
+    const value = item[logicalKey];
+    if (value === "") {
+      return null;
+    }
+    return value ?? null;
+  });
+
+const buildItemUpdateAssignments = (item, insertSpec) => {
+  const assignments = [];
+  const values = [];
+
+  for (const { column, logicalKey } of insertSpec) {
+    assignments.push(`${column} = ?`);
+    const value = item[logicalKey];
+    values.push(value === "" ? null : value ?? null);
+  }
+
+  return { assignments, values };
+};
+
+const applyItemUploadPayload = (req, payload = {}) => {
+  const nextPayload = { ...payload };
+
+  if (req.files && req.files.itemImage && req.files.itemImage[0]) {
+    nextPayload.itemImage = `/uploads/${req.files.itemImage[0].filename}`;
+  } else if (
+    typeof req.body.existingItemImage === "string" &&
+    req.body.existingItemImage.trim().startsWith("/uploads/")
+  ) {
+    nextPayload.itemImage = req.body.existingItemImage.trim();
+  }
+
+  if (req.files && req.files.ginfile && req.files.ginfile[0]) {
+    nextPayload.ginfile = `/uploads/${req.files.ginfile[0].filename}`;
+  } else if (
+    typeof req.body.existingGinfile === "string" &&
+    req.body.existingGinfile.trim().startsWith("/uploads/")
+  ) {
+    nextPayload.ginfile = req.body.existingGinfile.trim();
+  }
+
+  return nextPayload;
+};
+
+const resolveDbColumn = (dbColumns, aliases) =>
+  aliases.find((alias) => dbColumns.has(alias)) || null;
+
+const getItemIdColumn = (dbColumns) => resolveDbColumn(dbColumns, ["id", "item_id"]) || "item_id";
+
+const getItemsOrderClause = (dbColumns) => {
+  const idColumn = getItemIdColumn(dbColumns);
+  if (dbColumns.has("updated_at")) {
+    return `updated_at DESC, ${idColumn} DESC`;
+  }
+  if (dbColumns.has("created_at")) {
+    return `created_at DESC, ${idColumn} DESC`;
+  }
+  return `${idColumn} DESC`;
+};
+
+const normalizeItemRow = (row = {}) => ({
+  ...row,
+  id: row.id ?? row.item_id,
+  inventory_id: row.inventory_id ?? null,
+  inventoryName: row.inventoryName ?? row.inventory_name ?? "",
+  itemName: row.itemName ?? row.item_name ?? "",
+  itemCode: row.itemCode ?? row.item_code ?? "",
+  serialNo: row.serialNo ?? row.serial_no ?? "",
+  serialNo2: row.serialNo2 ?? row.serial_no2 ?? "",
+  model: row.model ?? "",
+  QRCode: row.QRCode ?? row.qr_code ?? row.qrcode ?? "",
+  QRCode2: row.QRCode2 ?? row.qr_code2 ?? row.qrcode2 ?? "",
+  location: row.location ?? "",
+  status: row.status ?? "",
+  ginNo: row.ginNo ?? row.gin_no ?? "",
+  ginfile: row.ginfile ?? row.gin_file ?? "",
+  value: row.value ?? null,
+  purchaseDate: row.purchaseDate ?? row.purchase_date ?? null,
+  updated_at: row.updated_at ?? null,
+  created_at: row.created_at ?? null,
+});
+
+const findExistingGinFileByGinNo = async (ginNo) => {
+  const normalized = String(ginNo || "").trim();
+  if (!normalized) {
+    return "";
+  }
+
+  const dbColumns = await ensureInventoryItemsColumns();
+  const ginNoColumn = resolveDbColumn(dbColumns, ["ginNo", "gin_no"]);
+  const ginfileColumn = resolveDbColumn(dbColumns, ["ginfile", "gin_file"]);
+  if (!ginNoColumn || !ginfileColumn) {
+    return "";
+  }
+
+  const orderClause = getItemsOrderClause(dbColumns);
+  const [rows] = await pool.execute(
+    `SELECT ${ginfileColumn} AS ginfile FROM ${DB_ITEMS_TABLE}
+     WHERE LOWER(TRIM(${ginNoColumn})) = LOWER(?)
+       AND ${ginfileColumn} IS NOT NULL
+       AND TRIM(${ginfileColumn}) <> ''
+     ORDER BY ${orderClause}
+     LIMIT 1`,
+    [normalized]
+  );
+
+  return String(rows[0]?.ginfile || "").trim();
+};
 
 const createInventoryItemsTable = async () => {
   await pool.query(
@@ -818,20 +982,51 @@ const updateStoredUserStatus = async (schema, userId, nextStatus) => {
   await pool.execute(`UPDATE users SET status = ? WHERE ${idColumnName} = ?`, [nextStatus, normalizedUserId]);
 };
 
-const resolveDepartmentId = async (schema, departmentName) => {
-  if (!schema.hasDepartmentsTable || !departmentName) {
+const resolveDepartmentId = async (schema, departmentInput) => {
+  if (!schema.hasDepartmentsTable || departmentInput == null || departmentInput === "") {
     return null;
   }
 
   const departmentIdColumn = schema.departmentColumns.has("id") ? "id" : "department_id";
   const departmentNameColumn = schema.departmentColumns.has("name") ? "name" : "department_name";
+  const departmentCodeColumn = schema.departmentColumns.has("code") ? "code" : null;
+  const normalizedInput = String(departmentInput).trim();
+
+  if (!normalizedInput) {
+    return null;
+  }
+
+  const numericId = Number(normalizedInput);
+  if (Number.isInteger(numericId) && numericId > 0) {
+    const [idRows] = await pool.execute(
+      `SELECT ${departmentIdColumn} AS id FROM departments WHERE ${departmentIdColumn} = ? LIMIT 1`,
+      [numericId]
+    );
+
+    if (idRows[0]?.id) {
+      return idRows[0].id;
+    }
+  }
 
   const [departmentRows] = await pool.execute(
     `SELECT ${departmentIdColumn} AS id FROM departments WHERE LOWER(${departmentNameColumn}) = ? LIMIT 1`,
-    [String(departmentName).trim().toLowerCase()]
+    [normalizedInput.toLowerCase()]
   );
 
-  return departmentRows[0]?.id ?? null;
+  if (departmentRows[0]?.id) {
+    return departmentRows[0].id;
+  }
+
+  if (departmentCodeColumn) {
+    const [codeRows] = await pool.execute(
+      `SELECT ${departmentIdColumn} AS id FROM departments WHERE LOWER(${departmentCodeColumn}) = ? LIMIT 1`,
+      [normalizedInput.toLowerCase()]
+    );
+
+    return codeRows[0]?.id ?? null;
+  }
+
+  return null;
 };
 
 const resolveDepartmentHeadUserId = async (schema, departmentId) => {
@@ -2105,6 +2300,10 @@ app.post(
       updateValues.push(requestId);
       await pool.execute(`UPDATE account_requests SET ${updateAssignments.join(", ")} WHERE id = ?`, updateValues);
 
+      const activatedEmail = String(request.email || "").trim().toLowerCase();
+      const activatedName = String(request.requested_by_name || request.email || "").trim();
+      await notifyAccountActivated({ email: activatedEmail, name: activatedName });
+
       return res.json({
         success: true,
         message: appliedRole === "staff"
@@ -2112,8 +2311,8 @@ app.post(
           : `Account approved and activated with ${appliedRole.replace(/_/g, " ")} access.`,
         user: {
           id: resolvedUserId,
-          name: String(request.requested_by_name || request.email || "").trim(),
-          email: String(request.email || "").trim().toLowerCase(),
+          name: activatedName,
+          email: activatedEmail,
           role: appliedRole,
           status: "active",
           departmentId: request.requested_department_id ?? null,
@@ -2321,11 +2520,25 @@ app.patch(
       }
     }
 
+    const userIdColumn = schema.userColumns.has("id") ? "id" : "user_id";
+    const userNameColumn = schema.userColumns.has("name") ? "name" : "full_name";
+    const [userRows] = await pool.execute(
+      `SELECT email, ${userNameColumn} AS name FROM users WHERE ${userIdColumn} = ? LIMIT 1`,
+      [userId]
+    );
+
     await updateStoredUserStatus(
       schema,
       userId,
       schema.hasUserRolesTable ? (nextStatus === "active" ? "Active" : "Inactive") : nextStatus
     );
+
+    if (nextStatus === "active" && userRows[0]?.email) {
+      await notifyAccountActivated({
+        email: userRows[0].email,
+        name: userRows[0].name,
+      });
+    }
 
     return res.json({ success: true, message: `User marked as ${nextStatus}.` });
   })
@@ -2788,6 +3001,448 @@ app.put(
   })
 );
 
+const getAdminPendingTasksCount = async (tableNames) => {
+  if (!tableNames.has("users")) {
+    return 0;
+  }
+
+  const schema = await getAuthSchema();
+  const userIdColumn = getUserPrimaryKeyColumn(schema);
+  let pendingAccountApprovals = 0;
+  let pendingUserActivations = 0;
+  let pendingInventoryRequests = 0;
+
+  if (tableNames.has("account_requests")) {
+    const accountRequestColumns = await getTableColumns("account_requests");
+    const accountRequestTypeClause = accountRequestColumns.has("request_type")
+      ? "LOWER(COALESCE(request_type, 'account_creation')) IN ('account_creation', 'deactivation')"
+      : "1 = 1";
+    const joinedAccountRequestTypeClause = accountRequestColumns.has("request_type")
+      ? "LOWER(COALESCE(ar.request_type, 'account_creation')) IN ('account_creation', 'deactivation')"
+      : "1 = 1";
+
+    pendingAccountApprovals = await getCountValue(`
+      SELECT COUNT(*) AS count
+      FROM account_requests
+      WHERE ${accountRequestTypeClause}
+        AND LOWER(TRIM(COALESCE(approval_status, ''))) = 'pending_admin'
+    `);
+
+    if (accountRequestColumns.has("user_id")) {
+      pendingUserActivations = await getCountValue(`
+        SELECT COUNT(*) AS count
+        FROM users u
+        WHERE LOWER(COALESCE(u.status, '')) = 'inactive'
+          AND u.${userIdColumn} NOT IN (
+            SELECT ar.user_id
+            FROM account_requests ar
+            WHERE ar.user_id IS NOT NULL
+              AND ${joinedAccountRequestTypeClause}
+              AND LOWER(TRIM(COALESCE(ar.approval_status, ''))) != 'approved_by_admin'
+          )
+      `);
+    } else {
+      pendingUserActivations = await getCountValue(
+        "SELECT COUNT(*) AS count FROM users WHERE LOWER(COALESCE(status, '')) = 'inactive'"
+      );
+    }
+  } else {
+    pendingUserActivations = await getCountValue(
+      "SELECT COUNT(*) AS count FROM users WHERE LOWER(COALESCE(status, '')) = 'inactive'"
+    );
+  }
+
+  if (tableNames.has("inventory_creation_requests")) {
+    pendingInventoryRequests = await getCountValue(
+      "SELECT COUNT(*) AS count FROM inventory_creation_requests WHERE LOWER(TRIM(COALESCE(approval_status, ''))) = 'pending_admin'"
+    );
+  }
+
+  return pendingAccountApprovals + pendingUserActivations + pendingInventoryRequests;
+};
+
+const getRecentDashboardActivities = async (tableNames, limit = 10) => {
+  const activities = [];
+  const schema = await getAuthSchema();
+  const userNameColumn = schema.userColumns.has("name") ? "name" : "full_name";
+  const userIdColumn = schema.userColumns.has("id") ? "id" : "user_id";
+  const departmentNameColumn = schema.departmentColumns.has("name")
+    ? "d.name"
+    : schema.departmentColumns.has("department_name")
+      ? "d.department_name"
+      : null;
+
+  const pushActivity = (entry) => {
+    if (!entry?.message || !entry?.timestamp) {
+      return;
+    }
+
+    activities.push({
+      id: entry.id,
+      message: entry.message,
+      timestamp: new Date(entry.timestamp).toISOString(),
+      type: entry.type || "system",
+      category: entry.category || entry.type || "system",
+      entityId: entry.entityId ?? null,
+      link: entry.link || null,
+      tab: entry.tab || null,
+    });
+  };
+
+  const resolveAccountActivityNavigation = (approvalStatus) => {
+    const normalizedStatus = String(approvalStatus || "").toLowerCase();
+
+    if (normalizedStatus === "pending_admin") {
+      return { link: "/admin/pending-tasks", tab: "account-approvals" };
+    }
+
+    return { link: "/admin/users" };
+  };
+
+  const resolveInventoryRequestNavigation = (approvalStatus) => {
+    const normalizedStatus = String(approvalStatus || "").toLowerCase();
+
+    if (["pending_admin", "pending_registrar", "pending_hod"].includes(normalizedStatus)) {
+      return { link: "/admin/pending-tasks", tab: "inventory-requests" };
+    }
+
+    return { link: "/admin/inventory" };
+  };
+
+  if (tableNames.has("audit_logs")) {
+    const [auditRows] = await pool.query(
+      `
+        SELECT
+          al.id,
+          al.action,
+          al.entity_type,
+          al.timestamp,
+          u.${userNameColumn} AS user_name
+        FROM audit_logs al
+        LEFT JOIN users u ON u.${userIdColumn} = al.user_id
+        ORDER BY al.timestamp DESC
+        LIMIT ?
+      `,
+      [limit]
+    );
+
+    auditRows.forEach((row) => {
+      const actor = row.user_name ? ` by ${row.user_name}` : "";
+      pushActivity({
+        id: `audit-${row.id}`,
+        message: `${String(row.action || "Updated").replace(/_/g, " ")} ${row.entity_type || "record"}${actor}`,
+        timestamp: row.timestamp,
+        type: "audit",
+      });
+    });
+  }
+
+  if (tableNames.has("account_requests")) {
+    const accountRequestColumns = await getTableColumns("account_requests");
+    const requestedDateColumn = accountRequestColumns.has("requested_date") ? "ar.requested_date" : "ar.created_date";
+    const departmentJoin = schema.hasDepartmentsTable && departmentNameColumn
+      ? `LEFT JOIN departments d ON d.${schema.departmentColumns.has("id") ? "id" : "department_id"} = ar.requested_department_id`
+      : "";
+    const departmentSelect = departmentNameColumn ? `${departmentNameColumn} AS department_name` : "NULL AS department_name";
+
+    const [accountRows] = await pool.query(
+      `
+        SELECT
+          ar.id,
+          ${accountRequestColumns.has("request_type") ? "ar.request_type" : "'account_creation'"} AS request_type,
+          ${accountRequestColumns.has("requested_by_name") ? "ar.requested_by_name" : "NULL"} AS requested_by_name,
+          ${accountRequestColumns.has("email") ? "ar.email" : "NULL"} AS email,
+          ${accountRequestColumns.has("approval_status") ? "ar.approval_status" : "'pending_dept_head'"} AS approval_status,
+          ${requestedDateColumn} AS activity_date,
+          ${departmentSelect}
+        FROM account_requests ar
+        ${departmentJoin}
+        ORDER BY ${requestedDateColumn} DESC, ar.id DESC
+        LIMIT ?
+      `,
+      [limit]
+    );
+
+    accountRows.forEach((row) => {
+      const personName = row.requested_by_name || row.email || "User";
+      const requestType = String(row.request_type || "account_creation").toLowerCase();
+      const approvalStatus = String(row.approval_status || "").toLowerCase();
+      let message = `Account request submitted - ${personName}`;
+
+      if (requestType === "deactivation") {
+        if (approvalStatus === "approved_by_admin") {
+          message = `Account deactivation completed - ${personName}`;
+        } else if (approvalStatus === "rejected") {
+          message = `Account deactivation rejected - ${personName}`;
+        } else {
+          message = `Account deactivation requested - ${personName}`;
+        }
+      } else if (approvalStatus === "approved_by_admin") {
+        message = `New user registered - ${personName}`;
+      } else if (approvalStatus === "rejected") {
+        message = `Account request rejected - ${personName}`;
+      } else if (approvalStatus === "pending_admin") {
+        message = `Account request awaiting admin approval - ${personName}`;
+      }
+
+      const accountNavigation = resolveAccountActivityNavigation(approvalStatus);
+
+      pushActivity({
+        id: `account-request-${row.id}`,
+        message,
+        timestamp: row.activity_date,
+        type: "user",
+        category: "account_request",
+        entityId: row.id,
+        link: accountNavigation.link,
+        tab: accountNavigation.tab,
+      });
+    });
+  }
+
+  if (tableNames.has("users")) {
+    const userIdColumn = getUserPrimaryKeyColumn(schema);
+    const userNameColumn = schema.userColumns.has("name") ? "u.name" : "u.full_name";
+    const createdDateColumn = schema.userColumns.has("created_date")
+      ? "u.created_date"
+      : schema.userColumns.has("created_at")
+        ? "u.created_at"
+        : null;
+
+    if (createdDateColumn) {
+      const departmentJoin = schema.hasDepartmentsTable && departmentNameColumn
+        ? `LEFT JOIN departments d ON d.${schema.departmentColumns.has("id") ? "id" : "department_id"} = u.department_id`
+        : "";
+      const departmentSelect = departmentNameColumn ? `${departmentNameColumn} AS department_name` : "NULL AS department_name";
+
+      const [userRows] = await pool.query(
+        `
+          SELECT
+            u.${userIdColumn} AS id,
+            ${userNameColumn} AS name,
+            u.email,
+            u.status,
+            ${createdDateColumn} AS activity_date,
+            ${departmentSelect}
+          FROM users u
+          ${departmentJoin}
+          WHERE ${createdDateColumn} IS NOT NULL
+          ORDER BY ${createdDateColumn} DESC, u.${userIdColumn} DESC
+          LIMIT ?
+        `,
+        [limit]
+      );
+
+      userRows.forEach((row) => {
+        const personName = row.name || row.email || "User";
+        const status = String(row.status || "").toLowerCase();
+
+        pushActivity({
+          id: `user-${row.id}`,
+          message:
+            status === "active"
+              ? `New user registered - ${personName}`
+              : `User account created (inactive) - ${personName}`,
+          timestamp: row.activity_date,
+          type: "user",
+          category: "user",
+          entityId: row.id,
+          link: status === "inactive" ? "/admin/pending-tasks" : "/admin/users",
+          tab: status === "inactive" ? "user-activation" : null,
+        });
+      });
+    }
+  }
+
+  if (tableNames.has("inventory_creation_requests")) {
+    const inventoryRequestColumns = await getTableColumns("inventory_creation_requests");
+    const inventoryRequestIdColumn = getInventoryRequestPrimaryKeyColumn(inventoryRequestColumns);
+    const requestedDateColumn = inventoryRequestColumns.has("requested_date")
+      ? "icr.requested_date"
+      : "icr.created_date";
+    const departmentJoin = schema.hasDepartmentsTable && departmentNameColumn
+      ? `LEFT JOIN departments d ON d.${schema.departmentColumns.has("id") ? "id" : "department_id"} = icr.department_id`
+      : "";
+    const departmentSelect = departmentNameColumn ? `${departmentNameColumn} AS department_name` : "NULL AS department_name";
+
+    const [inventoryRequestRows] = await pool.query(
+      `
+        SELECT
+          icr.${inventoryRequestIdColumn} AS id,
+          icr.name,
+          icr.approval_status,
+          ${inventoryRequestColumns.has("request_type") ? "icr.request_type" : "'new_inventory_creation'"} AS request_type,
+          ${requestedDateColumn} AS activity_date,
+          ${departmentSelect}
+        FROM inventory_creation_requests icr
+        ${departmentJoin}
+        ORDER BY ${requestedDateColumn} DESC, icr.${inventoryRequestIdColumn} DESC
+        LIMIT ?
+      `,
+      [limit]
+    );
+
+    inventoryRequestRows.forEach((row) => {
+      const inventoryName = row.name || "Inventory";
+      const approvalStatus = String(row.approval_status || "").toLowerCase();
+      const requestType = String(row.request_type || "new_inventory_creation").toLowerCase();
+      let message = `Inventory request submitted - ${inventoryName}`;
+
+      if (approvalStatus === "process completed" || approvalStatus === "approved_by_admin") {
+        message =
+          requestType === "activate_existing_inventory"
+            ? `Inventory activated - ${inventoryName}`
+            : `New inventory created - ${inventoryName}`;
+      } else if (approvalStatus === "rejected") {
+        message = `Inventory request rejected - ${inventoryName}`;
+      } else if (approvalStatus === "pending_admin") {
+        message = `Inventory request awaiting admin approval - ${inventoryName}`;
+      }
+
+      const inventoryNavigation = resolveInventoryRequestNavigation(approvalStatus);
+
+      pushActivity({
+        id: `inventory-request-${row.id}`,
+        message,
+        timestamp: row.activity_date,
+        type: "inventory",
+        category: "inventory_request",
+        entityId: row.id,
+        link: inventoryNavigation.link,
+        tab: inventoryNavigation.tab,
+      });
+    });
+  }
+
+  if (tableNames.has("item_transfers")) {
+    const itemTransferColumns = await getTableColumns("item_transfers");
+    const itemColumns = tableNames.has(DB_ITEMS_TABLE) ? await getTableColumns(DB_ITEMS_TABLE) : new Set();
+    const itemNameColumn = itemColumns.has("itemName")
+      ? "ii.itemName"
+      : itemColumns.has("item_name")
+        ? "ii.item_name"
+        : itemColumns.has("name")
+          ? "ii.name"
+          : "CAST(ii.id AS CHAR)";
+    const activityDateColumn = itemTransferColumns.has("completed_date")
+      ? "COALESCE(it.completed_date, it.transfer_date, it.created_date)"
+      : itemTransferColumns.has("transfer_date")
+        ? "it.transfer_date"
+        : "it.created_date";
+
+    const [transferRows] = await pool.query(
+      `
+        SELECT
+          it.id,
+          ${itemNameColumn} AS item_name,
+          fi.name AS from_inventory_name,
+          ti.name AS to_inventory_name,
+          it.status,
+          ${activityDateColumn} AS activity_date
+        FROM item_transfers it
+        LEFT JOIN ${DB_ITEMS_TABLE} ii ON ii.id = it.item_id
+        LEFT JOIN inventories fi ON fi.id = it.from_inventory_id
+        LEFT JOIN inventories ti ON ti.id = it.to_inventory_id
+        ORDER BY ${activityDateColumn} DESC, it.id DESC
+        LIMIT ?
+      `,
+      [limit]
+    );
+
+    transferRows.forEach((row) => {
+      const status = String(row.status || "").toLowerCase();
+      const fromName = row.from_inventory_name || "source inventory";
+      const toName = row.to_inventory_name || "destination inventory";
+      const itemLabel = row.item_name ? `${row.item_name} - ` : "";
+      const message =
+        status === "completed"
+          ? `Item transfer completed - ${itemLabel}${fromName} to ${toName}`
+          : `Item transfer ${status || "updated"} - ${itemLabel}${fromName} to ${toName}`;
+
+      pushActivity({
+        id: `transfer-${row.id}`,
+        message,
+        timestamp: row.activity_date,
+        type: "transfer",
+        category: "transfer",
+        entityId: row.id,
+        link: "/admin/inventory",
+      });
+    });
+  }
+
+  if (tableNames.has("item_disposals")) {
+    const itemDisposalColumns = await getTableColumns("item_disposals");
+    const itemColumns = tableNames.has(DB_ITEMS_TABLE) ? await getTableColumns(DB_ITEMS_TABLE) : new Set();
+    const itemNameColumn = itemColumns.has("itemName")
+      ? "ii.itemName"
+      : itemColumns.has("item_name")
+        ? "ii.item_name"
+        : itemColumns.has("name")
+          ? "ii.name"
+          : "CAST(ii.id AS CHAR)";
+    const activityDateColumn = itemDisposalColumns.has("approved_date")
+      ? "COALESCE(idp.approved_date, idp.disposal_date, idp.created_date)"
+      : itemDisposalColumns.has("disposal_date")
+        ? "idp.disposal_date"
+        : "idp.created_date";
+
+    const [disposalRows] = await pool.query(
+      `
+        SELECT
+          idp.id,
+          ${itemNameColumn} AS item_name,
+          inv.name AS inventory_name,
+          idp.status,
+          ${activityDateColumn} AS activity_date
+        FROM item_disposals idp
+        LEFT JOIN ${DB_ITEMS_TABLE} ii ON ii.id = idp.item_id
+        LEFT JOIN inventories inv ON inv.id = idp.inventory_id
+        ORDER BY ${activityDateColumn} DESC, idp.id DESC
+        LIMIT ?
+      `,
+      [limit]
+    );
+
+    disposalRows.forEach((row) => {
+      const status = String(row.status || "").toLowerCase();
+      const inventoryName = row.inventory_name || "inventory";
+      const itemLabel = row.item_name ? `${row.item_name} - ` : "";
+      const message =
+        status === "completed"
+          ? `Disposal process completed - ${itemLabel}${inventoryName}`
+          : `Disposal ${status || "updated"} - ${itemLabel}${inventoryName}`;
+
+      pushActivity({
+        id: `disposal-${row.id}`,
+        message,
+        timestamp: row.activity_date,
+        type: "disposal",
+        category: "disposal",
+        entityId: row.id,
+        link: "/admin/inventory",
+      });
+    });
+  }
+
+  const uniqueActivities = [];
+  const seenActivityKeys = new Set();
+
+  activities
+    .sort((left, right) => new Date(right.timestamp).getTime() - new Date(left.timestamp).getTime())
+    .forEach((activity) => {
+      const dedupeKey = `${activity.category}:${activity.entityId || activity.message}`;
+      if (seenActivityKeys.has(dedupeKey)) {
+        return;
+      }
+
+      seenActivityKeys.add(dedupeKey);
+      uniqueActivities.push(activity);
+    });
+
+  return uniqueActivities.slice(0, limit);
+};
+
 app.get(
   "/api/dashboard/summary",
   withDatabase(async (_req, res) => {
@@ -2803,7 +3458,6 @@ app.get(
     const activeUsers = tableNames.has("users")
       ? await getCountValue("SELECT COUNT(*) AS count FROM users WHERE LOWER(COALESCE(status, '')) = 'active'")
       : 0;
-    let inactiveUsers = Math.max(totalUsers - activeUsers, 0);
     const totalInventories = tableNames.has("inventories")
       ? await getCountValue("SELECT COUNT(*) AS count FROM inventories")
       : 0;
@@ -2821,24 +3475,8 @@ app.get(
         )
       : 0;
 
-    if (tableNames.has("account_requests")) {
-      const blockedInactiveUsers = await getCountValue(
-        "SELECT COUNT(DISTINCT user_id) AS count FROM account_requests WHERE user_id IS NOT NULL AND LOWER(COALESCE(request_type, 'account_creation')) = 'account_creation' AND LOWER(COALESCE(approval_status, '')) IN ('pending_dept_head', 'pending_dean', 'pending_admin', 'rejected')"
-      );
-      inactiveUsers = Math.max(inactiveUsers - blockedInactiveUsers, 0);
-    }
-
-    let pendingTasks = inactiveUsers;
-    if (tableNames.has("account_requests")) {
-      pendingTasks += await getCountValue(
-        "SELECT COUNT(*) AS count FROM account_requests WHERE LOWER(COALESCE(request_type, 'account_creation')) = 'account_creation' AND LOWER(COALESCE(approval_status, '')) = 'pending_admin'"
-      );
-    }
-    if (tableNames.has("inventory_creation_requests")) {
-      pendingTasks += await getCountValue(
-        "SELECT COUNT(*) AS count FROM inventory_creation_requests WHERE LOWER(COALESCE(approval_status, '')) NOT IN ('process completed', 'rejected')"
-      );
-    }
+    const pendingTasks = await getAdminPendingTasksCount(tableNames);
+    const recentActivities = await getRecentDashboardActivities(tableNames, 10);
 
     const pendingRequests = tableNames.has("item_requests")
       ? await getCountValue(
@@ -2855,6 +3493,7 @@ app.get(
         pendingTasks,
         totalItems,
       },
+      recentActivities,
       inventorySummary: {
         totalAssets: totalItems,
         available: availableItems,
@@ -3176,6 +3815,8 @@ app.post(
         insertValues
       );
 
+      await notifyAccountActivated({ email, name: fullName });
+
       return res.status(201).json({
         success: true,
         message: `${requestedRole.replace(/_/g, " ")} account created and activated successfully.`,
@@ -3303,34 +3944,83 @@ app.post(
   withDatabase(async (req, res) => {
     await ensureInventoryItemsColumns();
 
-    // Merge text fields from req.body
-    const payload = { ...req.body };
-
-    // Attach uploaded file paths if present
-    if (req.files && req.files.itemImage && req.files.itemImage[0]) {
-      payload.itemImage = `/uploads/${req.files.itemImage[0].filename}`;
-    }
-
-    if (req.files && req.files.ginfile && req.files.ginfile[0]) {
-      payload.ginfile = `/uploads/${req.files.ginfile[0].filename}`;
-    }
-
+    const payload = applyItemUploadPayload(req, { ...req.body });
     const item = normalizeItemPayload(payload);
+
+    if (!String(item.ginfile || "").trim() && String(item.ginNo || "").trim()) {
+      item.ginfile = await findExistingGinFileByGinNo(item.ginNo);
+    }
     const validationError = validateRequiredFields(item);
 
     if (validationError) {
       return res.status(400).json({ success: false, error: validationError });
     }
 
-    const placeholders = itemColumns.map(() => "?").join(", ");
+    const dbColumns = await ensureInventoryItemsColumns();
+    const insertSpec = getItemInsertSpec(dbColumns);
+    const insertColumns = insertSpec.map((entry) => entry.column);
+    const placeholders = insertSpec.map(() => "?").join(", ");
     const [result] = await pool.execute(
-      `INSERT INTO ${DB_ITEMS_TABLE} (${itemColumns.join(", ")}) VALUES (${placeholders})`,
-      buildInsertValues(item)
+      `INSERT INTO ${DB_ITEMS_TABLE} (${insertColumns.join(", ")}) VALUES (${placeholders})`,
+      buildInsertValues(item, insertSpec)
     );
 
     return res.status(201).json({
       success: true,
       item: { id: result.insertId, ...item },
+    });
+  })
+);
+
+app.put(
+  "/api/items/:id",
+  upload.fields([
+    { name: "itemImage", maxCount: 1 },
+    { name: "ginfile", maxCount: 1 },
+  ]),
+  withDatabase(async (req, res) => {
+    await ensureInventoryItemsColumns();
+    const itemId = Number(req.params.id);
+    const dbColumns = await ensureInventoryItemsColumns();
+    const idColumn = getItemIdColumn(dbColumns);
+
+    if (!Number.isInteger(itemId) || itemId <= 0) {
+      return res.status(400).json({ success: false, error: "Invalid item id" });
+    }
+
+    const [existingRows] = await pool.execute(
+      `SELECT * FROM ${DB_ITEMS_TABLE} WHERE ${idColumn} = ? LIMIT 1`,
+      [itemId]
+    );
+
+    if (existingRows.length === 0) {
+      return res.status(404).json({ success: false, error: "Item not found" });
+    }
+
+    const payload = applyItemUploadPayload(req, { ...req.body });
+    const item = normalizeItemPayload(payload);
+
+    if (!String(item.ginfile || "").trim() && String(item.ginNo || "").trim()) {
+      item.ginfile = await findExistingGinFileByGinNo(item.ginNo);
+    }
+
+    const validationError = validateRequiredFields(item);
+    if (validationError) {
+      return res.status(400).json({ success: false, error: validationError });
+    }
+
+    const insertSpec = getItemInsertSpec(dbColumns);
+    const { assignments, values } = buildItemUpdateAssignments(item, insertSpec);
+    values.push(itemId);
+
+    await pool.execute(
+      `UPDATE ${DB_ITEMS_TABLE} SET ${assignments.join(", ")} WHERE ${idColumn} = ?`,
+      values
+    );
+
+    return res.json({
+      success: true,
+      item: normalizeItemRow({ ...existingRows[0], ...item, [idColumn]: itemId, id: itemId }),
     });
   })
 );
@@ -3354,13 +4044,15 @@ app.post(
       return res.status(400).json({ success: false, error: validateRequiredFields(invalidItem) });
     }
 
-    const placeholders = items
-      .map(() => `(${itemColumns.map(() => "?").join(", ")})`)
-      .join(", ");
-    const values = items.flatMap(buildInsertValues);
+    const dbColumns = await ensureInventoryItemsColumns();
+    const insertSpec = getItemInsertSpec(dbColumns);
+    const insertColumns = insertSpec.map((entry) => entry.column);
+    const rowPlaceholder = `(${insertSpec.map(() => "?").join(", ")})`;
+    const placeholders = items.map(() => rowPlaceholder).join(", ");
+    const values = items.flatMap((item) => buildInsertValues(item, insertSpec));
 
     const [result] = await pool.execute(
-      `INSERT INTO ${DB_ITEMS_TABLE} (${itemColumns.join(", ")}) VALUES ${placeholders}`,
+      `INSERT INTO ${DB_ITEMS_TABLE} (${insertColumns.join(", ")}) VALUES ${placeholders}`,
       values
     );
 
@@ -3400,13 +4092,15 @@ app.post(
       return res.status(400).json({ success: false, error: validateRequiredFields(invalid) });
     }
 
-    const placeholders = items
-      .map(() => `(${itemColumns.map(() => "?").join(", ")})`)
-      .join(", ");
-    const values = items.flatMap(buildInsertValues);
+    const dbColumns = await ensureInventoryItemsColumns();
+    const insertSpec = getItemInsertSpec(dbColumns);
+    const insertColumns = insertSpec.map((entry) => entry.column);
+    const rowPlaceholder = `(${insertSpec.map(() => "?").join(", ")})`;
+    const placeholders = items.map(() => rowPlaceholder).join(", ");
+    const values = items.flatMap((item) => buildInsertValues(item, insertSpec));
 
     const [result] = await pool.execute(
-      `INSERT INTO ${DB_ITEMS_TABLE} (${itemColumns.join(", ")}) VALUES ${placeholders}`,
+      `INSERT INTO ${DB_ITEMS_TABLE} (${insertColumns.join(", ")}) VALUES ${placeholders}`,
       values
     );
 
@@ -3425,8 +4119,9 @@ app.get(
     const whereClauses = [];
     const params = [];
 
-    if (ginNo) {
-      whereClauses.push("ginNo = ?");
+    const ginNoColumn = resolveDbColumn(inventoryItemColumns, ["ginNo", "gin_no"]);
+    if (ginNo && ginNoColumn) {
+      whereClauses.push(`LOWER(TRIM(${ginNoColumn})) = LOWER(?)`);
       params.push(ginNo);
     }
 
@@ -3436,28 +4131,30 @@ app.get(
     }
 
     const whereClause = whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : "";
+    const orderClause = getItemsOrderClause(inventoryItemColumns);
 
     const [rows] = await pool.execute(
-      `SELECT * FROM ${DB_ITEMS_TABLE} ${whereClause} ORDER BY updated_at DESC, created_at DESC, id DESC`,
+      `SELECT * FROM ${DB_ITEMS_TABLE} ${whereClause} ORDER BY ${orderClause}`,
       params
     );
 
-    return res.json({ success: true, items: rows });
+    return res.json({ success: true, items: rows.map(normalizeItemRow) });
   })
 );
 
 app.get(
   "/api/items/:id",
   withDatabase(async (req, res) => {
-    await ensureInventoryItemsColumns();
+    const inventoryItemColumns = await ensureInventoryItemsColumns();
     const itemId = Number(req.params.id);
+    const idColumn = getItemIdColumn(inventoryItemColumns);
 
     if (!Number.isInteger(itemId) || itemId <= 0) {
       return res.status(400).json({ success: false, error: "Invalid item id" });
     }
 
     const [rows] = await pool.execute(
-      `SELECT * FROM ${DB_ITEMS_TABLE} WHERE id = ? LIMIT 1`,
+      `SELECT * FROM ${DB_ITEMS_TABLE} WHERE ${idColumn} = ? LIMIT 1`,
       [itemId]
     );
 
@@ -3465,7 +4162,26 @@ app.get(
       return res.status(404).json({ success: false, error: "Item not found" });
     }
 
-    return res.json({ success: true, item: rows[0] });
+    const item = normalizeItemRow(rows[0]);
+    const inventoryIdValue = Number(item.inventory_id ?? 0);
+
+    if (inventoryIdValue > 0) {
+      const inventoryColumns = await ensureInventoriesLocationColumn();
+      const inventoryIdColumn = getInventoryIdColumn(inventoryColumns);
+      const inventoryNameColumn = getInventoryNameColumn(inventoryColumns);
+
+      if (inventoryIdColumn && inventoryNameColumn) {
+        const [inventoryRows] = await pool.execute(
+          `SELECT ${inventoryNameColumn} AS name FROM inventories WHERE ${inventoryIdColumn} = ? LIMIT 1`,
+          [inventoryIdValue]
+        );
+        if (inventoryRows[0]?.name) {
+          item.inventoryName = inventoryRows[0].name;
+        }
+      }
+    }
+
+    return res.json({ success: true, item });
   })
 );
 
@@ -4207,6 +4923,890 @@ app.post(
   })
 );
 
+const addWorkflowColumnIfMissing = async (tableName, columns, columnName, definition) => {
+  if (columns.has(columnName)) {
+    return;
+  }
+
+  await pool.query(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
+  columns.add(columnName);
+};
+
+const ensureItemTransfersWorkflow = async () => {
+  try {
+    const [tables] = await pool.query("SHOW TABLES LIKE 'item_transfers'");
+    if (tables.length === 0) {
+      return null;
+    }
+
+    const columns = await getTableColumns("item_transfers");
+    await addWorkflowColumnIfMissing("item_transfers", columns, "approval_status", "VARCHAR(50) NULL");
+    await addWorkflowColumnIfMissing("item_transfers", columns, "registrar_approved_date", "TIMESTAMP NULL");
+    await addWorkflowColumnIfMissing("item_transfers", columns, "registrar_approved_by_id", "INT NULL");
+    await addWorkflowColumnIfMissing("item_transfers", columns, "hod_approved_date", "TIMESTAMP NULL");
+    await addWorkflowColumnIfMissing("item_transfers", columns, "hod_approved_by_id", "INT NULL");
+    await addWorkflowColumnIfMissing("item_transfers", columns, "rejection_reason", "VARCHAR(500) NULL");
+    return columns;
+  } catch (error) {
+    console.error("Error ensuring item_transfers workflow columns:", error.message);
+    return null;
+  }
+};
+
+const ensureItemDisposalsWorkflow = async () => {
+  try {
+    const [tables] = await pool.query("SHOW TABLES LIKE 'item_disposals'");
+    if (tables.length === 0) {
+      return null;
+    }
+
+    const columns = await getTableColumns("item_disposals");
+    await addWorkflowColumnIfMissing("item_disposals", columns, "approval_status", "VARCHAR(50) NULL");
+    await addWorkflowColumnIfMissing("item_disposals", columns, "registrar_approved_date", "TIMESTAMP NULL");
+    await addWorkflowColumnIfMissing("item_disposals", columns, "registrar_approved_by_id", "INT NULL");
+    await addWorkflowColumnIfMissing("item_disposals", columns, "hod_approved_date", "TIMESTAMP NULL");
+    await addWorkflowColumnIfMissing("item_disposals", columns, "hod_approved_by_id", "INT NULL");
+    await addWorkflowColumnIfMissing("item_disposals", columns, "rejection_reason", "VARCHAR(500) NULL");
+    return columns;
+  } catch (error) {
+    console.error("Error ensuring item_disposals workflow columns:", error.message);
+    return null;
+  }
+};
+
+const resolveTransferDisposalApprovalStatus = (row, columns) => {
+  if (columns?.has("approval_status") && row.approval_status) {
+    return String(row.approval_status).trim().toLowerCase();
+  }
+
+  const legacyStatus = String(row.status || "pending").trim().toLowerCase();
+  if (legacyStatus === "pending") {
+    return "pending_registrar";
+  }
+
+  return legacyStatus;
+};
+
+const buildItemNameExpression = (itemColumns) => {
+  if (itemColumns.has("itemName")) {
+    return "ii.itemName";
+  }
+  if (itemColumns.has("item_name")) {
+    return "ii.item_name";
+  }
+  if (itemColumns.has("name")) {
+    return "ii.name";
+  }
+  return "CAST(ii.id AS CHAR)";
+};
+
+const buildProcessedAtExpression = (tableAlias, columns, preferredDateColumns = []) => {
+  const candidates = [
+    ...preferredDateColumns,
+    "rejection_date",
+    "registrar_approved_date",
+    "updated_date",
+    "created_date",
+    "requested_date",
+    "transfer_date",
+    "disposal_date",
+  ];
+
+  const parts = [];
+  candidates.forEach((columnName) => {
+    if (columns?.has(columnName) && !parts.includes(`${tableAlias}.${columnName}`)) {
+      parts.push(`${tableAlias}.${columnName}`);
+    }
+  });
+
+  if (parts.length === 0) {
+    return "CURRENT_TIMESTAMP";
+  }
+
+  return `COALESCE(${parts.join(", ")})`;
+};
+
+app.get(
+  "/api/item-transfers",
+  withDatabase(async (req, res) => {
+    const columns = await ensureItemTransfersWorkflow();
+    if (!columns) {
+      return res.json({ success: true, transfers: [] });
+    }
+
+    const schema = await getAuthSchema();
+    const approvalStatus = String(req.query.approvalStatus || "").trim().toLowerCase();
+    const [tableRows] = await pool.query("SHOW TABLES");
+    const tableNames = new Set(tableRows.map((row) => Object.values(row)[0]));
+    const itemColumns = tableNames.has(DB_ITEMS_TABLE) ? await getTableColumns(DB_ITEMS_TABLE) : new Set();
+    const itemNameExpr = buildItemNameExpression(itemColumns);
+    const userNameColumn = schema.userColumns.has("name") ? "name" : "full_name";
+    const userIdColumn = schema.userColumns.has("id") ? "id" : "user_id";
+    const itemJoin = tableNames.has(DB_ITEMS_TABLE)
+      ? `LEFT JOIN ${DB_ITEMS_TABLE} ii ON ii.id = it.item_id`
+      : "";
+    const params = [];
+    const whereParts = [];
+
+    if (approvalStatus) {
+      if (columns.has("approval_status") && approvalStatus === "pending_registrar") {
+        whereParts.push(
+          `(LOWER(COALESCE(it.approval_status, '')) = ? OR (it.approval_status IS NULL AND LOWER(COALESCE(it.status, '')) = 'pending'))`
+        );
+        params.push(approvalStatus);
+      } else if (columns.has("approval_status")) {
+        whereParts.push("LOWER(COALESCE(it.approval_status, '')) = ?");
+        params.push(approvalStatus);
+      } else {
+        whereParts.push("LOWER(COALESCE(it.status, '')) = ?");
+        params.push(approvalStatus === "pending_registrar" ? "pending" : approvalStatus);
+      }
+    }
+
+    const whereClause = whereParts.length > 0 ? `WHERE ${whereParts.join(" AND ")}` : "";
+    const transferDateCol = columns.has("transfer_date") ? "it.transfer_date" : "it.created_date";
+    const itemNameSelect = tableNames.has(DB_ITEMS_TABLE) ? `${itemNameExpr} AS item_name` : "CAST(it.item_id AS CHAR) AS item_name";
+
+    const [rows] = await pool.execute(
+      `
+        SELECT
+          it.id,
+          it.item_id,
+          ${itemNameSelect},
+          fi.name AS from_inventory_name,
+          ti.name AS to_inventory_name,
+          it.quantity,
+          it.reason,
+          it.notes,
+          it.status,
+          ${columns.has("approval_status") ? "it.approval_status" : "NULL AS approval_status"},
+          ${transferDateCol} AS transfer_date,
+          ${columns.has("hod_approved_date") ? "it.hod_approved_date" : "NULL AS hod_approved_date"},
+          initiator.${userNameColumn} AS initiated_by_name
+        FROM item_transfers it
+        ${itemJoin}
+        LEFT JOIN inventories fi ON fi.id = it.from_inventory_id
+        LEFT JOIN inventories ti ON ti.id = it.to_inventory_id
+        LEFT JOIN users initiator ON initiator.${userIdColumn} = it.initiated_by_id
+        ${whereClause}
+        ORDER BY ${transferDateCol} DESC, it.id DESC
+      `,
+      params
+    );
+
+    return res.json({
+      success: true,
+      transfers: rows.map((row) => ({
+        id: row.id,
+        itemId: row.item_id,
+        itemName: row.item_name || `Item #${row.item_id}`,
+        fromInventory: row.from_inventory_name || "-",
+        toInventory: row.to_inventory_name || "-",
+        quantity: row.quantity ?? 1,
+        reason: row.reason || row.notes || "",
+        status: row.status || "pending",
+        approvalStatus: resolveTransferDisposalApprovalStatus(row, columns),
+        transferDate: row.transfer_date ? new Date(row.transfer_date).toISOString().split("T")[0] : "",
+        hodApprovedDate: row.hod_approved_date
+          ? new Date(row.hod_approved_date).toISOString().split("T")[0]
+          : "",
+        initiatedBy: row.initiated_by_name || "-",
+      })),
+    });
+  })
+);
+
+app.get(
+  "/api/item-disposals",
+  withDatabase(async (req, res) => {
+    const columns = await ensureItemDisposalsWorkflow();
+    if (!columns) {
+      return res.json({ success: true, disposals: [] });
+    }
+
+    const schema = await getAuthSchema();
+    const approvalStatus = String(req.query.approvalStatus || "").trim().toLowerCase();
+    const [tableRows] = await pool.query("SHOW TABLES");
+    const tableNames = new Set(tableRows.map((row) => Object.values(row)[0]));
+    const itemColumns = tableNames.has(DB_ITEMS_TABLE) ? await getTableColumns(DB_ITEMS_TABLE) : new Set();
+    const itemNameExpr = buildItemNameExpression(itemColumns);
+    const userNameColumn = schema.userColumns.has("name") ? "name" : "full_name";
+    const userIdColumn = schema.userColumns.has("id") ? "id" : "user_id";
+    const itemJoin = tableNames.has(DB_ITEMS_TABLE)
+      ? `LEFT JOIN ${DB_ITEMS_TABLE} ii ON ii.id = idp.item_id`
+      : "";
+    const params = [];
+    const whereParts = [];
+
+    if (approvalStatus) {
+      if (columns.has("approval_status") && approvalStatus === "pending_registrar") {
+        whereParts.push(
+          `(LOWER(COALESCE(idp.approval_status, '')) = ? OR (idp.approval_status IS NULL AND LOWER(COALESCE(idp.status, '')) = 'pending'))`
+        );
+        params.push(approvalStatus);
+      } else if (columns.has("approval_status")) {
+        whereParts.push("LOWER(COALESCE(idp.approval_status, '')) = ?");
+        params.push(approvalStatus);
+      } else {
+        whereParts.push("LOWER(COALESCE(idp.status, '')) = ?");
+        params.push(approvalStatus === "pending_registrar" ? "pending" : approvalStatus);
+      }
+    }
+
+    const whereClause = whereParts.length > 0 ? `WHERE ${whereParts.join(" AND ")}` : "";
+    const disposalDateCol = columns.has("disposal_date") ? "idp.disposal_date" : "idp.created_date";
+    const itemNameSelect = tableNames.has(DB_ITEMS_TABLE) ? `${itemNameExpr} AS item_name` : "CAST(idp.item_id AS CHAR) AS item_name";
+
+    const [rows] = await pool.execute(
+      `
+        SELECT
+          idp.id,
+          idp.item_id,
+          ${itemNameSelect},
+          inv.name AS inventory_name,
+          idp.quantity,
+          idp.reason,
+          idp.description,
+          idp.\`condition\` AS item_condition,
+          idp.status,
+          ${columns.has("approval_status") ? "idp.approval_status" : "NULL AS approval_status"},
+          ${disposalDateCol} AS disposal_date,
+          ${columns.has("hod_approved_date") ? "idp.hod_approved_date" : "NULL AS hod_approved_date"},
+          initiator.${userNameColumn} AS initiated_by_name
+        FROM item_disposals idp
+        ${itemJoin}
+        LEFT JOIN inventories inv ON inv.id = idp.inventory_id
+        LEFT JOIN users initiator ON initiator.${userIdColumn} = idp.initiated_by_id
+        ${whereClause}
+        ORDER BY ${disposalDateCol} DESC, idp.id DESC
+      `,
+      params
+    );
+
+    return res.json({
+      success: true,
+      disposals: rows.map((row) => ({
+        id: row.id,
+        itemId: row.item_id,
+        itemName: row.item_name || `Item #${row.item_id}`,
+        inventory: row.inventory_name || "-",
+        quantity: row.quantity ?? 1,
+        reason: row.reason || "",
+        condition: row.item_condition || "",
+        description: row.description || "",
+        status: row.status || "pending",
+        approvalStatus: resolveTransferDisposalApprovalStatus(row, columns),
+        disposalDate: row.disposal_date ? new Date(row.disposal_date).toISOString().split("T")[0] : "",
+        hodApprovedDate: row.hod_approved_date
+          ? new Date(row.hod_approved_date).toISOString().split("T")[0]
+          : "",
+        initiatedBy: row.initiated_by_name || "-",
+      })),
+    });
+  })
+);
+
+const approveTransferDisposalByRegistrar = async ({
+  tableName,
+  ensureColumns,
+  requestId,
+  approverUserId,
+  nextOperationalStatus,
+}) => {
+  const columns = await ensureColumns();
+  if (!columns) {
+    return { status: 404, body: { success: false, message: `${tableName} records are not available.` } };
+  }
+
+  const [rows] = await pool.execute(`SELECT * FROM ${tableName} WHERE id = ? LIMIT 1`, [requestId]);
+  if (rows.length === 0) {
+    return { status: 404, body: { success: false, message: "Request not found." } };
+  }
+
+  const record = rows[0];
+  const currentApprovalStatus = resolveTransferDisposalApprovalStatus(record, columns);
+  if (currentApprovalStatus !== "pending_registrar") {
+    return {
+      status: 409,
+      body: { success: false, message: "This request is not awaiting registrar approval." },
+    };
+  }
+
+  const updateParts = [];
+  const updateValues = [];
+
+  if (columns.has("approval_status")) {
+    updateParts.push("approval_status = ?");
+    updateValues.push("pending_admin");
+  }
+
+  if (columns.has("status") && nextOperationalStatus) {
+    updateParts.push("status = ?");
+    updateValues.push(nextOperationalStatus);
+  }
+
+  if (columns.has("registrar_approved_date")) {
+    updateParts.push("registrar_approved_date = CURRENT_TIMESTAMP");
+  }
+
+  if (columns.has("registrar_approved_by_id") && Number.isInteger(approverUserId) && approverUserId > 0) {
+    updateParts.push("registrar_approved_by_id = ?");
+    updateValues.push(approverUserId);
+  }
+
+  if (updateParts.length === 0) {
+    return { status: 500, body: { success: false, message: "Unable to update approval status." } };
+  }
+
+  updateValues.push(requestId);
+  await pool.execute(`UPDATE ${tableName} SET ${updateParts.join(", ")} WHERE id = ?`, updateValues);
+
+  return {
+    status: 200,
+    body: {
+      success: true,
+      message: "Request approved by the registrar and forwarded to the administrator.",
+      approvalStatus: "pending_admin",
+    },
+  };
+};
+
+const rejectTransferDisposalByRegistrar = async ({
+  tableName,
+  ensureColumns,
+  requestId,
+  reason,
+  rejectedStatus,
+}) => {
+  const columns = await ensureColumns();
+  if (!columns) {
+    return { status: 404, body: { success: false, message: `${tableName} records are not available.` } };
+  }
+
+  const [rows] = await pool.execute(`SELECT * FROM ${tableName} WHERE id = ? LIMIT 1`, [requestId]);
+  if (rows.length === 0) {
+    return { status: 404, body: { success: false, message: "Request not found." } };
+  }
+
+  const record = rows[0];
+  const currentApprovalStatus = resolveTransferDisposalApprovalStatus(record, columns);
+  if (currentApprovalStatus !== "pending_registrar") {
+    return {
+      status: 409,
+      body: { success: false, message: "This request is not awaiting registrar approval." },
+    };
+  }
+
+  const updateParts = [];
+  const updateValues = [];
+
+  if (columns.has("approval_status")) {
+    updateParts.push("approval_status = ?");
+    updateValues.push("rejected");
+  }
+
+  if (columns.has("status")) {
+    updateParts.push("status = ?");
+    updateValues.push(rejectedStatus);
+  }
+
+  if (columns.has("rejection_reason")) {
+    updateParts.push("rejection_reason = ?");
+    updateValues.push(reason);
+  }
+
+  if (updateParts.length === 0) {
+    return { status: 500, body: { success: false, message: "Unable to reject this request." } };
+  }
+
+  updateValues.push(requestId);
+  await pool.execute(`UPDATE ${tableName} SET ${updateParts.join(", ")} WHERE id = ?`, updateValues);
+
+  return {
+    status: 200,
+    body: {
+      success: true,
+      message: "Request rejected by the registrar.",
+      approvalStatus: "rejected",
+    },
+  };
+};
+
+app.post(
+  "/api/item-transfers/:id/approve-registrar",
+  withDatabase(async (req, res) => {
+    const requestId = Number(req.params.id);
+    const approverUserId = Number(req.body?.approverUserId ?? 0);
+
+    if (!Number.isInteger(requestId) || requestId <= 0) {
+      return res.status(400).json({ success: false, message: "A valid transfer id is required." });
+    }
+
+    const result = await approveTransferDisposalByRegistrar({
+      tableName: "item_transfers",
+      ensureColumns: ensureItemTransfersWorkflow,
+      requestId,
+      approverUserId,
+      nextOperationalStatus: "pending",
+    });
+
+    return res.status(result.status).json(result.body);
+  })
+);
+
+app.post(
+  "/api/item-transfers/:id/reject",
+  withDatabase(async (req, res) => {
+    const requestId = Number(req.params.id);
+    const approverRole = normalizeRoleForStorage(req.body?.approverRole || "registrar");
+    const reason = String(req.body?.reason || "Rejected by Registrar").trim();
+
+    if (!Number.isInteger(requestId) || requestId <= 0) {
+      return res.status(400).json({ success: false, message: "A valid transfer id is required." });
+    }
+
+    if (approverRole !== "registrar") {
+      return res.status(400).json({ success: false, message: "Only registrar rejection is supported for transfers." });
+    }
+
+    const result = await rejectTransferDisposalByRegistrar({
+      tableName: "item_transfers",
+      ensureColumns: ensureItemTransfersWorkflow,
+      requestId,
+      reason,
+      rejectedStatus: "cancelled",
+    });
+
+    return res.status(result.status).json(result.body);
+  })
+);
+
+app.post(
+  "/api/item-disposals/:id/approve-registrar",
+  withDatabase(async (req, res) => {
+    const requestId = Number(req.params.id);
+    const approverUserId = Number(req.body?.approverUserId ?? 0);
+
+    if (!Number.isInteger(requestId) || requestId <= 0) {
+      return res.status(400).json({ success: false, message: "A valid disposal id is required." });
+    }
+
+    const result = await approveTransferDisposalByRegistrar({
+      tableName: "item_disposals",
+      ensureColumns: ensureItemDisposalsWorkflow,
+      requestId,
+      approverUserId,
+      nextOperationalStatus: "pending",
+    });
+
+    return res.status(result.status).json(result.body);
+  })
+);
+
+app.post(
+  "/api/item-disposals/:id/reject",
+  withDatabase(async (req, res) => {
+    const requestId = Number(req.params.id);
+    const approverRole = normalizeRoleForStorage(req.body?.approverRole || "registrar");
+    const reason = String(req.body?.reason || "Rejected by Registrar").trim();
+
+    if (!Number.isInteger(requestId) || requestId <= 0) {
+      return res.status(400).json({ success: false, message: "A valid disposal id is required." });
+    }
+
+    if (approverRole !== "registrar") {
+      return res.status(400).json({ success: false, message: "Only registrar rejection is supported for disposals." });
+    }
+
+    const result = await rejectTransferDisposalByRegistrar({
+      tableName: "item_disposals",
+      ensureColumns: ensureItemDisposalsWorkflow,
+      requestId,
+      reason,
+      rejectedStatus: "rejected",
+    });
+
+    return res.status(result.status).json(result.body);
+  })
+);
+
+app.get(
+  "/api/registrar/dashboard",
+  withDatabase(async (req, res) => {
+    const safeHistoryLimit = Math.min(Math.max(parseInt(String(req.query.limit || 50), 10) || 50, 1), 100);
+    const schema = await getAuthSchema();
+    const [tableRows] = await pool.query("SHOW TABLES");
+    const tableNames = new Set(tableRows.map((row) => Object.values(row)[0]));
+    const history = [];
+
+    let pendingInventory = 0;
+    let pendingTransfers = 0;
+    let pendingDisposals = 0;
+
+    let inventoryRequestColumns = null;
+    if (tableNames.has("inventory_creation_requests")) {
+      await ensureInventoryCreationRequestsTable();
+      inventoryRequestColumns = await getTableColumns("inventory_creation_requests");
+    }
+
+    if (inventoryRequestColumns) {
+      const requestTypeCol = inventoryRequestColumns.has("request_type") ? "request_type" : null;
+      const statusCol = inventoryRequestColumns.has("approval_status") ? "approval_status" : null;
+      const nameCol = inventoryRequestColumns.has("name") ? "name" : null;
+      const deptCol = inventoryRequestColumns.has("department_id") ? "department_id" : null;
+      const registrarDateCol = inventoryRequestColumns.has("registrar_approved_date")
+        ? "registrar_approved_date"
+        : null;
+      const rejectionDateCol = inventoryRequestColumns.has("rejection_date") ? "rejection_date" : null;
+      const rejectionReasonCol = inventoryRequestColumns.has("rejection_reason") ? "rejection_reason" : null;
+      const hodDateCol = inventoryRequestColumns.has("hod_approved_date") ? "hod_approved_date" : null;
+      const inventoryRequestIdColumn = getInventoryRequestPrimaryKeyColumn(inventoryRequestColumns);
+
+      if (statusCol && requestTypeCol) {
+        const [pendingRows] = await pool.execute(
+          `
+            SELECT COUNT(*) AS count
+            FROM inventory_creation_requests
+            WHERE LOWER(COALESCE(${statusCol}, '')) = ?
+              AND LOWER(COALESCE(${requestTypeCol}, '')) = ?
+          `,
+          ["pending_registrar", "new_inventory_creation"]
+        );
+        pendingInventory = Number(pendingRows[0]?.count ?? 0);
+      }
+
+      const departmentJoinIdColumn = schema.departmentColumns.has("id") ? "id" : "department_id";
+      const departmentNameColumn = schema.departmentColumns.has("name")
+        ? "d.name"
+        : schema.departmentColumns.has("department_name")
+          ? "d.department_name"
+          : "NULL";
+      const departmentJoin =
+        schema.hasDepartmentsTable && deptCol
+          ? `LEFT JOIN departments d ON d.${departmentJoinIdColumn} = icr.${deptCol}`
+          : "";
+      const departmentSelect = schema.hasDepartmentsTable
+        ? `${departmentNameColumn} AS department_name`
+        : "NULL AS department_name";
+
+      if (registrarDateCol && nameCol) {
+        const [approvedRows] = await pool.execute(
+          `
+            SELECT
+              icr.${inventoryRequestIdColumn} AS id,
+              icr.${nameCol} AS title,
+              ${departmentSelect},
+              icr.${registrarDateCol} AS processed_at
+            FROM inventory_creation_requests icr
+            ${departmentJoin}
+            WHERE icr.${registrarDateCol} IS NOT NULL
+            ORDER BY icr.${registrarDateCol} DESC
+            LIMIT ${safeHistoryLimit}
+          `
+        );
+
+        approvedRows.forEach((row) => {
+          history.push({
+            id: `inventory-approved-${row.id}`,
+            requestId: row.id,
+            type: "inventory_creation",
+            typeLabel: "Inventory Creation",
+            title: row.title || `Request #${row.id}`,
+            department: row.department_name || "-",
+            action: "approved",
+            actionLabel: "Approved & forwarded",
+            processedAt: row.processed_at,
+            link: "/admin/pending-tasks",
+            tab: "inventory-requests",
+          });
+        });
+      }
+
+      if (statusCol && nameCol && (rejectionDateCol || rejectionReasonCol)) {
+        const processedAtExpr = buildProcessedAtExpression("icr", inventoryRequestColumns, [
+          "rejection_date",
+        ]);
+        const registrarRejectCondition = rejectionReasonCol
+          ? `LOWER(COALESCE(icr.${rejectionReasonCol}, '')) LIKE '%registrar%'`
+          : "0 = 1";
+        const hodRejectedWithoutRegistrar =
+          hodDateCol && registrarDateCol
+            ? `(icr.${hodDateCol} IS NOT NULL AND icr.${registrarDateCol} IS NULL)`
+            : "0 = 1";
+
+        const [rejectedRows] = await pool.execute(
+          `
+            SELECT
+              icr.${inventoryRequestIdColumn} AS id,
+              icr.${nameCol} AS title,
+              ${departmentSelect},
+              ${processedAtExpr} AS processed_at,
+              ${rejectionReasonCol ? `icr.${rejectionReasonCol}` : "NULL"} AS rejection_reason
+            FROM inventory_creation_requests icr
+            ${departmentJoin}
+            WHERE LOWER(COALESCE(icr.${statusCol}, '')) = 'rejected'
+              AND (
+                ${registrarRejectCondition}
+                OR ${hodRejectedWithoutRegistrar}
+              )
+              ${requestTypeCol ? `AND LOWER(COALESCE(icr.${requestTypeCol}, '')) = 'new_inventory_creation'` : ""}
+            ORDER BY ${processedAtExpr} DESC
+            LIMIT ${safeHistoryLimit}
+          `
+        );
+
+        rejectedRows.forEach((row) => {
+          history.push({
+            id: `inventory-rejected-${row.id}`,
+            requestId: row.id,
+            type: "inventory_creation",
+            typeLabel: "Inventory Creation",
+            title: row.title || `Request #${row.id}`,
+            department: row.department_name || "-",
+            action: "rejected",
+            actionLabel: "Rejected",
+            processedAt: row.processed_at,
+            note: row.rejection_reason || "",
+            link: "/admin/pending-tasks",
+            tab: "inventory-requests",
+          });
+        });
+      }
+    }
+
+    let transferColumns = await ensureItemTransfersWorkflow();
+    if (transferColumns) {
+      transferColumns = await getTableColumns("item_transfers");
+      const itemColumns = tableNames.has(DB_ITEMS_TABLE) ? await getTableColumns(DB_ITEMS_TABLE) : new Set();
+      const itemNameExpr = buildItemNameExpression(itemColumns);
+      const itemJoin = tableNames.has(DB_ITEMS_TABLE)
+        ? `LEFT JOIN ${DB_ITEMS_TABLE} ii ON ii.id = it.item_id`
+        : "";
+      const itemNameSelect = tableNames.has(DB_ITEMS_TABLE)
+        ? `${itemNameExpr} AS item_name`
+        : "CAST(it.item_id AS CHAR) AS item_name";
+
+      const [pendingTransferRows] = await pool.execute(
+        transferColumns.has("approval_status")
+          ? `
+              SELECT COUNT(*) AS count
+              FROM item_transfers it
+              WHERE LOWER(COALESCE(it.approval_status, '')) = 'pending_registrar'
+                 OR (it.approval_status IS NULL AND LOWER(COALESCE(it.status, '')) = 'pending')
+            `
+          : `
+              SELECT COUNT(*) AS count
+              FROM item_transfers it
+              WHERE LOWER(COALESCE(it.status, '')) = 'pending'
+            `
+      );
+      pendingTransfers = Number(pendingTransferRows[0]?.count ?? 0);
+
+      if (transferColumns.has("registrar_approved_date")) {
+        const [approvedRows] = await pool.execute(
+          `
+            SELECT
+              it.id,
+              ${itemNameSelect},
+              fi.name AS from_inventory_name,
+              ti.name AS to_inventory_name,
+              it.registrar_approved_date AS processed_at
+            FROM item_transfers it
+            ${itemJoin}
+            LEFT JOIN inventories fi ON fi.id = it.from_inventory_id
+            LEFT JOIN inventories ti ON ti.id = it.to_inventory_id
+            WHERE it.registrar_approved_date IS NOT NULL
+            ORDER BY it.registrar_approved_date DESC
+            LIMIT ${safeHistoryLimit}
+          `
+        );
+
+        approvedRows.forEach((row) => {
+          history.push({
+            id: `transfer-approved-${row.id}`,
+            requestId: row.id,
+            type: "transfer",
+            typeLabel: "Item Transfer",
+            title: row.item_name || `Item #${row.id}`,
+            department: `${row.from_inventory_name || "-"} → ${row.to_inventory_name || "-"}`,
+            action: "approved",
+            actionLabel: "Approved & forwarded",
+            processedAt: row.processed_at,
+            link: "/admin/pending-tasks",
+            tab: "transfer-requests",
+          });
+        });
+      }
+
+      if (transferColumns.has("rejection_reason")) {
+        const [rejectedRows] = await pool.execute(
+          `
+            SELECT
+              it.id,
+              ${itemNameSelect},
+              fi.name AS from_inventory_name,
+              ti.name AS to_inventory_name,
+              ${buildProcessedAtExpression("it", transferColumns)} AS processed_at,
+              it.rejection_reason
+            FROM item_transfers it
+            ${itemJoin}
+            LEFT JOIN inventories fi ON fi.id = it.from_inventory_id
+            LEFT JOIN inventories ti ON ti.id = it.to_inventory_id
+            WHERE (
+              LOWER(COALESCE(it.approval_status, '')) = 'rejected'
+              OR LOWER(COALESCE(it.status, '')) = 'cancelled'
+            )
+            AND LOWER(COALESCE(it.rejection_reason, '')) LIKE '%registrar%'
+            ORDER BY processed_at DESC
+            LIMIT ${safeHistoryLimit}
+          `
+        );
+
+        rejectedRows.forEach((row) => {
+          history.push({
+            id: `transfer-rejected-${row.id}`,
+            requestId: row.id,
+            type: "transfer",
+            typeLabel: "Item Transfer",
+            title: row.item_name || `Item #${row.id}`,
+            department: `${row.from_inventory_name || "-"} → ${row.to_inventory_name || "-"}`,
+            action: "rejected",
+            actionLabel: "Rejected",
+            processedAt: row.processed_at,
+            note: row.rejection_reason || "",
+            link: "/admin/pending-tasks",
+            tab: "transfer-requests",
+          });
+        });
+      }
+    }
+
+    let disposalColumns = await ensureItemDisposalsWorkflow();
+    if (disposalColumns) {
+      disposalColumns = await getTableColumns("item_disposals");
+      const itemColumns = tableNames.has(DB_ITEMS_TABLE) ? await getTableColumns(DB_ITEMS_TABLE) : new Set();
+      const itemNameExpr = buildItemNameExpression(itemColumns);
+      const itemJoin = tableNames.has(DB_ITEMS_TABLE)
+        ? `LEFT JOIN ${DB_ITEMS_TABLE} ii ON ii.id = idp.item_id`
+        : "";
+      const itemNameSelect = tableNames.has(DB_ITEMS_TABLE)
+        ? `${itemNameExpr} AS item_name`
+        : "CAST(idp.item_id AS CHAR) AS item_name";
+
+      const [pendingDisposalRows] = await pool.execute(
+        disposalColumns.has("approval_status")
+          ? `
+              SELECT COUNT(*) AS count
+              FROM item_disposals idp
+              WHERE LOWER(COALESCE(idp.approval_status, '')) = 'pending_registrar'
+                 OR (idp.approval_status IS NULL AND LOWER(COALESCE(idp.status, '')) = 'pending')
+            `
+          : `
+              SELECT COUNT(*) AS count
+              FROM item_disposals idp
+              WHERE LOWER(COALESCE(idp.status, '')) = 'pending'
+            `
+      );
+      pendingDisposals = Number(pendingDisposalRows[0]?.count ?? 0);
+
+      if (disposalColumns.has("registrar_approved_date")) {
+        const [approvedRows] = await pool.execute(
+          `
+            SELECT
+              idp.id,
+              ${itemNameSelect},
+              inv.name AS inventory_name,
+              idp.registrar_approved_date AS processed_at
+            FROM item_disposals idp
+            ${itemJoin}
+            LEFT JOIN inventories inv ON inv.id = idp.inventory_id
+            WHERE idp.registrar_approved_date IS NOT NULL
+            ORDER BY idp.registrar_approved_date DESC
+            LIMIT ${safeHistoryLimit}
+          `
+        );
+
+        approvedRows.forEach((row) => {
+          history.push({
+            id: `disposal-approved-${row.id}`,
+            requestId: row.id,
+            type: "disposal",
+            typeLabel: "Item Disposal",
+            title: row.item_name || `Item #${row.id}`,
+            department: row.inventory_name || "-",
+            action: "approved",
+            actionLabel: "Approved & forwarded",
+            processedAt: row.processed_at,
+            link: "/admin/pending-tasks",
+            tab: "disposal-requests",
+          });
+        });
+      }
+
+      if (disposalColumns.has("rejection_reason")) {
+        const [rejectedRows] = await pool.execute(
+          `
+            SELECT
+              idp.id,
+              ${itemNameSelect},
+              inv.name AS inventory_name,
+              ${buildProcessedAtExpression("idp", disposalColumns)} AS processed_at,
+              idp.rejection_reason
+            FROM item_disposals idp
+            ${itemJoin}
+            LEFT JOIN inventories inv ON inv.id = idp.inventory_id
+            WHERE LOWER(COALESCE(idp.approval_status, '')) = 'rejected'
+              AND LOWER(COALESCE(idp.rejection_reason, '')) LIKE '%registrar%'
+            ORDER BY processed_at DESC
+            LIMIT ${safeHistoryLimit}
+          `
+        );
+
+        rejectedRows.forEach((row) => {
+          history.push({
+            id: `disposal-rejected-${row.id}`,
+            requestId: row.id,
+            type: "disposal",
+            typeLabel: "Item Disposal",
+            title: row.item_name || `Item #${row.id}`,
+            department: row.inventory_name || "-",
+            action: "rejected",
+            actionLabel: "Rejected",
+            processedAt: row.processed_at,
+            note: row.rejection_reason || "",
+            link: "/admin/pending-tasks",
+            tab: "disposal-requests",
+          });
+        });
+      }
+    }
+
+    history.sort((left, right) => {
+      const leftTime = new Date(left.processedAt || 0).getTime();
+      const rightTime = new Date(right.processedAt || 0).getTime();
+      return rightTime - leftTime;
+    });
+
+    const trimmedHistory = history.slice(0, safeHistoryLimit).map((entry) => ({
+      ...entry,
+      processedAt: entry.processedAt ? new Date(entry.processedAt).toISOString() : null,
+    }));
+
+    return res.json({
+      success: true,
+      summary: {
+        pendingInventory,
+        pendingTransfers,
+        pendingDisposals,
+        totalPending: pendingInventory + pendingTransfers + pendingDisposals,
+        approvedCount: trimmedHistory.filter((entry) => entry.action === "approved").length,
+        rejectedCount: trimmedHistory.filter((entry) => entry.action === "rejected").length,
+      },
+      history: trimmedHistory,
+    });
+  })
+);
+
 app.use((req, res) => {
   return res.status(404).json({ success: false, error: `Route not found: ${req.method} ${req.path}` });
 });
@@ -4222,6 +5822,8 @@ const startServer = async () => {
       await createInventoryCreationRequestsTable();
       await createInventoryItemsTable();
     }
+    await ensureItemTransfersWorkflow();
+    await ensureItemDisposalsWorkflow();
     dbReady = true;
     console.log(`MySQL connected to ${DB_NAME} on ${DB_HOST}:${DB_PORT}`);
     if (AUTO_CREATE_TABLES) {

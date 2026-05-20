@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import AdminLayout from "../../Components/Layouts/AdminLayout";
 import { Card, Button, SearchBox, Table, Badge, Modal, FormInput, Select, EntityDetailsModal, PageHeader } from "../../Components/UI";
@@ -49,6 +49,7 @@ const UserManagement = () => {
   });
 
   const [accountRequests, setAccountRequests] = useState([]);
+  const [departments, setDepartments] = useState([]);
 
   const loadUsers = async () => {
     try {
@@ -198,6 +199,31 @@ const UserManagement = () => {
   }, []);
 
   useEffect(() => {
+    let isMounted = true;
+
+    const loadDepartments = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/departments`);
+        const data = await response.json();
+
+        if (!isMounted) return;
+
+        if (response.ok) {
+          setDepartments(data.departments ?? data ?? []);
+        }
+      } catch (error) {
+        console.error("Failed to fetch departments:", error);
+      }
+    };
+
+    loadDepartments();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
     loadAccountRequests();
   }, []);
 
@@ -256,6 +282,15 @@ const UserManagement = () => {
   ];
   const isDirectProvisionedRole = ["head_of_department", "dean", "registrar", "admin"].includes(formData.role);
   const isRegistrarRole = formData.role === "registrar";
+  const departmentOptions = useMemo(
+    () => departments
+      .map((dept) => ({
+        value: dept.name || dept.code || String(dept.id || ""),
+        label: dept.name || dept.code || String(dept.id || ""),
+      }))
+      .filter((option) => option.value),
+    [departments]
+  );
 
   useEffect(() => {
     if (!createRoleOptions.some((option) => option.value === formData.role)) {
@@ -879,14 +914,9 @@ const UserManagement = () => {
                 name="department"
                 value={formData.department}
                 onChange={handleSelectChange("department")}
-                options={[
-                  { value: "Dean's Office", label: "Dean's Office" },
-                  { value: "Information Technology", label: "Information Technology" },
-                  { value: "Computational Mathematics", label: "Computational Mathematics" },
-                  { value: "Interdisciplinary Studies", label: "Interdisciplinary Studies" },
-                  { value: "Undergraduate Studies", label: "Undergraduate Studies" },
-                  { value: "Postgraduate Studies", label: "Postgraduate Studies" },
-                ]}
+                options={departmentOptions}
+                placeholder={departmentOptions.length ? "Select department" : "No departments available"}
+                disabled={!departmentOptions.length}
                 required
               />
             ) : (

@@ -48,6 +48,7 @@ import HodDashboard from './Pages/StaffMember/HodDashboard'
 import DeanDashboard from './Pages/StaffMember/DeanDashboard'
 import DepartmentManagement from './Pages/Admin/DepartmentManagement'
 import InventoryManagement from './Pages/Admin/InventoryManagement'
+import RegistrarAdminOutlet from './Components/Auth/RegistrarAdminOutlet'
 
 const router = createBrowserRouter([
   // ==================== Authentication Routes ====================
@@ -71,6 +72,7 @@ const router = createBrowserRouter([
   // ==================== Admin Routes ====================
   {
     path: "/admin",
+    element: <RegistrarAdminOutlet />,
     children: [
       {
         path: "dashboard",

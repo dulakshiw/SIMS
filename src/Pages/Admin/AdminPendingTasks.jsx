@@ -1,13 +1,13 @@
 import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 import AdminLayout from "../../Components/Layouts/AdminLayout";
 import { Card, Button, Table, Badge, Modal, SearchBox, PageHeader } from "../../Components/UI";
 import {
   ACCOUNT_REQUEST_STATUS,
   ACCOUNT_REQUEST_STATUS_META,
-  INVENTORY_REQUEST_STATUS,
   INVENTORY_REQUEST_STATUS_META,
   INVENTORY_REQUEST_TYPE,
+  INVENTORY_REQUEST_TYPE_LABELS,
   ROLE_HIERARCHY,
 } from "../../utils/constants";
 
@@ -22,22 +22,35 @@ const getStoredUser = () => {
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
 
 const AdminPendingTasks = () => {
-  const navigate = useNavigate();
+  const location = useLocation();
   const userRole = localStorage.getItem("userRole") || "admin";
   const isRegistrar = userRole === "registrar";
-  const [activeTab, setActiveTab] = useState(isRegistrar ? "inventory-requests" : "account-approvals");
+  const initialTab = location.state?.activeTab;
+  const [activeTab, setActiveTab] = useState(
+    initialTab || (isRegistrar ? "inventory-requests" : "account-approvals")
+  );
   const [searchTerm, setSearchTerm] = useState("");
 
   // -- Confirm modal state --
   const [confirmModal, setConfirmModal] = useState({ open: false, action: null, item: null, type: "" });
+  const [selectedDetails, setSelectedDetails] = useState(null);
+  const [detailsModalType, setDetailsModalType] = useState(null);
 
   const [accountRequests, setAccountRequests] = useState([]);
-  const [loadingErrors, setLoadingErrors] = useState({ accountRequests: "", users: "", inventoryRequests: "" });
+  const [loadingErrors, setLoadingErrors] = useState({
+    accountRequests: "",
+    users: "",
+    inventoryRequests: "",
+    transferRequests: "",
+    disposalRequests: "",
+  });
 
   // -- Users that need activate / deactivate action --
   const [users, setUsers] = useState([]);
 
   const [inventoryRequests, setInventoryRequests] = useState([]);
+  const [transferRequests, setTransferRequests] = useState([]);
+  const [disposalRequests, setDisposalRequests] = useState([]);
 
   const loadAccountRequests = async () => {
     try {
@@ -103,17 +116,77 @@ const AdminPendingTasks = () => {
     }
   };
 
+  const loadTransferRequests = async () => {
+    if (!isRegistrar) {
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/api/item-transfers?approvalStatus=pending_registrar`
+      );
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || data.error || "Failed to load transfer requests.");
+      }
+
+      setTransferRequests(data.transfers || []);
+      setLoadingErrors((prev) => ({ ...prev, transferRequests: "" }));
+    } catch (error) {
+      setTransferRequests([]);
+      setLoadingErrors((prev) => ({
+        ...prev,
+        transferRequests: error.message || "Failed to load transfer requests.",
+      }));
+    }
+  };
+
+  const loadDisposalRequests = async () => {
+    if (!isRegistrar) {
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/api/item-disposals?approvalStatus=pending_registrar`
+      );
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || data.error || "Failed to load disposal requests.");
+      }
+
+      setDisposalRequests(data.disposals || []);
+      setLoadingErrors((prev) => ({ ...prev, disposalRequests: "" }));
+    } catch (error) {
+      setDisposalRequests([]);
+      setLoadingErrors((prev) => ({
+        ...prev,
+        disposalRequests: error.message || "Failed to load disposal requests.",
+      }));
+    }
+  };
+
   const refreshPendingTasks = () => {
     if (!isRegistrar) {
       loadAccountRequests();
       loadUsers();
     }
     loadInventoryRequests();
+    loadTransferRequests();
+    loadDisposalRequests();
   };
 
   React.useEffect(() => {
     refreshPendingTasks();
   }, []);
+
+  React.useEffect(() => {
+    if (location.state?.activeTab) {
+      setActiveTab(location.state.activeTab);
+    }
+  }, [location.state?.activeTab]);
 
   React.useEffect(() => {
     const intervalId = window.setInterval(() => {
@@ -136,6 +209,17 @@ const AdminPendingTasks = () => {
   const openConfirm = (action, item, type) => {
     setConfirmModal({ open: true, action, item, type });
   };
+
+  const openDetails = (item, type) => {
+    setSelectedDetails(item);
+    setDetailsModalType(type);
+  };
+
+  const closeDetails = () => {
+    setSelectedDetails(null);
+    setDetailsModalType(null);
+  };
+
 
   const handleConfirm = () => {
     const { action, item, type } = confirmModal;
@@ -308,9 +392,82 @@ const AdminPendingTasks = () => {
         .catch((error) => {
           window.alert(error.message || "Failed to reject inventory request.");
         });
+    } else if (type === "approve-registrar-transfer") {
+      const registrarUser = getStoredUser();
+      fetch(`${API_BASE_URL}/api/item-transfers/${item.id}/approve-registrar`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ approverUserId: registrarUser.id ?? null }),
+      })
+        .then((response) => response.json().then((data) => ({ ok: response.ok, data })))
+        .then(({ ok, data }) => {
+          if (!ok || !data.success) {
+            throw new Error(data.message || data.error || "Failed to approve transfer request.");
+          }
+          setTransferRequests((prev) => prev.filter((r) => r.id !== item.id));
+        })
+        .catch((error) => {
+          window.alert(error.message || "Failed to approve transfer request.");
+        });
+    } else if (type === "reject-transfer") {
+      fetch(`${API_BASE_URL}/api/item-transfers/${item.id}/reject`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          approverRole: "registrar",
+          reason: "Rejected from registrar pending tasks",
+        }),
+      })
+        .then((response) => response.json().then((data) => ({ ok: response.ok, data })))
+        .then(({ ok, data }) => {
+          if (!ok || !data.success) {
+            throw new Error(data.message || data.error || "Failed to reject transfer request.");
+          }
+          setTransferRequests((prev) => prev.filter((r) => r.id !== item.id));
+        })
+        .catch((error) => {
+          window.alert(error.message || "Failed to reject transfer request.");
+        });
+    } else if (type === "approve-registrar-disposal") {
+      const registrarUser = getStoredUser();
+      fetch(`${API_BASE_URL}/api/item-disposals/${item.id}/approve-registrar`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ approverUserId: registrarUser.id ?? null }),
+      })
+        .then((response) => response.json().then((data) => ({ ok: response.ok, data })))
+        .then(({ ok, data }) => {
+          if (!ok || !data.success) {
+            throw new Error(data.message || data.error || "Failed to approve disposal request.");
+          }
+          setDisposalRequests((prev) => prev.filter((r) => r.id !== item.id));
+        })
+        .catch((error) => {
+          window.alert(error.message || "Failed to approve disposal request.");
+        });
+    } else if (type === "reject-disposal") {
+      fetch(`${API_BASE_URL}/api/item-disposals/${item.id}/reject`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          approverRole: "registrar",
+          reason: "Rejected from registrar pending tasks",
+        }),
+      })
+        .then((response) => response.json().then((data) => ({ ok: response.ok, data })))
+        .then(({ ok, data }) => {
+          if (!ok || !data.success) {
+            throw new Error(data.message || data.error || "Failed to reject disposal request.");
+          }
+          setDisposalRequests((prev) => prev.filter((r) => r.id !== item.id));
+        })
+        .catch((error) => {
+          window.alert(error.message || "Failed to reject disposal request.");
+        });
     }
 
     setConfirmModal({ open: false, action: null, item: null, type: "" });
+    closeDetails();
   };
 
   // ---- Column / Action definitions ----
@@ -346,19 +503,6 @@ const AdminPendingTasks = () => {
     },
   ];
 
-  const accountRequestActions = [
-    {
-      label: "Approve",
-      icon: "check_circle",
-      onClick: (row) => openConfirm("approve", row, "approve-account"),
-    },
-    {
-      label: "Reject",
-      icon: "cancel",
-      onClick: (row) => openConfirm("reject", row, "reject-account"),
-    },
-  ];
-
   const userColumns = [
     {
       field: "id",
@@ -390,16 +534,53 @@ const AdminPendingTasks = () => {
     { field: "createdDate", label: "Created Date" },
   ];
 
-  const userActions = [
+  const transferRequestColumns = [
     {
-      label: "Activate",
-      icon: "check_circle",
-      onClick: (row) => openConfirm("activate", row, "activate-user"),
+      field: "id",
+      label: "No",
+      sortable: false,
+      render: (_value, row) =>
+        filteredTransferRequests.length -
+        filteredTransferRequests.findIndex((request) => request.id === row.id),
     },
+    { field: "itemName", label: "Item", sortable: true },
+    { field: "fromInventory", label: "From" },
+    { field: "toInventory", label: "To" },
+    { field: "quantity", label: "Qty" },
+    { field: "initiatedBy", label: "Requested By" },
+    { field: "transferDate", label: "Date" },
     {
-      label: "Deactivate",
-      icon: "block",
-      onClick: (row) => openConfirm("deactivate", row, "deactivate-user"),
+      field: "approvalStatus",
+      label: "Status",
+      render: (value) => {
+        const cfg = INVENTORY_REQUEST_STATUS_META[value] || { label: value, variant: "secondary" };
+        return <Badge label={cfg.label} variant={cfg.variant} size="sm" />;
+      },
+    },
+  ];
+
+  const disposalRequestColumns = [
+    {
+      field: "id",
+      label: "No",
+      sortable: false,
+      render: (_value, row) =>
+        filteredDisposalRequests.length -
+        filteredDisposalRequests.findIndex((request) => request.id === row.id),
+    },
+    { field: "itemName", label: "Item", sortable: true },
+    { field: "inventory", label: "Inventory" },
+    { field: "reason", label: "Reason" },
+    { field: "condition", label: "Condition" },
+    { field: "initiatedBy", label: "Requested By" },
+    { field: "disposalDate", label: "Date" },
+    {
+      field: "approvalStatus",
+      label: "Status",
+      render: (value) => {
+        const cfg = INVENTORY_REQUEST_STATUS_META[value] || { label: value, variant: "secondary" };
+        return <Badge label={cfg.label} variant={cfg.variant} size="sm" />;
+      },
     },
   ];
 
@@ -437,23 +618,6 @@ const AdminPendingTasks = () => {
     },
   ];
 
-  const inventoryRequestActions = [
-    {
-      label: isRegistrar ? "Approve & Forward" : "Approve & Create",
-      icon: "check_circle",
-      onClick: (row) => openConfirm(
-        "approve",
-        row,
-        isRegistrar ? "approve-registrar-inventory" : "approve-inventory"
-      ),
-    },
-    {
-      label: "Reject",
-      icon: "cancel",
-      onClick: (row) => openConfirm("reject", row, "reject-inventory"),
-    },
-  ];
-
   // ---- Filtered data ----
   const pendingAccountRequests = accountRequests.filter(
     (r) => r.approvalStatus === ACCOUNT_REQUEST_STATUS.PENDING_ADMIN
@@ -484,9 +648,28 @@ const AdminPendingTasks = () => {
       r.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       r.department.toLowerCase().includes(searchTerm.toLowerCase())
   );
+  const filteredTransferRequests = transferRequests.filter((r) => {
+    const term = searchTerm.toLowerCase();
+    return (
+      r.itemName?.toLowerCase().includes(term) ||
+      r.fromInventory?.toLowerCase().includes(term) ||
+      r.toInventory?.toLowerCase().includes(term) ||
+      r.initiatedBy?.toLowerCase().includes(term)
+    );
+  });
+  const filteredDisposalRequests = disposalRequests.filter((r) => {
+    const term = searchTerm.toLowerCase();
+    return (
+      r.itemName?.toLowerCase().includes(term) ||
+      r.inventory?.toLowerCase().includes(term) ||
+      r.reason?.toLowerCase().includes(term) ||
+      r.initiatedBy?.toLowerCase().includes(term)
+    );
+  });
 
-  const totalPending =
-    pendingAccountRequests.length + inactiveUsers.length + pendingInventoryRequests.length;
+  const totalPending = isRegistrar
+    ? pendingInventoryRequests.length + transferRequests.length + disposalRequests.length
+    : pendingAccountRequests.length + inactiveUsers.length + pendingInventoryRequests.length;
 
   // ---- Confirm modal text ----
   const getConfirmText = () => {
@@ -531,19 +714,176 @@ const AdminPendingTasks = () => {
     }
     if (type === "reject-inventory")
       return { title: "Reject Inventory Request", body: `Reject the inventory creation request for "${item.name}"?` };
+    if (type === "approve-registrar-transfer") {
+      return {
+        title: "Approve Item Transfer",
+        body: `Approve transfer of "${item.itemName}" from ${item.fromInventory} to ${item.toInventory} and forward to the administrator?`,
+      };
+    }
+    if (type === "reject-transfer") {
+      return {
+        title: "Reject Item Transfer",
+        body: `Reject the transfer request for "${item.itemName}"?`,
+      };
+    }
+    if (type === "approve-registrar-disposal") {
+      return {
+        title: "Approve Item Disposal",
+        body: `Approve disposal of "${item.itemName}" from ${item.inventory} and forward to the administrator?`,
+      };
+    }
+    if (type === "reject-disposal") {
+      return {
+        title: "Reject Item Disposal",
+        body: `Reject the disposal request for "${item.itemName}"?`,
+      };
+    }
     return {};
   };
 
   const { title: confirmTitle, body: confirmBody } = getConfirmText();
   const isDestructive = confirmModal.type?.startsWith("reject") || confirmModal.type === "deactivate-user";
 
+  const buildAccountDetailFields = (request) => {
+    const statusConfig = ACCOUNT_REQUEST_STATUS_META[request.approvalStatus] || {
+      label: request.approvalStatus,
+    };
+
+    return [
+      { label: "Name", value: request.name },
+      { label: "Email", value: request.email },
+      { label: "Department", value: request.department },
+      { label: "Designation", value: request.designation },
+      {
+        label: "Requested role",
+        value: ROLE_HIERARCHY[request.requestedRole]?.label || request.requestedRole,
+      },
+      {
+        label: "Request type",
+        value: request.requestType === "deactivation" ? "Deactivation" : "Account creation",
+      },
+      { label: "Requested date", value: request.requestedDate },
+      { label: "Status", value: statusConfig.label },
+    ];
+  };
+
+  const buildUserDetailFields = (user) => [
+    { label: "Name", value: user.name },
+    { label: "Email", value: user.email },
+    { label: "Department", value: user.department },
+    { label: "Role", value: ROLE_HIERARCHY[user.role]?.label || user.role },
+    {
+      label: "Status",
+      value: user.status ? user.status.charAt(0).toUpperCase() + user.status.slice(1) : "-",
+    },
+    { label: "Created date", value: user.createdDate },
+  ];
+
+  const buildTransferDetailFields = (request) => {
+    const statusConfig = INVENTORY_REQUEST_STATUS_META[request.approvalStatus] || {
+      label: request.approvalStatus,
+    };
+
+    return [
+      { label: "Item", value: request.itemName },
+      { label: "From inventory", value: request.fromInventory },
+      { label: "To inventory", value: request.toInventory },
+      { label: "Quantity", value: request.quantity },
+      { label: "Requested by", value: request.initiatedBy },
+      { label: "Transfer date", value: request.transferDate },
+      { label: "Status", value: statusConfig.label },
+      { label: "Reason", value: request.reason, fullWidth: true },
+    ];
+  };
+
+  const buildDisposalDetailFields = (request) => {
+    const statusConfig = INVENTORY_REQUEST_STATUS_META[request.approvalStatus] || {
+      label: request.approvalStatus,
+    };
+
+    return [
+      { label: "Item", value: request.itemName },
+      { label: "Inventory", value: request.inventory },
+      { label: "Quantity", value: request.quantity },
+      { label: "Reason", value: request.reason },
+      { label: "Condition", value: request.condition },
+      { label: "Requested by", value: request.initiatedBy },
+      { label: "Disposal date", value: request.disposalDate },
+      { label: "Status", value: statusConfig.label },
+      { label: "Description", value: request.description, fullWidth: true },
+    ];
+  };
+
+  const buildInventoryDetailFields = (request) => {
+    const statusConfig = INVENTORY_REQUEST_STATUS_META[request.approvalStatus] || {
+      label: request.approvalStatus,
+    };
+
+    return [
+      {
+        label: "Request type",
+        value: INVENTORY_REQUEST_TYPE_LABELS[request.requestType] || request.requestType,
+      },
+      { label: "Inventory name", value: request.name },
+      { label: "Department", value: request.department },
+      { label: "Requested by", value: request.requestedBy },
+      { label: "HOD approved by", value: request.hodApprovedBy },
+      { label: "HOD approval date", value: request.hodApprovedDate },
+      { label: "Status", value: statusConfig.label },
+      { label: "Reason", value: request.reason, fullWidth: true },
+    ];
+  };
+
+  const detailFields =
+    detailsModalType === "account" && selectedDetails
+      ? buildAccountDetailFields(selectedDetails)
+      : detailsModalType === "user" && selectedDetails
+        ? buildUserDetailFields(selectedDetails)
+        : detailsModalType === "inventory" && selectedDetails
+          ? buildInventoryDetailFields(selectedDetails)
+          : detailsModalType === "transfer" && selectedDetails
+            ? buildTransferDetailFields(selectedDetails)
+            : detailsModalType === "disposal" && selectedDetails
+              ? buildDisposalDetailFields(selectedDetails)
+              : [];
+
+  const detailModalTitle =
+    detailsModalType === "account"
+      ? "Account request details"
+      : detailsModalType === "user"
+        ? "User details"
+        : detailsModalType === "inventory"
+          ? "Inventory creation details"
+          : detailsModalType === "transfer"
+            ? "Item transfer details"
+            : detailsModalType === "disposal"
+              ? "Item disposal details"
+              : "Details";
+
+  const detailSelectedName =
+    detailsModalType === "transfer" || detailsModalType === "disposal"
+      ? selectedDetails?.itemName
+      : selectedDetails?.name;
+
   const tabs = isRegistrar
     ? [
         {
           id: "inventory-requests",
-          label: "Inventory Requests",
+          label: "Inventory Creation",
           icon: "inventory_2",
           count: pendingInventoryRequests.length,
+        },
+        {
+          id: "transfer-requests",
+          label: "Item Transfers",
+          icon: "compare_arrows",
+          count: transferRequests.length,
+        },
+        {
+          id: "disposal-requests",
+          label: "Item Disposals",
+          icon: "delete_sweep",
+          count: disposalRequests.length,
         },
       ]
     : [
@@ -570,24 +910,19 @@ const AdminPendingTasks = () => {
   return (
     <AdminLayout>
       <PageHeader
-        title="Pending Tasks"
+        title={isRegistrar ? "Approvals" : "Pending Tasks"}
         subtitle={
           isRegistrar
-            ? "Inventory creation requests awaiting registrar approval"
+            ? "Review and approve inventory creation, item transfers, and item disposals"
             : "Actions requiring admin approval or intervention"
         }
         actions={
-          <>
-            {totalPending > 0 ? (
-              <span className="inline-flex items-center gap-2 rounded-lg border border-white/30 bg-white/15 px-4 py-2 text-sm font-semibold text-white">
-                <span className="material-symbols-outlined text-base">schedule</span>
-                {totalPending} task{totalPending !== 1 ? "s" : ""} pending
-              </span>
-            ) : null}
-            <Button variant="secondary" icon="refresh" onClick={refreshPendingTasks}>
-              Refresh
-            </Button>
-          </>
+          totalPending > 0 ? (
+            <span className="inline-flex items-center gap-2 rounded-lg border border-white/30 bg-white/15 px-4 py-2 text-sm font-semibold text-white">
+              <span className="material-symbols-outlined text-base">schedule</span>
+              {totalPending} task{totalPending !== 1 ? "s" : ""} pending
+            </span>
+          ) : null
         }
       />
 
@@ -660,15 +995,27 @@ const AdminPendingTasks = () => {
 
         {/* Search */}
         <SearchBox
-          placeholder="Search by name or department..."
+          placeholder={
+            isRegistrar ? "Search by item, inventory, or requester..." : "Search by name or department..."
+          }
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           icon="search"
         />
 
-        {(loadingErrors.accountRequests || loadingErrors.users || loadingErrors.inventoryRequests) && (
+        {(loadingErrors.accountRequests ||
+          loadingErrors.users ||
+          loadingErrors.inventoryRequests ||
+          loadingErrors.transferRequests ||
+          loadingErrors.disposalRequests) && (
           <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
-            {[loadingErrors.accountRequests, loadingErrors.users, loadingErrors.inventoryRequests]
+            {[
+              loadingErrors.accountRequests,
+              loadingErrors.users,
+              loadingErrors.inventoryRequests,
+              loadingErrors.transferRequests,
+              loadingErrors.disposalRequests,
+            ]
               .filter(Boolean)
               .join(" ")}
           </div>
@@ -691,8 +1038,9 @@ const AdminPendingTasks = () => {
                 <Table
                   columns={accountRequestColumns}
                   data={filteredAccountRequests}
-                  actions={accountRequestActions}
-                  rowsPerPage={10}
+                  onRowClick={(row) => openDetails(row, "account")}
+                  searchable={false}
+                  itemsPerPage={10}
                 />
               )}
             </div>
@@ -714,8 +1062,59 @@ const AdminPendingTasks = () => {
                 <Table
                   columns={userColumns}
                   data={filteredUsers}
-                  actions={userActions}
-                  rowsPerPage={10}
+                  onRowClick={(row) => openDetails(row, "user")}
+                  searchable={false}
+                  itemsPerPage={10}
+                />
+              )}
+            </div>
+          </Card>
+        )}
+
+        {activeTab === "transfer-requests" && isRegistrar && (
+          <Card title="Item Transfers (Awaiting Registrar)" icon="compare_arrows">
+            <div className="space-y-4">
+              <p className="text-sm text-text-light bg-background-light p-3 rounded">
+                Item transfer requests approved by the HOD are listed here. Approve to forward them to the
+                administrator for final processing.
+              </p>
+              {filteredTransferRequests.length === 0 ? (
+                <div className="text-center py-10 text-text-light">
+                  <span className="material-symbols-outlined text-5xl mb-2 block">check_circle</span>
+                  No pending transfer requests
+                </div>
+              ) : (
+                <Table
+                  columns={transferRequestColumns}
+                  data={filteredTransferRequests}
+                  onRowClick={(row) => openDetails(row, "transfer")}
+                  searchable={false}
+                  itemsPerPage={10}
+                />
+              )}
+            </div>
+          </Card>
+        )}
+
+        {activeTab === "disposal-requests" && isRegistrar && (
+          <Card title="Item Disposals (Awaiting Registrar)" icon="delete_sweep">
+            <div className="space-y-4">
+              <p className="text-sm text-text-light bg-background-light p-3 rounded">
+                Item disposal requests approved by the HOD are listed here. Approve to forward them to the
+                administrator for final processing.
+              </p>
+              {filteredDisposalRequests.length === 0 ? (
+                <div className="text-center py-10 text-text-light">
+                  <span className="material-symbols-outlined text-5xl mb-2 block">check_circle</span>
+                  No pending disposal requests
+                </div>
+              ) : (
+                <Table
+                  columns={disposalRequestColumns}
+                  data={filteredDisposalRequests}
+                  onRowClick={(row) => openDetails(row, "disposal")}
+                  searchable={false}
+                  itemsPerPage={10}
                 />
               )}
             </div>
@@ -724,7 +1123,7 @@ const AdminPendingTasks = () => {
 
         {activeTab === "inventory-requests" && (
           <Card
-            title={isRegistrar ? "Inventory Requests (Awaiting Registrar)" : "Inventory Requests (Awaiting Admin)"}
+            title={isRegistrar ? "Inventory Creation (Awaiting Registrar)" : "Inventory Requests (Awaiting Admin)"}
             icon="inventory_2"
           >
             <div className="space-y-4">
@@ -742,24 +1141,149 @@ const AdminPendingTasks = () => {
                 <Table
                   columns={inventoryRequestColumns}
                   data={filteredInventoryRequests}
-                  actions={inventoryRequestActions}
-                  rowsPerPage={10}
+                  onRowClick={(row) => openDetails(row, "inventory")}
+                  searchable={false}
+                  itemsPerPage={10}
                 />
               )}
             </div>
           </Card>
         )}
 
-        {/* Quick link to full management pages */}
-        <div className="flex gap-3 flex-wrap">
-          <Button variant="secondary" icon="people" onClick={() => navigate("/admin/users")}>
-            Manage All Users
-          </Button>
-          <Button variant="secondary" icon="inventory_2" onClick={() => navigate("/admin/inventory")}>
-            Manage All Inventories
-          </Button>
-        </div>
       </div>
+
+      <Modal
+        isOpen={Boolean(selectedDetails && detailsModalType)}
+        onClose={closeDetails}
+        title={detailModalTitle}
+        size="lg"
+        footer={
+          <div className="flex flex-wrap justify-end gap-3">
+            <Button variant="secondary" onClick={closeDetails}>
+              Close
+            </Button>
+            {detailsModalType === "account" && selectedDetails ? (
+              <>
+                <Button
+                  variant="danger"
+                  icon="cancel"
+                  onClick={() => openConfirm("reject", selectedDetails, "reject-account")}
+                >
+                  Reject
+                </Button>
+                <Button
+                  variant="primary"
+                  icon="check_circle"
+                  onClick={() => openConfirm("approve", selectedDetails, "approve-account")}
+                >
+                  Approve
+                </Button>
+              </>
+            ) : null}
+            {detailsModalType === "user" && selectedDetails ? (
+              selectedDetails.status === "inactive" ? (
+                <Button
+                  variant="primary"
+                  icon="check_circle"
+                  onClick={() => openConfirm("activate", selectedDetails, "activate-user")}
+                >
+                  Activate
+                </Button>
+              ) : (
+                <Button
+                  variant="danger"
+                  icon="block"
+                  onClick={() => openConfirm("deactivate", selectedDetails, "deactivate-user")}
+                >
+                  Deactivate
+                </Button>
+              )
+            ) : null}
+            {detailsModalType === "inventory" && selectedDetails ? (
+              <>
+                <Button
+                  variant="danger"
+                  icon="cancel"
+                  onClick={() => openConfirm("reject", selectedDetails, "reject-inventory")}
+                >
+                  Reject
+                </Button>
+                <Button
+                  variant="primary"
+                  icon="check_circle"
+                  onClick={() =>
+                    openConfirm(
+                      "approve",
+                      selectedDetails,
+                      isRegistrar ? "approve-registrar-inventory" : "approve-inventory"
+                    )
+                  }
+                >
+                  {isRegistrar ? "Approve & Forward" : "Approve & Create"}
+                </Button>
+              </>
+            ) : null}
+            {detailsModalType === "transfer" && selectedDetails ? (
+              <>
+                <Button
+                  variant="danger"
+                  icon="cancel"
+                  onClick={() => openConfirm("reject", selectedDetails, "reject-transfer")}
+                >
+                  Reject
+                </Button>
+                <Button
+                  variant="primary"
+                  icon="check_circle"
+                  onClick={() =>
+                    openConfirm("approve", selectedDetails, "approve-registrar-transfer")
+                  }
+                >
+                  Approve & Forward
+                </Button>
+              </>
+            ) : null}
+            {detailsModalType === "disposal" && selectedDetails ? (
+              <>
+                <Button
+                  variant="danger"
+                  icon="cancel"
+                  onClick={() => openConfirm("reject", selectedDetails, "reject-disposal")}
+                >
+                  Reject
+                </Button>
+                <Button
+                  variant="primary"
+                  icon="check_circle"
+                  onClick={() =>
+                    openConfirm("approve", selectedDetails, "approve-registrar-disposal")
+                  }
+                >
+                  Approve & Forward
+                </Button>
+              </>
+            ) : null}
+          </div>
+        }
+      >
+        {selectedDetails ? (
+          <div className="space-y-4">
+            <div className="bg-background-light p-4 rounded-lg">
+              <p className="text-sm text-text-light">Selected</p>
+              <p className="text-lg font-semibold text-text-dark">{detailSelectedName || "-"}</p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+              {detailFields.map((detail) => (
+                <div key={detail.label} className={detail.fullWidth ? "md:col-span-2" : ""}>
+                  <p className="text-text-light">{detail.label}</p>
+                  <p className="font-semibold text-text-dark whitespace-pre-wrap">{detail.value || "-"}</p>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-text-light">Select an action below to approve, reject, or update status.</p>
+          </div>
+        ) : null}
+      </Modal>
 
       {/* Confirm Action Modal */}
       <Modal

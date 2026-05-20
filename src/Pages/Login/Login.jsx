@@ -7,7 +7,7 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000
 
 const DASHBOARD_BY_ROLE = {
   admin: "/admin/dashboard",
-  registrar: "/admin/pending-tasks",
+  registrar: "/admin/dashboard",
   staff: "/staff/dashboard",
   inventory_incharge: "/staff/dashboard",
   head_of_department: "/hod/dashboard",

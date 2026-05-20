@@ -1,10 +1,20 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { useLocation, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import MainLayout from "../../Components/Layouts/MainLayout";
 import { Card, Button, PageHeader, Select } from "../../Components/UI";
 import { resolveSidebarVariant } from "../../utils/helpers";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
+
+const resolveUploadUrl = (filePath) => {
+  if (!filePath) {
+    return "";
+  }
+  if (/^https?:\/\//i.test(filePath)) {
+    return filePath;
+  }
+  return `${API_BASE_URL}${filePath.startsWith("/") ? filePath : `/${filePath}`}`;
+};
 const COMMON_PLACE_OPTIONS = [
   { value: "Store Room", label: "Store Room" },
   { value: "Lecture Hall 1", label: "Lecture Hall 1" },
@@ -13,10 +23,49 @@ const COMMON_PLACE_OPTIONS = [
   { value: "Lecture Hall 4", label: "Lecture Hall 4" },
 ];
 
+const LOCATION_OTHER_VALUE = "other";
+const LOCATION_EXCLUDED_ROLES = new Set(["admin", "registrar"]);
+const FUNDING_OPTION_VALUES = new Set(["Capital Fund", "University Development Fund", "Faculty Development Fund", "Department Development Fund"]);
+const WARRANTY_OPTION_VALUES = new Set(["1 Year", "2 Years", "3 Years", "5 Years"]);
+
+const formatDateInputValue = (value) => {
+  if (!value) {
+    return "";
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return "";
+  }
+  return parsed.toISOString().slice(0, 10);
+};
+
+const resolveOptionField = (value, knownValues) => {
+  const normalized = String(value || "").trim();
+  if (!normalized) {
+    return { selected: "", other: "" };
+  }
+  if (knownValues.has(normalized)) {
+    return { selected: normalized, other: "" };
+  }
+  return { selected: "other", other: normalized };
+};
+
+const pickItemField = (item, ...keys) => {
+  for (const key of keys) {
+    const value = item?.[key];
+    if (value !== null && value !== undefined && String(value).trim() !== "") {
+      return value;
+    }
+  }
+  return "";
+};
+
 const AddNewItem = () => {
   const location = useLocation();
+  const navigate = useNavigate();
   const { role } = useParams();
   const sidebarVariant = resolveSidebarVariant(location.pathname, role);
+  const rolePath = role || sidebarVariant || "incharge";
   const currentUser = useMemo(() => {
     try {
       return JSON.parse(localStorage.getItem("currentUser") || "{}");
@@ -28,6 +77,11 @@ const AddNewItem = () => {
     const params = new URLSearchParams(location.search);
     return params.get("inventoryId") || "";
   }, [location.search]);
+  const editItemId = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    return params.get("editItemId") || "";
+  }, [location.search]);
+  const isEditMode = Boolean(editItemId);
   const isInchargeMode = role === "incharge" || currentUser.role === "inventory_incharge";
   const [uploadMode, setUploadMode] = useState("single"); // "single" or "bulk"
   const [bulkFile, setBulkFile] = useState(null);
@@ -43,6 +97,7 @@ const AddNewItem = () => {
   const [locationAssignmentType, setLocationAssignmentType] = useState("person");
   const [selectedLocationUserId, setSelectedLocationUserId] = useState("");
   const [selectedCommonPlace, setSelectedCommonPlace] = useState("");
+  const [locationOtherDetail, setLocationOtherDetail] = useState("");
   
   const [itemData, setItemData] = useState({
     itemName: "",
@@ -71,6 +126,9 @@ const AddNewItem = () => {
   const [ginExistingFile, setGinExistingFile] = useState("");
   const [ginStatus, setGinStatus] = useState("");
   const [ginCheckLoading, setGinCheckLoading] = useState(false);
+  const [editLoading, setEditLoading] = useState(false);
+  const [existingItemImage, setExistingItemImage] = useState("");
+  const [pendingEditLocation, setPendingEditLocation] = useState("");
 
   useEffect(() => {
     if (!isInchargeMode || !currentUser.id) {
@@ -154,19 +212,163 @@ const AddNewItem = () => {
   );
 
   const selectedInventory = assignedInventories.find((inventory) => String(inventory.id) === String(selectedInventoryId)) || null;
-  const userLocationOptions = useMemo(
-    () =>
-      systemUsers.map((user) => ({
+  const userLocationOptions = useMemo(() => {
+    const staffUsers = systemUsers
+      .filter((user) => !LOCATION_EXCLUDED_ROLES.has(String(user.role || "").toLowerCase().trim()))
+      .sort((a, b) =>
+        String(a.name || "").localeCompare(String(b.name || ""), undefined, { sensitivity: "base" })
+      );
+
+    return [
+      ...staffUsers.map((user) => ({
         value: String(user.id),
-        label: user.department ? `${user.name} (${user.department})` : user.name,
+        label:
+          user.department && user.department !== "-"
+            ? `${user.name} (${user.department})`
+            : user.name,
       })),
-    [systemUsers]
+      { value: LOCATION_OTHER_VALUE, label: "Other (person outside faculty)" },
+    ];
+  }, [systemUsers]);
+
+  const commonPlaceOptions = useMemo(
+    () => [
+      ...COMMON_PLACE_OPTIONS,
+      { value: LOCATION_OTHER_VALUE, label: "Other (place outside faculty)" },
+    ],
+    []
   );
+
+  const showLocationOtherInput =
+    (locationAssignmentType === "person" && selectedLocationUserId === LOCATION_OTHER_VALUE) ||
+    (locationAssignmentType === "place" && selectedCommonPlace === LOCATION_OTHER_VALUE);
 
   const selectedLocationUser = useMemo(
     () => systemUsers.find((user) => String(user.id) === String(selectedLocationUserId)) || null,
     [selectedLocationUserId, systemUsers]
   );
+
+  const applyLocationFromValue = (locationValue, users) => {
+    const normalizedLocation = String(locationValue || "").trim();
+    if (!normalizedLocation) {
+      return;
+    }
+
+    const matchedUser = users.find((user) => String(user.name || "").trim() === normalizedLocation);
+    if (matchedUser) {
+      setLocationAssignmentType("person");
+      setSelectedLocationUserId(String(matchedUser.id));
+      setSelectedCommonPlace("");
+      setLocationOtherDetail("");
+      return;
+    }
+
+    const matchedPlace = COMMON_PLACE_OPTIONS.find((place) => place.value === normalizedLocation);
+    if (matchedPlace) {
+      setLocationAssignmentType("place");
+      setSelectedCommonPlace(matchedPlace.value);
+      setSelectedLocationUserId("");
+      setLocationOtherDetail("");
+      return;
+    }
+
+    setLocationAssignmentType("person");
+    setSelectedLocationUserId(LOCATION_OTHER_VALUE);
+    setSelectedCommonPlace("");
+    setLocationOtherDetail(normalizedLocation);
+  };
+
+  useEffect(() => {
+    if (!isEditMode || !editItemId) {
+      return undefined;
+    }
+
+    let isMounted = true;
+
+    const loadItemForEdit = async () => {
+      try {
+        setEditLoading(true);
+        const response = await fetch(`${API_BASE_URL}/api/items/${editItemId}`);
+        const data = await response.json();
+
+        if (!response.ok || !data.success || !data.item) {
+          throw new Error(data.error || data.message || "Failed to load item for editing.");
+        }
+
+        if (!isMounted) {
+          return;
+        }
+
+        const item = data.item;
+        const funding = resolveOptionField(
+          pickItemField(item, "funding", "funding_source"),
+          FUNDING_OPTION_VALUES
+        );
+        const warranty = resolveOptionField(pickItemField(item, "warranty"), WARRANTY_OPTION_VALUES);
+        const ginPath = pickItemField(item, "ginfile", "gin_pdf", "gin_file");
+        const imagePath = pickItemField(item, "itemImage", "item_image", "image");
+
+        setItemData({
+          itemName: pickItemField(item, "itemName", "item_name", "name"),
+          itemCode: pickItemField(item, "itemCode", "item_code"),
+          serialNo: pickItemField(item, "serialNo", "serial_no"),
+          serialNo2: pickItemField(item, "serialNo2", "serial_no2"),
+          model: pickItemField(item, "model"),
+          QRCode: pickItemField(item, "QRCode", "qr_code", "qrcode"),
+          QRCode2: pickItemField(item, "QRCode2", "qr_code2", "qrcode2"),
+          pageno: pickItemField(item, "pageno", "page_no") || "",
+          itemImage: null,
+          value: item.value ?? "",
+          purchaseDate: formatDateInputValue(
+            pickItemField(item, "purchaseDate", "purchase_date", "purchased_date")
+          ),
+          ginNo: pickItemField(item, "ginNo", "gin_no"),
+          ginfile: null,
+          poNo: pickItemField(item, "poNo", "po_no"),
+          supplier: pickItemField(item, "supplier"),
+          funding: funding.selected,
+          fundingOther: funding.other,
+          receivedfrom: pickItemField(item, "receivedfrom", "received_from"),
+          warranty: warranty.selected,
+          warrantyOther: warranty.other,
+          location: pickItemField(item, "location"),
+          remarks: pickItemField(item, "remarks"),
+        });
+
+        if (item.inventory_id) {
+          setSelectedInventoryId(String(item.inventory_id));
+        }
+
+        setGinExistingFile(ginPath || "");
+        setExistingItemImage(imagePath || "");
+        setPendingEditLocation(pickItemField(item, "location"));
+      } catch (loadError) {
+        if (isMounted) {
+          alert(loadError.message || "Failed to load item for editing.");
+          navigate(`/inventory/item/${editItemId}/${rolePath}`);
+        }
+      } finally {
+        if (isMounted) {
+          setEditLoading(false);
+        }
+      }
+    };
+
+    loadItemForEdit();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isEditMode, editItemId, navigate, rolePath]);
+
+  useEffect(() => {
+    if (!isEditMode || !pendingEditLocation || systemUsers.length === 0) {
+      return;
+    }
+
+    applyLocationFromValue(pendingEditLocation, systemUsers);
+    setPendingEditLocation("");
+  }, [isEditMode, pendingEditLocation, systemUsers]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -184,6 +386,32 @@ const AddNewItem = () => {
         next.warrantyOther = "";
       }
 
+      if (name === "serialNo") {
+        const code = String(prev.itemCode || "").trim();
+        const serial = String(value || "").trim();
+        if (code && (prev.QRCode || serial)) {
+          next.QRCode = computeQRCodeValue(code, serial);
+        } else if (!serial) {
+          next.QRCode = "";
+        }
+      }
+
+      if (name === "serialNo2" && !String(value || "").trim()) {
+        next.QRCode2 = "";
+      }
+
+      if (name === "itemCode") {
+        const code = String(value || "").trim();
+        const serial1 = String(prev.serialNo || "").trim();
+        const serial2 = String(prev.serialNo2 || "").trim();
+        if (prev.QRCode) {
+          next.QRCode = code ? computeQRCodeValue(code, serial1) : "";
+        }
+        if (prev.QRCode2 && serial2) {
+          next.QRCode2 = code ? computeQRCodeValue(code, serial2) : "";
+        }
+      }
+
       return next;
     });
   };
@@ -194,9 +422,14 @@ const AddNewItem = () => {
       return;
     }
 
-    const validImage = file.type === "application/pdf" || file.type.startsWith("image/");
+    const ext = file.name.toLowerCase().slice(file.name.lastIndexOf("."));
+    const allowedImageTypes = ["image/jpeg", "image/jpg", "image/png"];
+    const allowedExtensions = [".jpg", ".jpeg", ".png"];
+    const validImage =
+      allowedImageTypes.includes(file.type) || allowedExtensions.includes(ext);
+
     if (!validImage) {
-      alert("Item image must be a PDF or image file.");
+      alert("Item image must be a JPG, JPEG, or PNG file.");
       e.target.value = "";
       return;
     }
@@ -210,14 +443,16 @@ const AddNewItem = () => {
   const handleGinFileChange = (e) => {
     const file = e.target.files[0];
     if (ginExistingFile) {
-      alert("GIN already uploaded. No need to upload the PDF again.");
       e.target.value = "";
       return;
     }
 
     if (file) {
-      if (file.type !== "application/pdf") {
-        alert("Only PDF files are allowed for GIN PDF uploads.");
+      const isPdf =
+        file.type === "application/pdf" ||
+        file.name.toLowerCase().endsWith(".pdf");
+      if (!isPdf) {
+        alert("GIN PDF must be a .pdf file.");
         e.target.value = "";
         return;
       }
@@ -247,11 +482,18 @@ const AddNewItem = () => {
       if (res.ok && Array.isArray(data.items) && data.items.length > 0) {
         const existing = data.items.find((item) => item.ginfile && item.ginfile.trim() !== "");
         if (existing) {
-          setGinExistingFile(existing.ginfile);
-          setGinStatus("GIN already uploaded. This item will link to the existing GIN PDF.");
+          setGinExistingFile(existing.ginfile.trim());
+          setGinStatus(
+            `GIN No "${ginNoValue}" already has a PDF in the system. Upload is not required — this item will reuse the stored file.`
+          );
           setItemData((prev) => ({ ...prev, ginfile: null }));
           return;
         }
+        setGinExistingFile("");
+        setGinStatus(
+          `GIN No "${ginNoValue}" exists in the system but has no PDF yet. Upload the GIN PDF once below.`
+        );
+        return;
       }
       setGinExistingFile("");
       setGinStatus("");
@@ -285,40 +527,51 @@ const AddNewItem = () => {
     };
   }, [itemData.ginNo]);
 
-  // Generate QR value based on itemCode + serialNo + itemName (if any)
-  const computeQRCodeValue = (code, serial, name) => {
-    const parts = [];
-    if (code && code.trim() !== "") parts.push(code.trim());
-    if (serial && serial.trim() !== "") parts.push(serial.trim());
-    if (name && name.trim() !== "") parts.push(name.trim().replace(/\s+/g, '_'));
-    return parts.join('_');
+  // QR payload: item_code + serial_no when serial exists, otherwise item_code only.
+  const computeQRCodeValue = (code, serial) => {
+    const normalizedCode = String(code || "").trim();
+    if (!normalizedCode) {
+      return "";
+    }
+
+    const normalizedSerial = String(serial || "").trim();
+    if (normalizedSerial) {
+      return `${normalizedCode}_${normalizedSerial}`;
+    }
+
+    return normalizedCode;
   };
 
-  const generateAndSetQRCode = (force = false) => {
+  const generateAndSetQRCode = (slot = 1, force = false) => {
     const code = itemData.itemCode && itemData.itemCode.trim();
-    const serial = itemData.serialNo && itemData.serialNo.trim();
-    const serial2 = itemData.serialNo2 && itemData.serialNo2.trim();
-    const name = itemData.itemName && itemData.itemName.trim();
-    const computed = computeQRCodeValue(code, serial, name);
-    const computed2 = computeQRCodeValue(code, serial2, name);
+    const serial =
+      slot === 1
+        ? itemData.serialNo && itemData.serialNo.trim()
+        : itemData.serialNo2 && itemData.serialNo2.trim();
+    const qrField = slot === 1 ? "QRCode" : "QRCode2";
+    const serialLabel = slot === 1 ? "Serial No" : "Serial No 2";
 
-    if (computed || computed2) {
-      setItemData((prev) => ({
-        ...prev,
-        QRCode: computed || prev.QRCode,
-        QRCode2: computed2 || prev.QRCode2
-      }));
+    if (slot === 2 && !serial) {
+      alert(`Please enter ${serialLabel} before generating QR Code (Serial No 2).`);
       return;
     }
 
-    if (!computed && !computed2 && force) {
-      // fallback generation when itemCode missing: include name when possible
-      const fallbackBase = name ? name.replace(/\s+/g, '_') : `AUTO`;
-      const fallback = `${fallbackBase}_${Date.now()}`;
-      setItemData((prev) => ({ ...prev, QRCode: fallback }));
-    } else if (!computed && !computed2) {
-      alert('Please provide Item Code, Serial No, Serial No 2, or Item Name. Use "Force generate" to create an automatic QR identifier.');
+    const computed = computeQRCodeValue(code, serial);
+
+    if (computed) {
+      setItemData((prev) => ({ ...prev, [qrField]: computed }));
+      return;
     }
+
+    if (force) {
+      const fallback = `AUTO_SN${slot}_${Date.now()}`;
+      setItemData((prev) => ({ ...prev, [qrField]: fallback }));
+      return;
+    }
+
+    alert(
+      `Please provide Item Code before generating this QR code. When ${serialLabel} is filled it will be appended as item_code_serial_no; otherwise only the item code is used (e.g. furniture). Use "Force generate" only if Item Code is missing.`
+    );
   };
 
   const getQrImageUrl = (value, size = 200) => {
@@ -332,11 +585,14 @@ const AddNewItem = () => {
     const serial = itemData.serialNo && itemData.serialNo.trim();
     const serial2 = itemData.serialNo2 && itemData.serialNo2.trim();
     const name = itemData.itemName && itemData.itemName.trim();
-    const payload = (itemData.QRCode && itemData.QRCode.trim()) || computeQRCodeValue(code, serial, name);
-    const payload2 = (itemData.QRCode2 && itemData.QRCode2.trim()) || computeQRCodeValue(code, serial2, name);
+    const payload =
+      (itemData.QRCode && itemData.QRCode.trim()) || computeQRCodeValue(code, serial);
+    const payload2 =
+      serial2 &&
+      ((itemData.QRCode2 && itemData.QRCode2.trim()) || computeQRCodeValue(code, serial2));
 
     if (!payload && !payload2) {
-      alert('No data available to generate QR. Please provide at least one of Item Code, Serial No, Serial No 2, or Item Name.');
+      alert("No data available to generate QR. Please provide Item Code (and Serial No 2 if printing the second QR).");
       return;
     }
 
@@ -412,12 +668,12 @@ const AddNewItem = () => {
           const code = it.itemcode || it.itemCode || '';
           const serial = it.serialno || it.serialNo || '';
           const serial2 = it.serialno2 || it.serialNo2 || '';
-          const name = it.itemname || it.itemName || '';
-          const computed = computeQRCodeValue(code, serial, name);
-          const computed2 = computeQRCodeValue(code, serial2, name);
-          const q = computed && computed !== '' ? computed : `AUTO_${Date.now()}_${idx}`;
+          const serial2Value = String(serial2 || "").trim();
+          const computed = computeQRCodeValue(code, serial);
+          const computed2 = serial2Value ? computeQRCodeValue(code, serial2) : "";
+          const q = computed && computed !== "" ? computed : `AUTO_${Date.now()}_${idx}`;
           const qUrl = `${window.location.origin}/inventory/scan?q=${encodeURIComponent(q)}&incharge=${encodeURIComponent(it.receivedfrom||'')}`;
-          const q2 = computed2 && computed2 !== '' ? computed2 : '';
+          const q2 = computed2 && computed2 !== "" ? computed2 : "";
           const q2Url = q2 ? `${window.location.origin}/inventory/scan?q=${encodeURIComponent(q2)}&incharge=${encodeURIComponent(it.receivedfrom||'')}` : '';
           return { ...it, qrcode: q, qrcodeUrl: qUrl, qrcode2: q2, qrcode2Url: q2Url };
         });
@@ -600,21 +856,40 @@ const AddNewItem = () => {
     e.preventDefault();
 
     if (isInchargeMode && !selectedInventoryId) {
-      alert('Select the inventory you want to add this item to.');
+      alert(
+        isEditMode
+          ? "Select the inventory this item belongs to."
+          : "Select the inventory you want to add this item to."
+      );
       return;
     }
 
-    const resolvedLocation = locationAssignmentType === "person"
-      ? (selectedLocationUser?.name || "")
-      : selectedCommonPlace;
+    if (!itemData.itemName?.trim()) {
+      alert("Item name is required.");
+      return;
+    }
+
+    const resolvedLocation =
+      locationAssignmentType === "person"
+        ? selectedLocationUserId === LOCATION_OTHER_VALUE
+          ? locationOtherDetail.trim()
+          : (selectedLocationUser?.name || "")
+        : selectedCommonPlace === LOCATION_OTHER_VALUE
+          ? locationOtherDetail.trim()
+          : selectedCommonPlace;
 
     if (locationAssignmentType === "person" && !selectedLocationUserId) {
-      alert("Select a system user to issue this item to.");
+      alert("Select a staff member for this item.");
       return;
     }
 
     if (locationAssignmentType === "place" && !selectedCommonPlace) {
-      alert("Select a common place for this item.");
+      alert("Select a place for this item.");
+      return;
+    }
+
+    if (showLocationOtherInput && !locationOtherDetail.trim()) {
+      alert("Enter the person or place details for Other.");
       return;
     }
 
@@ -656,25 +931,37 @@ const AddNewItem = () => {
 
         if (itemData.itemImage) {
           form.append('itemImage', itemData.itemImage);
+        } else if (existingItemImage) {
+          form.append('existingItemImage', existingItemImage);
         }
 
         if (ginExistingFile) {
-          form.append('ginfile', ginExistingFile);
+          form.append('existingGinfile', ginExistingFile);
         } else if (itemData.ginfile) {
           form.append('ginfile', itemData.ginfile);
         }
 
-        const res = await fetch(`${API_BASE_URL}/api/items`, {
-          method: 'POST',
+        const requestUrl = isEditMode
+          ? `${API_BASE_URL}/api/items/${editItemId}`
+          : `${API_BASE_URL}/api/items`;
+        const requestMethod = isEditMode ? "PUT" : "POST";
+
+        const res = await fetch(requestUrl, {
+          method: requestMethod,
           body: form,
         });
 
         const data = await res.json();
         if (res.ok) {
-          alert('Item added successfully');
-          handleReset();
+          if (isEditMode) {
+            alert("Item updated successfully");
+            navigate(`/inventory/item/${editItemId}/${rolePath}`);
+          } else {
+            alert("Item added successfully");
+            handleReset();
+          }
         } else {
-          alert('Save failed: ' + (data.error || 'unknown'));
+          alert("Save failed: " + (data.error || "unknown"));
         }
       } catch (err) {
         console.error(err);
@@ -684,6 +971,11 @@ const AddNewItem = () => {
   };
 
   const handleReset = () => {
+    if (isEditMode) {
+      navigate(`/inventory/item/${editItemId}/${rolePath}`);
+      return;
+    }
+
     setItemData({
       itemName: "",
       itemCode: "",
@@ -711,17 +1003,25 @@ const AddNewItem = () => {
     setGinExistingFile("");
     setGinStatus("");
     setGinCheckLoading(false);
+    setExistingItemImage("");
+    setPendingEditLocation("");
     setLocationAssignmentType("person");
     setSelectedLocationUserId("");
     setSelectedCommonPlace("");
+    setLocationOtherDetail("");
   };
 
   return (
     <MainLayout variant={sidebarVariant}>
       <PageHeader
-        title="Add New Inventory Item"
-        subtitle="Register a new physical asset and generate QR labels from the same screen."
+        title={isEditMode ? "Update Inventory Item" : "Add New Inventory Item"}
+        subtitle={
+          isEditMode
+            ? "Update existing item details and save your changes."
+            : "Register a new physical asset and generate QR labels from the same screen."
+        }
         actions={
+          !isEditMode ? (
           <div className="inline-flex rounded-xl border border-white/20 bg-white/10 p-1">
             <button
               type="button"
@@ -750,10 +1050,16 @@ const AddNewItem = () => {
               Bulk Upload
             </button>
           </div>
+          ) : null
         }
       />
 
       <div className="p-6 space-y-6">
+        {editLoading && (
+          <div className="rounded border border-border-light bg-background-light px-4 py-3 text-sm text-text-dark">
+            Loading item details…
+          </div>
+        )}
         {isInchargeMode && (
           <Card>
             <div className="space-y-4">
@@ -794,13 +1100,13 @@ const AddNewItem = () => {
           <span>/</span>
           <span>Inventory</span>
           <span>/</span>
-          <span className="font-semibold text-primary-800">Create Asset</span>
+          <span className="font-semibold text-primary-800">{isEditMode ? "Update Asset" : "Create Asset"}</span>
         </div>
 
         {/* Single Item Form */}
-        {uploadMode === "single" && (
+        {(uploadMode === "single" || isEditMode) && (
         <Card>
-          <form onSubmit={handleSubmit} className="space-y-8">
+          <form onSubmit={handleSubmit} className="space-y-8" style={{ opacity: editLoading ? 0.6 : 1, pointerEvents: editLoading ? "none" : "auto" }}>
             {/* ==================== ITEM DETAILS SECTION ==================== */}
             <div className="space-y-4">
               <div className="pb-4 border-b-2 border-primary-500">
@@ -895,14 +1201,14 @@ const AddNewItem = () => {
                     />
                     <button
                       type="button"
-                      onClick={() => generateAndSetQRCode(false)}
+                      onClick={() => generateAndSetQRCode(1, false)}
                       className="px-3 py-2 bg-gray-200 rounded-lg hover:bg-gray-300"
                     >
                       Auto-generate
                     </button>
                     <button
                       type="button"
-                      onClick={() => generateAndSetQRCode(true)}
+                      onClick={() => generateAndSetQRCode(1, true)}
                       className="px-3 py-2 bg-gray-200 rounded-lg hover:bg-gray-300"
                     >
                       Force generate
@@ -956,14 +1262,14 @@ const AddNewItem = () => {
                     />
                     <button
                       type="button"
-                      onClick={() => generateAndSetQRCode(false)}
+                      onClick={() => generateAndSetQRCode(2, false)}
                       className="px-3 py-2 bg-gray-200 rounded-lg hover:bg-gray-300"
                     >
                       Auto-generate
                     </button>
                     <button
                       type="button"
-                      onClick={() => generateAndSetQRCode(true)}
+                      onClick={() => generateAndSetQRCode(2, true)}
                       className="px-3 py-2 bg-gray-200 rounded-lg hover:bg-gray-300"
                     >
                       Force generate
@@ -990,19 +1296,36 @@ const AddNewItem = () => {
 
                 {/* Item Image */}
                 <div className="space-y-2">
-                  <label className="block text-sm font-semibold text-text-dark">Item Image </label>
-                  
+                  <label className="block text-sm font-semibold text-text-dark">Item Image</label>
+                  <p className="text-xs text-text-light">JPG, JPEG, or PNG only</p>
                   <input
                     type="file"
                     name="itemImage"
                     onChange={handleImageChange}
-                    accept=".pdf,image/*"
+                    accept=".jpg,.jpeg,.png,image/jpeg,image/png"
                     style={{ backgroundColor: '#F2F0F0' }}
                     className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                   />
                   
                   {itemData.itemImage && (
                     <p className="text-sm text-success mt-2">✓ {itemData.itemImage.name}</p>
+                  )}
+                  {existingItemImage && !itemData.itemImage && (
+                    <div className="mt-2 space-y-2">
+                      <img
+                        src={resolveUploadUrl(existingItemImage)}
+                        alt="Current item"
+                        className="max-h-40 rounded border border-border object-contain bg-white"
+                      />
+                      <a
+                        href={resolveUploadUrl(existingItemImage)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-sm text-primary-700 underline"
+                      >
+                        View current image
+                      </a>
+                    </div>
                   )}
                 </div>
               </div>
@@ -1084,39 +1407,50 @@ const AddNewItem = () => {
                 </div>
 
                 {/* GIN PDF */}
-                <div className="space-y-2">
+                <div
+                  className={`space-y-2 rounded-lg border p-3 ${
+                    ginExistingFile ? "border-green-300 bg-green-50" : "border-transparent"
+                  }`}
+                >
                   <label className="block text-sm font-semibold text-text-dark">GIN PDF</label>
+                  <p className="text-xs text-text-light">
+                    {ginExistingFile ? "Reuse stored PDF (upload disabled)" : "PDF only"}
+                  </p>
                   <input
                     type="file"
                     name="ginfile"
                     onChange={handleGinFileChange}
-                    accept=".pdf"
-                    disabled={!!ginExistingFile}
-                    style={{ backgroundColor: '#F2F0F0' }}
-                    className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    accept=".pdf,application/pdf"
+                    disabled={!!ginExistingFile || ginCheckLoading}
+                    style={{ backgroundColor: ginExistingFile ? "#e8f5e9" : "#F2F0F0" }}
+                    className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:cursor-not-allowed disabled:opacity-70"
                   />
                   {ginCheckLoading && (
                     <p className="text-sm text-text-light mt-2">Checking for existing GIN PDF…</p>
                   )}
-                  {ginStatus && (
-                    <p className="text-sm text-primary-700 mt-2">{ginStatus}</p>
+                  {!ginCheckLoading && ginStatus && (
+                    <p
+                      className={`text-sm mt-2 ${
+                        ginExistingFile ? "text-green-800 font-medium" : "text-primary-700"
+                      }`}
+                      role="status"
+                    >
+                      {ginStatus}
+                    </p>
                   )}
                   {ginExistingFile && (
                     <p className="text-sm mt-2">
-                      <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-1 text-green-800">
-                        Existing GIN PDF linked
-                      </span>
                       <a
-                        href={ginExistingFile}
+                        href={resolveUploadUrl(ginExistingFile)}
                         target="_blank"
                         rel="noreferrer"
-                        className="ml-2 text-primary-700 underline"
+                        className="text-primary-700 underline font-medium"
                       >
-                        View linked PDF
+                        View stored GIN PDF
                       </a>
                     </p>
                   )}
-                  {itemData.ginfile && (
+                  {itemData.ginfile && !ginExistingFile && (
                     <p className="text-sm text-success mt-2">✓ {itemData.ginfile.name}</p>
                   )}
                 </div>
@@ -1211,6 +1545,7 @@ const AddNewItem = () => {
                     onChange={(e) => {
                       const nextType = e.target.value;
                       setLocationAssignmentType(nextType);
+                      setLocationOtherDetail("");
                       if (nextType === "person") {
                         setSelectedCommonPlace("");
                       } else {
@@ -1228,12 +1563,17 @@ const AddNewItem = () => {
                 <div className="space-y-2">
                   {locationAssignmentType === "person" ? (
                     <Select
-                      label="Issued To User"
+                      label="Staff Member"
                       name="issuedToUser"
                       value={selectedLocationUserId}
-                      onChange={setSelectedLocationUserId}
+                      onChange={(value) => {
+                        setSelectedLocationUserId(value);
+                        if (value !== LOCATION_OTHER_VALUE) {
+                          setLocationOtherDetail("");
+                        }
+                      }}
                       options={userLocationOptions}
-                      placeholder="Select a Staff Member"
+                      placeholder="Select a staff member"
                       required
                     />
                   ) : (
@@ -1241,13 +1581,35 @@ const AddNewItem = () => {
                       label="Location"
                       name="commonPlace"
                       value={selectedCommonPlace}
-                      onChange={setSelectedCommonPlace}
-                      options={COMMON_PLACE_OPTIONS}
+                      onChange={(value) => {
+                        setSelectedCommonPlace(value);
+                        if (value !== LOCATION_OTHER_VALUE) {
+                          setLocationOtherDetail("");
+                        }
+                      }}
+                      options={commonPlaceOptions}
                       placeholder="Select a place"
                       required
                     />
                   )}
                 </div>
+
+                {showLocationOtherInput && (
+                  <div className="md:col-span-2 space-y-2">
+                    <label className="block text-sm font-semibold text-text-dark">
+                      Other location details <span className="text-danger">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      name="locationOtherDetail"
+                      value={locationOtherDetail}
+                      onChange={(e) => setLocationOtherDetail(e.target.value)}
+                      placeholder="Enter person or place outside the faculty"
+                      style={{ backgroundColor: "#F2F0F0" }}
+                      className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    />
+                  </div>
+                )}
 
                 {usersLoadError && locationAssignmentType === "person" && (
                   <div className="md:col-span-2 rounded border border-red-300 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
@@ -1283,21 +1645,21 @@ const AddNewItem = () => {
                 onClick={handleReset}
                 variant="secondary"
               >
-                Reset
+                {isEditMode ? "Cancel" : "Reset"}
               </Button>
               <Button
                 type="button"
-                onClick={() => window.history.back()}
+                onClick={() => (isEditMode ? navigate(`/inventory/item/${editItemId}/${rolePath}`) : window.history.back())}
                 variant="tertiary"
               >
-                Cancel
+                {isEditMode ? "Back to details" : "Cancel"}
               </Button>
               <Button
                 type="submit"
                 variant="primary"
                 icon="save"
               >
-                Save Item
+                {isEditMode ? "Save Changes" : "Save Item"}
               </Button>
             </div>
           </form>

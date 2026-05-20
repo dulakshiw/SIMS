@@ -4,6 +4,7 @@ import {
   DEAN_NAV_ITEMS,
   HOD_NAV_ITEMS,
   INVENTORY_NAV_ITEMS,
+  REGISTRAR_NAV_ITEMS,
   STAFF_NAV_ITEMS,
 } from "../../utils/constants";
 import { Link, useLocation, useNavigate } from "react-router-dom";
@@ -139,15 +140,23 @@ const Sidebar = ({ variant = "inventory", onCollapseChange }) => {
     }
   };
 
+  const userRole = String(currentUser?.role || localStorage.getItem("userRole") || "")
+    .trim()
+    .toLowerCase();
+
   const navItemsByVariant = {
-    admin: ADMIN_NAV_ITEMS,
+    admin: userRole === "registrar" ? REGISTRAR_NAV_ITEMS : ADMIN_NAV_ITEMS,
+    registrar: REGISTRAR_NAV_ITEMS,
     inventory: INVENTORY_NAV_ITEMS,
     staff: buildStaffNavItems(currentUser),
     hod: HOD_NAV_ITEMS,
     dean: DEAN_NAV_ITEMS,
   };
 
-  const navItems = navItemsByVariant[variant] || INVENTORY_NAV_ITEMS;
+  const navItems =
+    userRole === "registrar"
+      ? REGISTRAR_NAV_ITEMS
+      : navItemsByVariant[variant] || INVENTORY_NAV_ITEMS;
   const currentPath = `${location.pathname}${location.search || ""}`;
 
   const menuEntries = useMemo(() => {
@@ -188,9 +197,14 @@ const Sidebar = ({ variant = "inventory", onCollapseChange }) => {
           return;
         }
 
-        const hasActiveChild = entry.children.some(
-          (child) => currentPath === child.path || location.pathname === child.path
-        );
+        const hasActiveChild = entry.children.some((child) => {
+          const pathMatches = currentPath === child.path || location.pathname === child.path;
+          if (!pathMatches) return false;
+          if (child.activeTab) {
+            return (location.state?.activeTab || "inventory-requests") === child.activeTab;
+          }
+          return true;
+        });
 
         if (hasActiveChild && !nextState[entry.id]) {
           nextState[entry.id] = true;
@@ -251,9 +265,14 @@ const Sidebar = ({ variant = "inventory", onCollapseChange }) => {
         {menuEntries.map((entry) => {
           if (entry.type === "menu" && !isCollapsed) {
             const isOpen = Boolean(openMenus[entry.id]);
-            const hasActiveChild = entry.children.some(
-              (child) => currentPath === child.path || location.pathname === child.path
-            );
+            const hasActiveChild = entry.children.some((child) => {
+              const pathMatches = currentPath === child.path || location.pathname === child.path;
+              if (!pathMatches) return false;
+              if (child.activeTab) {
+                return (location.state?.activeTab || "inventory-requests") === child.activeTab;
+              }
+              return true;
+            });
 
             return (
               <div key={entry.id} className="space-y-1">
@@ -274,12 +293,17 @@ const Sidebar = ({ variant = "inventory", onCollapseChange }) => {
                 {isOpen && (
                   <div className="space-y-1">
                     {entry.children.map((item) => {
-                      const isActive = currentPath === item.path || location.pathname === item.path;
+                      const pathMatches = currentPath === item.path || location.pathname === item.path;
+                      const tabMatches = item.activeTab
+                        ? (location.state?.activeTab || "inventory-requests") === item.activeTab
+                        : true;
+                      const isActive = pathMatches && tabMatches;
 
                       return (
                         <Link
                           key={item.id}
                           to={item.path}
+                          state={item.activeTab ? { activeTab: item.activeTab } : undefined}
                           className={`
                             flex items-center gap-4 px-4 py-2.5 ml-3 rounded-md transition-colors
                             ${isActive ? "bg-primary-700 text-white" : "text-primary-100 hover:bg-primary-700"}
@@ -298,12 +322,17 @@ const Sidebar = ({ variant = "inventory", onCollapseChange }) => {
 
           if (entry.type === "menu" && isCollapsed) {
             return entry.children.map((item) => {
-              const isActive = currentPath === item.path || location.pathname === item.path;
+              const pathMatches = currentPath === item.path || location.pathname === item.path;
+              const tabMatches = item.activeTab
+                ? (location.state?.activeTab || "inventory-requests") === item.activeTab
+                : true;
+              const isActive = pathMatches && tabMatches;
 
               return (
                 <Link
                   key={item.id}
                   to={item.path}
+                  state={item.activeTab ? { activeTab: item.activeTab } : undefined}
                   className={`
                     flex items-center gap-4 px-4 py-3 rounded-md transition-colors
                     ${isActive ? "bg-primary-700 text-white" : "text-primary-100 hover:bg-primary-700"}

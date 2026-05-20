@@ -205,14 +205,7 @@ const CreateUser = () => {
       />
 
       <div className="p-6 space-y-6">
-        {/* Info Card */}
-        <Card>
-          <div className="rounded bg-blue-50 px-4 py-3 text-sm text-blue-800 border border-blue-200">
-            Submitted requests appear under User Management → Pending Approvals immediately and start with HOD review. Approve and reject actions become available there after the HOD (and dean, when required) approves.
-          </div>
-        </Card>
-
-        {/* Error Messages */}
+       {/* Error Messages */}
         {submitError && (
           <div className="rounded bg-red-50 px-4 py-3 text-sm text-red-800 border border-red-200">
             {submitError}

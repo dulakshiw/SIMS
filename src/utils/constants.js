@@ -69,9 +69,9 @@ export const ROLE_HIERARCHY = {
   },
   registrar: {
     label: "Registrar",
-    description: "Approves inventory creation and user account activations",
+    description: "Approves inventory creation, item transfers, and item disposals",
     superclass: null,
-    permissions: ["approve_inventory", "create_inventory", "activate_accounts", "view_all_data", "manage_departments"],
+    permissions: ["approve_inventory", "approve_transfers", "approve_disposals", "view_approval_details"],
   },
   staff: {
     label: "Staff Member",
@@ -250,6 +250,39 @@ export const ADMIN_NAV_ITEMS = [
   { id: 6, label: "Profile", path: "/admin/profile", icon: "person" },
 ];
 
+export const REGISTRAR_NAV_ITEMS = [
+  { id: "registrar-dashboard", type: "item", label: "Dashboard", path: "/admin/dashboard", icon: "dashboard" },
+  { id: "registrar-approvals", type: "section", label: "Approvals" },
+  {
+    id: "registrar-inventory",
+    type: "item",
+    label: "Inventory Creation",
+    path: "/admin/pending-tasks",
+    icon: "inventory_2",
+    nested: true,
+    activeTab: "inventory-requests",
+  },
+  {
+    id: "registrar-transfers",
+    type: "item",
+    label: "Item Transfers",
+    path: "/admin/pending-tasks",
+    icon: "compare_arrows",
+    nested: true,
+    activeTab: "transfer-requests",
+  },
+  {
+    id: "registrar-disposals",
+    type: "item",
+    label: "Item Disposals",
+    path: "/admin/pending-tasks",
+    icon: "delete_sweep",
+    nested: true,
+    activeTab: "disposal-requests",
+  },
+  { id: "registrar-profile", type: "item", label: "Profile", path: "/admin/profile", icon: "person" },
+];
+
 export const INVENTORY_NAV_ITEMS = [
   { id: 1, label: "Dashboard", path: "/inventory/dashboard", icon: "home" },
   { id: 2, label: "Items", path: "/inventory/list", icon: "inventory_2" },
@@ -335,6 +368,7 @@ export default {
   ITEMS_PER_PAGE,
   ITEMS_PER_PAGE_OPTIONS,
   ADMIN_NAV_ITEMS,
+  REGISTRAR_NAV_ITEMS,
   INVENTORY_NAV_ITEMS,
   STAFF_NAV_ITEMS,
   STAFF_INCHARGE_NAV_ITEMS,

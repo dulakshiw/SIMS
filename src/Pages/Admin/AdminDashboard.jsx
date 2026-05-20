@@ -2,6 +2,9 @@ import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import AdminLayout from '../../Components/Layouts/AdminLayout'
 import { Card, PageHeader } from '../../Components/UI'
+import RegistrarDashboard from './RegistrarDashboard'
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000'
 
 const getTimeOfDayGreeting = () => {
   const hour = new Date().getHours();
@@ -22,7 +25,39 @@ const getLastName = (fullName = 'User') => {
   return nameParts[nameParts.length - 1] || 'User';
 };
 
-const AdminDashboard = () => {
+const formatActivityTime = (timestamp) => {
+  if (!timestamp) return '';
+
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return '';
+
+  return date.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+};
+
+const getActivityIcon = (category) => {
+  switch (category) {
+    case 'account_request':
+    case 'user':
+      return 'person_add';
+    case 'inventory_request':
+    case 'inventory':
+      return 'inventory_2';
+    case 'transfer':
+      return 'swap_horiz';
+    case 'disposal':
+      return 'delete';
+    default:
+      return 'history';
+  }
+};
+
+const AdminDashboardContent = () => {
   const navigate = useNavigate();
   const [lastName, setLastName] = useState('User');
   const [summary, setSummary] = useState({
@@ -32,6 +67,7 @@ const AdminDashboard = () => {
     pendingTasks: 0,
     totalItems: 0,
   });
+  const [recentActivities, setRecentActivities] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -45,7 +81,7 @@ const AdminDashboard = () => {
       try {
         setLoading(true);
         setError('');
-        const response = await fetch('/api/dashboard/summary');
+        const response = await fetch(`${API_BASE_URL}/api/dashboard/summary`);
         const data = await response.json();
 
         if (!response.ok || !data.success) {
@@ -54,6 +90,7 @@ const AdminDashboard = () => {
 
         if (isMounted) {
           setSummary(data.adminSummary || {});
+          setRecentActivities(data.recentActivities || []);
         }
       } catch (fetchError) {
         console.error('Failed to load admin dashboard summary:', fetchError);
@@ -73,7 +110,14 @@ const AdminDashboard = () => {
     };
   }, []);
 
-  const greeting = `${getTimeOfDayGreeting()} ${lastName}`;
+  const handleActivityClick = (activity) => {
+    if (!activity?.link) return;
+
+    navigate(
+      activity.link,
+      activity.tab ? { state: { activeTab: activity.tab } } : undefined
+    );
+  };
 
   const stats = [
     { title: "Total Users", value: summary.totalUsers ?? 0, colorClass: "text-primary-800", icon: "people", link: "/admin/users" },
@@ -133,12 +177,48 @@ const AdminDashboard = () => {
 
           <Card title="Recent Activities" icon="history">
             <div className="space-y-2 text-sm">
-              <p className="text-text-dark">New user registered - M.D.C.N. Abeynayake</p>
-              <p className="text-text-dark">New Inventory Created - CL3/PIB 01</p>
-              <p className="text-text-dark">Disposal process completed - CL2/PIB 01</p>
-              <p className="text-text-dark">Item transfer process completed - CL1/PIB 01 to CL2/PIB 01
+              {loading ? (
+                <p className="text-text-light">Loading recent activities...</p>
+              ) : recentActivities.length > 0 ? (
+                recentActivities.map((activity) => {
+                  const isClickable = Boolean(activity.link);
 
-              </p>
+                  return (
+                    <button
+                      key={activity.id}
+                      type="button"
+                      onClick={() => handleActivityClick(activity)}
+                      disabled={!isClickable}
+                      className={`w-full text-left rounded-lg border px-3 py-2.5 transition-colors ${
+                        isClickable
+                          ? 'border-border-lighter bg-white hover:border-primary-300 hover:bg-primary-50 cursor-pointer'
+                          : 'border-transparent bg-transparent cursor-default'
+                      }`}
+                    >
+                      <div className="flex items-start gap-3">
+                        <span className="material-symbols-outlined text-base text-primary-700 mt-0.5">
+                          {getActivityIcon(activity.category || activity.type)}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-text-dark font-medium">{activity.message}</p>
+                          {activity.timestamp && (
+                            <p className="text-xs text-text-light mt-1">
+                              {formatActivityTime(activity.timestamp)}
+                            </p>
+                          )}
+                        </div>
+                        {isClickable && (
+                          <span className="material-symbols-outlined text-base text-text-light">
+                            chevron_right
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })
+              ) : (
+                <p className="text-text-light">No recent activities yet.</p>
+              )}
             </div>
           </Card>
         </div>
@@ -147,4 +227,12 @@ const AdminDashboard = () => {
   )
 }
 
-export default AdminDashboard
+const AdminDashboard = () => {
+  const userRole = (localStorage.getItem("userRole") || "").toLowerCase();
+  if (userRole === "registrar") {
+    return <RegistrarDashboard />;
+  }
+  return <AdminDashboardContent />;
+};
+
+export default AdminDashboard;

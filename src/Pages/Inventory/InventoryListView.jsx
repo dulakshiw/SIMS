@@ -155,7 +155,7 @@ const InventoryListView = () => {
     loadData();
 
     const handleFocus = () => {
-      if (isInchargeView && !selectedInventoryId) {
+      if (isInchargeView) {
         loadInchargeData(isMountedRef).catch(() => {});
       }
     };
@@ -169,18 +169,19 @@ const InventoryListView = () => {
   }, [isInchargeView, loadInchargeData, selectedInventoryId]);
 
   const itemColumns = [
+    { field: "no", label: "No", sortable: false },
     { field: "name", label: "Item Name", sortable: true },
     { field: "itemCode", label: "Item Code", sortable: true },
+    { field: "location", label: "Location", sortable: true },
+    { field: "lastUpdated", label: "Last Updated", sortable: true },
     {
       field: "status",
       label: "Status",
       render: (value) => {
         const statusObj = ITEM_STATUS.find((s) => s.value === value);
-        return <Badge label={statusObj?.label || value} variant={statusObj?.color || "primary"} />;
+        return <Badge label={statusObj?.label || value || "-"} variant={statusObj?.color || "primary"} />;
       },
     },
-    { field: "location", label: "Location", sortable: true },
-    { field: "lastUpdated", label: "Last Updated", sortable: true },
   ];
 
   const inventoryColumns = [
@@ -211,7 +212,9 @@ const InventoryListView = () => {
     },
   ];
 
-  const selectedInventory = inventories.find((inventory) => inventory.id === selectedInventoryId) || null;
+  const viewingInventoryItems = isInchargeView && selectedInventoryId > 0;
+  const selectedInventory =
+    inventories.find((inventory) => Number(inventory.id) === selectedInventoryId) || null;
 
   const inventoryListRows = useMemo(() => {
     const pendingRows = pendingRequests.map((request) => ({
@@ -248,21 +251,31 @@ const InventoryListView = () => {
 
   const normalizedItems = items.map((item) => ({
     ...item,
-    name: item.itemName || item.name || "-",
-    lastUpdated: item.updated_at
-      ? new Date(item.updated_at).toISOString().split("T")[0]
-      : item.lastUpdated || "-",
+    name: item.itemName || item.item_name || item.name || "-",
+    itemCode: item.itemCode || item.item_code || "",
+    location: item.location || "-",
+    status: item.status || "available",
+    lastUpdated: (() => {
+      const dateValue = item.updated_at || item.created_at;
+      if (!dateValue) {
+        return "-";
+      }
+      const parsed = new Date(dateValue);
+      return Number.isNaN(parsed.getTime()) ? "-" : parsed.toISOString().split("T")[0];
+    })(),
   }));
 
-  const filteredItems = normalizedItems.filter((item) =>
-    `${item.name} ${item.itemCode || ""} ${item.location || ""} ${item.status || ""}`
-      .toLowerCase()
-      .includes(searchTerm.toLowerCase())
-  );
+  const filteredItems = normalizedItems
+    .filter((item) =>
+      `${item.name} ${item.itemCode || ""} ${item.location || ""} ${item.status || ""}`
+        .toLowerCase()
+        .includes(searchTerm.toLowerCase())
+    )
+    .map((item, index) => ({ ...item, no: index + 1 }));
 
-  const itemActions = [
-    { label: "View", icon: "visibility", onClick: (row) => navigate(`/inventory/item/${row.id}/${role || sidebarVariant}`) },
-  ];
+  const handleItemRowClick = (row) => {
+    navigate(`/inventory/item/${row.id}/${role || sidebarVariant}`);
+  };
 
   const inventoryActions = [
     {
@@ -322,7 +335,7 @@ const InventoryListView = () => {
     ]
     : [];
 
-  const stats = isInchargeView && !selectedInventory
+  const stats = isInchargeView && !viewingInventoryItems
     ? {
         pending: pendingRequests.length,
         assigned: inventories.length,
@@ -338,16 +351,26 @@ const InventoryListView = () => {
   return (
     <MainLayout variant={sidebarVariant}>
       <PageHeader
-        title={isInchargeView && !selectedInventory ? "My Inventories" : selectedInventory ? `${selectedInventory.name} Items` : "Inventory Items"}
-        subtitle={
-          isInchargeView && !selectedInventory
-            ? "Pending creation requests stay here until an administrator activates the inventory. Activated inventories appear as assigned inventories you can manage."
+        title={
+          isInchargeView && !viewingInventoryItems
+            ? "My Inventories"
             : selectedInventory
-              ? `Manage items for ${selectedInventory.name} at ${selectedInventory.location || "your assigned location"}.`
+              ? `${selectedInventory.name} Items`
+              : viewingInventoryItems
+                ? "Inventory Items"
+                : "Inventory Items"
+        }
+        subtitle={
+          isInchargeView && !viewingInventoryItems
+            ? "Pending creation requests stay here until an administrator activates the inventory. Activated inventories appear as assigned inventories you can manage."
+            : viewingInventoryItems
+              ? selectedInventory
+                ? `Items in ${selectedInventory.name} at ${selectedInventory.location || "your assigned location"}.`
+                : "Loading inventory items..."
               : "Manage your inventory items"
         }
         actions={
-          isInchargeView && !selectedInventory ? null : (
+          isInchargeView && !viewingInventoryItems ? null : (
             <Button
               icon="add_circle"
               variant="primary"
@@ -366,7 +389,7 @@ const InventoryListView = () => {
           </div>
         )}
 
-        {selectedInventory && (
+        {viewingInventoryItems && (
           <Button variant="secondary" onClick={() => navigate('/inventory/list/incharge')}>
             Back To My Inventories
           </Button>
@@ -377,12 +400,12 @@ const InventoryListView = () => {
             <SearchBox
               value={searchTerm}
               onChange={setSearchTerm}
-              placeholder={isInchargeView && !selectedInventory ? "Search inventories..." : "Search items..."}
+              placeholder={isInchargeView && !viewingInventoryItems ? "Search inventories..." : "Search items..."}
             />
           </div>
         </div>
 
-        {isInchargeView && !selectedInventory ? (
+        {isInchargeView && !viewingInventoryItems ? (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Card title="Pending activation" icon="hourglass_top">
               <p className="text-3xl font-bold text-warning">{loading ? '...' : stats.pending}</p>
@@ -413,17 +436,20 @@ const InventoryListView = () => {
 
         <Card>
           <Table
-            columns={isInchargeView && !selectedInventory ? inventoryColumns : itemColumns}
-            data={isInchargeView && !selectedInventory ? filteredInventories : filteredItems}
-            getRowActions={isInchargeView && !selectedInventory ? getInventoryRowActions : undefined}
-            actions={isInchargeView && !selectedInventory ? undefined : itemActions}
-            onRowClick={isInchargeView && !selectedInventory ? (row) => {
-              if (row.listType === "pending_request") {
-                openPendingDetail(row);
-              } else {
-                navigate(`/inventory/list/incharge?inventoryId=${row.id}`);
-              }
-            } : undefined}
+            columns={isInchargeView && !viewingInventoryItems ? inventoryColumns : itemColumns}
+            data={isInchargeView && !viewingInventoryItems ? filteredInventories : filteredItems}
+            getRowActions={isInchargeView && !viewingInventoryItems ? getInventoryRowActions : undefined}
+            onRowClick={
+              isInchargeView && !viewingInventoryItems
+                ? (row) => {
+                    if (row.listType === "pending_request") {
+                      openPendingDetail(row);
+                    } else {
+                      navigate(`/inventory/list/incharge?inventoryId=${row.id}`);
+                    }
+                  }
+                : handleItemRowClick
+            }
             searchable={true}
             paginated={true}
             loading={loading}
