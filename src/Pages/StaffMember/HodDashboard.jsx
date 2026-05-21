@@ -459,13 +459,20 @@ const HodDashboard = () => {
     };
     const typeLabel = INVENTORY_REQUEST_TYPE_LABELS[request.requestType] || request.requestType;
 
+    const officerFields = request.requestType === 'change_incharge'
+      ? [
+        { label: 'Current officer', value: request.previousInchargeName || request.requestedByName },
+        { label: 'Proposed officer', value: request.inchargeName },
+      ]
+      : [{ label: 'Inventory officer', value: request.inchargeName }];
+
     return [
       { label: 'Request type', value: typeLabel },
       { label: 'Inventory name', value: request.name },
       { label: 'Department', value: request.department },
       { label: 'Location', value: request.location },
       { label: 'Requested by', value: request.requestedByName },
-      { label: 'Inventory officer', value: request.inchargeName },
+      ...officerFields,
       { label: 'Requested date', value: request.requestedDate },
       { label: 'Status', value: statusConfig.label },
       { label: 'Reason', value: request.reason, fullWidth: true },

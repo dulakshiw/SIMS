@@ -3,6 +3,14 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import AdminLayout from '../../Components/Layouts/AdminLayout'
 import { Card, Button, FormInput, Select, PageHeader } from '../../Components/UI'
 import { ROLE_HIERARCHY, ACCOUNT_REQUEST_STATUS } from '../../utils/constants'
+import {
+  getPasswordStrength,
+  getPasswordStrengthColorClass,
+  getPasswordStrengthLabel,
+  isPasswordValid,
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_REQUIREMENTS_MESSAGE,
+} from '../../utils/passwordValidation'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000'
 
@@ -74,25 +82,13 @@ const CreateUser = () => {
     const { name, value } = e.target
     setFormData((prev) => ({ ...prev, [name]: value }))
 
-    // Calculate password strength
     if (name === 'password') {
-      let strength = 0
-      if (value.length >= 8) strength++
-      if (/[A-Z]/.test(value)) strength++
-      if (/[0-9]/.test(value)) strength++
-      if (/[^A-Za-z0-9]/.test(value)) strength++
-      setPasswordStrength(strength)
+      setPasswordStrength(getPasswordStrength(value))
     }
   }
 
   const handleSelectChange = (name) => (value) => {
     setFormData((prev) => ({ ...prev, [name]: value }))
-  }
-
-  const getPasswordStrengthColor = () => {
-    if (passwordStrength <= 1) return 'bg-danger'
-    if (passwordStrength <= 2) return 'bg-warning'
-    return 'bg-success'
   }
 
   const departmentOptions = useMemo(
@@ -146,8 +142,8 @@ const CreateUser = () => {
         return
       }
 
-      if (passwordStrength < 2) {
-        setSubmitError('Password is too weak. Please use a stronger password.')
+      if (!isPasswordValid(formData.password)) {
+        setSubmitError(PASSWORD_REQUIREMENTS_MESSAGE)
         setIsSubmitting(false)
         return
       }
@@ -308,22 +304,24 @@ const CreateUser = () => {
                   type="password"
                   value={formData.password}
                   onChange={handleInputChange}
-                  placeholder="Enter password"
+                  placeholder="8-12 chars: uppercase, number, symbol"
+                  maxLength={PASSWORD_MAX_LENGTH}
                   required
                 />
                 {formData.password && (
-                  <div className="mt-2">
+                  <div className="mt-2 space-y-1">
                     <div className="flex items-center gap-2">
                       <div className="flex-1 bg-gray-200 rounded-full h-2">
                         <div
-                          className={`h-2 rounded-full ${getPasswordStrengthColor()}`}
+                          className={`h-2 rounded-full ${getPasswordStrengthColorClass(passwordStrength)}`}
                           style={{ width: `${(passwordStrength / 4) * 100}%` }}
                         ></div>
                       </div>
                       <span className="text-xs text-gray-600">
-                        {passwordStrength <= 1 ? 'Weak' : passwordStrength <= 2 ? 'Fair' : 'Strong'}
+                        {getPasswordStrengthLabel(passwordStrength)}
                       </span>
                     </div>
+                    <p className="text-xs text-gray-500">{PASSWORD_REQUIREMENTS_MESSAGE}</p>
                   </div>
                 )}
               </div>

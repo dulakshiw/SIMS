@@ -246,7 +246,14 @@ export const validation = {
     return re.test(phone);
   },
   password: (password) => {
-    return password.length >= 6;
+    const pwd = String(password || "");
+    return (
+      pwd.length >= 8 &&
+      pwd.length <= 12 &&
+      /[A-Z]/.test(pwd) &&
+      /[0-9]/.test(pwd) &&
+      /[^A-Za-z0-9]/.test(pwd)
+    );
   },
   username: (username) => {
     return username.length >= 3 && username.length <= 20;

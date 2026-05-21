@@ -60,6 +60,28 @@ const pickItemField = (item, ...keys) => {
   return "";
 };
 
+const IDENTIFIER_FIELDS = new Set(["itemCode", "serialNo", "serialNo2"]);
+const EMPTY_IDENTIFIER_ERRORS = { itemCode: "", serialNo: "", serialNo2: "" };
+
+const pickBulkField = (item, ...keys) => {
+  for (const key of keys) {
+    const value = item?.[key];
+    if (value !== null && value !== undefined && String(value).trim() !== "") {
+      return String(value).trim();
+    }
+  }
+  return "";
+};
+
+const getBulkGinNo = (item) => pickBulkField(item, "ginNo", "ginno");
+const getBulkGinKey = (item) => getBulkGinNo(item).toLowerCase();
+const getBulkImageGroupKey = (item) => {
+  const gin = getBulkGinKey(item);
+  const code = pickBulkField(item, "itemCode", "itemcode").toLowerCase();
+  const name = pickBulkField(item, "itemName", "itemname").toLowerCase();
+  return `${gin}::${code}::${name}`;
+};
+
 const AddNewItem = () => {
   const location = useLocation();
   const navigate = useNavigate();
@@ -86,6 +108,8 @@ const AddNewItem = () => {
   const [uploadMode, setUploadMode] = useState("single"); // "single" or "bulk"
   const [bulkFile, setBulkFile] = useState(null);
   const [bulkItems, setBulkItems] = useState([]);
+  const [bulkGinSystemCache, setBulkGinSystemCache] = useState({});
+  const [bulkSubmitting, setBulkSubmitting] = useState(false);
   const [selectedBulk, setSelectedBulk] = useState({});
   const [selectAllBulk, setSelectAllBulk] = useState(false);
   const [labelLayout, setLabelLayout] = useState('grid'); // 'grid' or 'avery'
@@ -129,6 +153,7 @@ const AddNewItem = () => {
   const [editLoading, setEditLoading] = useState(false);
   const [existingItemImage, setExistingItemImage] = useState("");
   const [pendingEditLocation, setPendingEditLocation] = useState("");
+  const [identifierErrors, setIdentifierErrors] = useState(EMPTY_IDENTIFIER_ERRORS);
 
   useEffect(() => {
     if (!isInchargeMode || !currentUser.id) {
@@ -370,6 +395,153 @@ const AddNewItem = () => {
     setPendingEditLocation("");
   }, [isEditMode, pendingEditLocation, systemUsers]);
 
+  const applyIdentifierConflicts = (conflicts = {}) => {
+    setIdentifierErrors({
+      itemCode: conflicts.itemCode || "",
+      serialNo: conflicts.serialNo || "",
+      serialNo2: conflicts.serialNo2 || "",
+    });
+    return Object.keys(conflicts).length === 0;
+  };
+
+  const checkItemIdentifiers = async (identifiers = itemData) => {
+    const params = new URLSearchParams();
+
+    if (String(identifiers.itemCode || "").trim()) {
+      params.set("itemCode", String(identifiers.itemCode).trim());
+    }
+    if (String(identifiers.serialNo || "").trim()) {
+      params.set("serialNo", String(identifiers.serialNo).trim());
+    }
+    if (String(identifiers.serialNo2 || "").trim()) {
+      params.set("serialNo2", String(identifiers.serialNo2).trim());
+    }
+    if (isEditMode && editItemId) {
+      params.set("excludeItemId", editItemId);
+    }
+
+    if (!params.has("itemCode") && !params.has("serialNo") && !params.has("serialNo2")) {
+      setIdentifierErrors(EMPTY_IDENTIFIER_ERRORS);
+      return { valid: true, conflicts: {} };
+    }
+
+    const response = await fetch(`${API_BASE_URL}/api/item-identifiers/check?${params.toString()}`);
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || data.message || "Failed to validate item identifiers.");
+    }
+
+    return {
+      valid: Boolean(data.valid),
+      conflicts: data.conflicts || {},
+    };
+  };
+
+  const runIdentifierValidation = async (nextItemData = itemData) => {
+    try {
+      const result = await checkItemIdentifiers(nextItemData);
+      applyIdentifierConflicts(result.conflicts);
+      return result.valid;
+    } catch (validationError) {
+      console.error(validationError);
+      return false;
+    }
+  };
+
+  const buildIdentifierCheckPayload = (fieldName, fieldValue, data = itemData) => {
+    const latestValues = {
+      itemCode: String(data.itemCode ?? "").trim(),
+      serialNo: String(data.serialNo ?? "").trim(),
+      serialNo2: String(data.serialNo2 ?? "").trim(),
+    };
+    latestValues[fieldName] = String(fieldValue ?? "").trim();
+
+    const payload = {};
+
+    if (fieldName === "itemCode" && latestValues.itemCode) {
+      payload.itemCode = latestValues.itemCode;
+      return payload;
+    }
+
+    if (fieldName === "serialNo" && latestValues.serialNo) {
+      payload.serialNo = latestValues.serialNo;
+      if (latestValues.serialNo2) {
+        payload.serialNo2 = latestValues.serialNo2;
+      }
+      return payload;
+    }
+
+    if (fieldName === "serialNo2" && latestValues.serialNo2) {
+      payload.serialNo2 = latestValues.serialNo2;
+      if (latestValues.serialNo) {
+        payload.serialNo = latestValues.serialNo;
+      }
+      return payload;
+    }
+
+    return payload;
+  };
+
+  const applyFieldIdentifierResult = (fieldName, conflicts = {}) => {
+    setIdentifierErrors((prev) => {
+      if (fieldName === "itemCode") {
+        return { ...prev, itemCode: conflicts.itemCode || "" };
+      }
+
+      if (fieldName === "serialNo") {
+        return {
+          ...prev,
+          serialNo: conflicts.serialNo || "",
+          serialNo2: Object.prototype.hasOwnProperty.call(conflicts, "serialNo2")
+            ? (conflicts.serialNo2 || "")
+            : prev.serialNo2,
+        };
+      }
+
+      return {
+        ...prev,
+        serialNo: Object.prototype.hasOwnProperty.call(conflicts, "serialNo")
+          ? (conflicts.serialNo || "")
+          : prev.serialNo,
+        serialNo2: conflicts.serialNo2 || "",
+      };
+    });
+  };
+
+  const handleIdentifierBlur = async (e) => {
+    const { name, value } = e.target;
+
+    if (!IDENTIFIER_FIELDS.has(name)) {
+      return;
+    }
+
+    const trimmedValue = String(value ?? "").trim();
+
+    if (!trimmedValue) {
+      setIdentifierErrors((prev) => ({ ...prev, [name]: "" }));
+      return;
+    }
+
+    const payload = buildIdentifierCheckPayload(name, value);
+
+    if (!payload.itemCode && !payload.serialNo && !payload.serialNo2) {
+      return;
+    }
+
+    try {
+      const result = await checkItemIdentifiers(payload);
+      applyFieldIdentifierResult(name, result.conflicts);
+    } catch (validationError) {
+      setIdentifierErrors((prev) => ({
+        ...prev,
+        [name]: validationError.message || "Unable to verify this value. Restart the API server and try again.",
+      }));
+    }
+  };
+
+  const hasIdentifierErrors = Object.values(identifierErrors).some(Boolean);
+
   const handleChange = (e) => {
     const { name, value } = e.target;
     setItemData((prev) => {
@@ -410,6 +582,13 @@ const AddNewItem = () => {
         if (prev.QRCode2 && serial2) {
           next.QRCode2 = code ? computeQRCodeValue(code, serial2) : "";
         }
+      }
+
+      if (IDENTIFIER_FIELDS.has(name)) {
+        setIdentifierErrors((currentErrors) => ({
+          ...currentErrors,
+          [name]: "",
+        }));
       }
 
       return next;
@@ -635,10 +814,272 @@ const AddNewItem = () => {
     setTimeout(() => { w.print(); }, 250);
   };
 
+  const updateBulkItemAt = (index, patch) => {
+    setBulkItems((prev) => prev.map((row, rowIndex) => (
+      rowIndex === index ? { ...row, ...patch } : row
+    )));
+  };
+
+  const loadBulkGinSystemCache = async (items) => {
+    const uniqueGinKeys = [...new Set(items.map((item) => getBulkGinKey(item)).filter(Boolean))];
+    const cache = {};
+
+    await Promise.all(uniqueGinKeys.map(async (ginKey) => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/items?ginNo=${encodeURIComponent(ginKey)}`);
+        const data = await res.json();
+        if (res.ok && Array.isArray(data.items)) {
+          const existing = data.items.find((item) => item.ginfile && String(item.ginfile).trim() !== "");
+          cache[ginKey] = existing ? String(existing.ginfile).trim() : null;
+        } else {
+          cache[ginKey] = null;
+        }
+      } catch {
+        cache[ginKey] = null;
+      }
+    }));
+
+    setBulkGinSystemCache(cache);
+    setBulkItems((prev) => prev.map((row) => {
+      const ginKey = getBulkGinKey(row);
+      const systemPath = ginKey ? cache[ginKey] : null;
+      return systemPath
+        ? { ...row, existingGinfile: systemPath, ginfile: null }
+        : row;
+    }));
+  };
+
+  const getBulkGinSourceIndex = (ginKey, items = bulkItems) => {
+    if (!ginKey) {
+      return -1;
+    }
+
+    if (bulkGinSystemCache[ginKey]) {
+      return -1;
+    }
+
+    return items.findIndex(
+      (row) => getBulkGinKey(row) === ginKey && (row.ginfile instanceof File || row.existingGinfile)
+    );
+  };
+
+  const getFirstBulkGinRowIndex = (ginKey, items = bulkItems) => (
+    items.findIndex((row) => getBulkGinKey(row) === ginKey)
+  );
+
+  const isBulkGinUploadDisabled = (index, items = bulkItems) => {
+    const item = items[index];
+    const ginKey = getBulkGinKey(item);
+
+    if (!ginKey) {
+      return false;
+    }
+
+    if (bulkGinSystemCache[ginKey]) {
+      return true;
+    }
+
+    const sourceIndex = getBulkGinSourceIndex(ginKey, items);
+    if (sourceIndex >= 0 && sourceIndex !== index) {
+      return true;
+    }
+
+    const firstIndex = getFirstBulkGinRowIndex(ginKey, items);
+    return firstIndex >= 0 && firstIndex !== index;
+  };
+
+  const getBulkGinStatus = (index, items = bulkItems) => {
+    const item = items[index];
+    const ginKey = getBulkGinKey(item);
+
+    if (!ginKey) {
+      return item.ginfile instanceof File ? "PDF attached" : "No GIN No in CSV";
+    }
+
+    const systemPath = bulkGinSystemCache[ginKey];
+    if (systemPath) {
+      return "Reuses stored GIN PDF";
+    }
+
+    const sourceIndex = getBulkGinSourceIndex(ginKey, items);
+    if (sourceIndex === index && item.ginfile instanceof File) {
+      return "PDF attached (shared for this GIN)";
+    }
+
+    if (sourceIndex >= 0 && sourceIndex !== index) {
+      return "Uses GIN PDF from first row";
+    }
+
+    if (isBulkGinUploadDisabled(index, items)) {
+      return "Upload on first row with this GIN";
+    }
+
+    return item.ginfile instanceof File ? "PDF attached" : "Upload required";
+  };
+
+  const getFirstBulkImageRowIndex = (groupKey, items = bulkItems) => (
+    items.findIndex((row) => getBulkImageGroupKey(row) === groupKey)
+  );
+
+  const isBulkImageUploadDisabled = (index, items = bulkItems) => {
+    const groupKey = getBulkImageGroupKey(items[index]);
+    const firstIndex = getFirstBulkImageRowIndex(groupKey, items);
+    if (firstIndex >= 0 && firstIndex !== index) {
+      return true;
+    }
+
+    const sourceIndex = items.findIndex(
+      (row, rowIndex) => rowIndex !== index
+        && getBulkImageGroupKey(row) === groupKey
+        && row.itemImage instanceof File
+    );
+
+    return sourceIndex >= 0;
+  };
+
+  const getBulkImageStatus = (index, items = bulkItems) => {
+    const item = items[index];
+    const groupKey = getBulkImageGroupKey(item);
+    const sourceIndex = items.findIndex(
+      (row) => getBulkImageGroupKey(row) === groupKey && row.itemImage instanceof File
+    );
+
+    if (sourceIndex === index) {
+      return "Image attached (shared for matching rows)";
+    }
+
+    if (sourceIndex >= 0) {
+      return "Uses image from first matching row";
+    }
+
+    if (isBulkImageUploadDisabled(index, items)) {
+      return "Upload on first row with same item & GIN";
+    }
+
+    return item.itemImage instanceof File ? "Image attached" : "Optional";
+  };
+
+  const handleBulkGinFileChange = (index, event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+
+    if (!file) {
+      return;
+    }
+
+    const ext = file.name.toLowerCase().slice(file.name.lastIndexOf("."));
+    if (file.type !== "application/pdf" && ext !== ".pdf") {
+      alert("GIN PDF must be a .pdf file.");
+      return;
+    }
+
+    updateBulkItemAt(index, { ginfile: file, existingGinfile: "" });
+  };
+
+  const handleBulkImageFileChange = (index, event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+
+    if (!file) {
+      return;
+    }
+
+    const ext = file.name.toLowerCase().slice(file.name.lastIndexOf("."));
+    const allowedImageTypes = ["image/jpeg", "image/jpg", "image/png"];
+    const allowedExtensions = [".jpg", ".jpeg", ".png"];
+    const validImage = allowedImageTypes.includes(file.type) || allowedExtensions.includes(ext);
+
+    if (!validImage) {
+      alert("Item image must be a JPG, JPEG, or PNG file.");
+      return;
+    }
+
+    updateBulkItemAt(index, { itemImage: file });
+  };
+
+  const resolveBulkGinSource = (item, items = bulkItems) => {
+    const ginKey = getBulkGinKey(item);
+
+    if (!ginKey) {
+      return item;
+    }
+
+    const systemPath = bulkGinSystemCache[ginKey];
+    if (systemPath) {
+      return { ...item, existingGinfile: systemPath, ginfile: null };
+    }
+
+    const sourceIndex = getBulkGinSourceIndex(ginKey, items);
+    if (sourceIndex >= 0) {
+      return items[sourceIndex];
+    }
+
+    const firstIndex = getFirstBulkGinRowIndex(ginKey, items);
+    if (firstIndex >= 0) {
+      return items[firstIndex];
+    }
+
+    return item;
+  };
+
+  const resolveBulkImageSource = (item, items = bulkItems) => {
+    const groupKey = getBulkImageGroupKey(item);
+    const sourceIndex = items.findIndex(
+      (row) => getBulkImageGroupKey(row) === groupKey && row.itemImage instanceof File
+    );
+
+    return sourceIndex >= 0 ? items[sourceIndex] : item;
+  };
+
+  const buildBulkItemFormData = (item, items = bulkItems) => {
+    const ginSource = resolveBulkGinSource(item, items);
+    const imageSource = resolveBulkImageSource(item, items);
+    const fundingOtherValue = pickBulkField(item, "fundingOther", "fundingother");
+    const warrantyOtherValue = pickBulkField(item, "warrantyOther", "warrantyother");
+    const fundingValue = pickBulkField(item, "funding");
+    const warrantyValue = pickBulkField(item, "warranty");
+    const normalizedFunding = fundingValue === "other" ? fundingOtherValue : fundingValue;
+    const normalizedWarranty = warrantyValue === "other" ? warrantyOtherValue : warrantyValue;
+
+    const form = new FormData();
+    form.append("inventoryId", selectedInventoryId ? String(selectedInventoryId) : "");
+    form.append("itemName", pickBulkField(item, "itemName", "itemname"));
+    form.append("itemCode", pickBulkField(item, "itemCode", "itemcode"));
+    form.append("serialNo", pickBulkField(item, "serialNo", "serialno"));
+    form.append("serialNo2", pickBulkField(item, "serialNo2", "serialno2"));
+    form.append("model", pickBulkField(item, "model"));
+    form.append("QRCode", item.qrcode || item.QRCode || "");
+    form.append("QRCode2", item.qrcode2 || item.QRCode2 || "");
+    form.append("pageno", pickBulkField(item, "pageno"));
+    form.append("value", pickBulkField(item, "value"));
+    form.append("purchaseDate", pickBulkField(item, "purchaseDate", "purchasedate"));
+    form.append("ginNo", getBulkGinNo(item));
+    form.append("poNo", pickBulkField(item, "poNo", "pono"));
+    form.append("supplier", pickBulkField(item, "supplier"));
+    form.append("funding", normalizedFunding || fundingOtherValue);
+    form.append("receivedfrom", pickBulkField(item, "receivedfrom", "receivedFrom"));
+    form.append("warranty", normalizedWarranty || warrantyOtherValue);
+    form.append("location", pickBulkField(item, "location"));
+    form.append("remarks", pickBulkField(item, "remarks"));
+
+    if (imageSource.itemImage instanceof File) {
+      form.append("itemImage", imageSource.itemImage);
+    }
+
+    if (ginSource.existingGinfile) {
+      form.append("existingGinfile", ginSource.existingGinfile);
+    } else if (ginSource.ginfile instanceof File) {
+      form.append("ginfile", ginSource.ginfile);
+    }
+
+    return form;
+  };
+
   const handleBulkFileChange = (e) => {
     const file = e.target.files[0];
     if (file) {
       setBulkFile(file);
+      setBulkGinSystemCache({});
       parseBulkFile(file);
     }
   };
@@ -675,13 +1116,27 @@ const AddNewItem = () => {
           const qUrl = `${window.location.origin}/inventory/scan?q=${encodeURIComponent(q)}&incharge=${encodeURIComponent(it.receivedfrom||'')}`;
           const q2 = computed2 && computed2 !== "" ? computed2 : "";
           const q2Url = q2 ? `${window.location.origin}/inventory/scan?q=${encodeURIComponent(q2)}&incharge=${encodeURIComponent(it.receivedfrom||'')}` : '';
-          return { ...it, qrcode: q, qrcodeUrl: qUrl, qrcode2: q2, qrcode2Url: q2Url };
+          return {
+            ...it,
+            itemName: pickBulkField(it, "itemName", "itemname"),
+            itemCode: pickBulkField(it, "itemCode", "itemcode"),
+            serialNo: pickBulkField(it, "serialNo", "serialno"),
+            serialNo2: pickBulkField(it, "serialNo2", "serialno2"),
+            ginNo: getBulkGinNo(it),
+            ginfile: null,
+            existingGinfile: "",
+            itemImage: null,
+            qrcode: q,
+            qrcodeUrl: qUrl,
+            qrcode2: q2,
+            qrcode2Url: q2Url,
+          };
         });
 
         setBulkItems(itemsWithQr);
-        // reset selection
         setSelectedBulk({});
         setSelectAllBulk(false);
+        loadBulkGinSystemCache(itemsWithQr);
         alert(`Successfully parsed ${items.length} items from CSV file`);
       } catch (error) {
         alert('Error parsing CSV file. Please ensure it has the correct format.');
@@ -724,72 +1179,37 @@ const AddNewItem = () => {
     }
     (async () => {
       try {
-        // If a CSV file was selected, upload file directly to server CSV endpoint
-        if (bulkFile) {
-          const form = new FormData();
-          form.append('file', bulkFile);
-          if (selectedInventoryId) form.append('inventoryId', String(selectedInventoryId));
+        setBulkSubmitting(true);
+        let createdCount = 0;
 
-          const res = await fetch(`${API_BASE_URL}/api/items/bulk-csv`, {
-            method: 'POST',
+        for (let index = 0; index < bulkItems.length; index += 1) {
+          const item = bulkItems[index];
+          const form = buildBulkItemFormData(item, bulkItems);
+          const res = await fetch(`${API_BASE_URL}/api/items`, {
+            method: "POST",
             body: form,
           });
+          const data = await res.json().catch(() => ({}));
 
-          const data = await res.json();
-          if (res.ok) {
-            alert(`Successfully submitted ${data.createdCount} items`);
-            setBulkFile(null);
-            setBulkItems([]);
-            return;
-          } else {
-            alert('Bulk upload failed: ' + (data.error || 'unknown'));
-            return;
+          if (!res.ok || !data.success) {
+            const rowLabel = pickBulkField(item, "itemName", "itemname") || `Row ${index + 1}`;
+            throw new Error(`Row ${index + 1} (${rowLabel}): ${data.error || data.message || "Upload failed"}`);
           }
+
+          createdCount += 1;
         }
 
-        const res = await fetch(`${API_BASE_URL}/api/items/bulk`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(bulkItems.map(it => {
-            const {
-              fundingOther,
-              fundingother,
-              warrantyOther,
-              warrantyother,
-              ...rest
-            } = it;
-            const fundingOtherValue = fundingOther || fundingother || "";
-            const warrantyOtherValue = warrantyOther || warrantyother || "";
-            const normalizedFunding = it.funding === "other"
-              ? (fundingOtherValue || "")
-              : (it.funding || "");
-            const normalizedWarranty = it.warranty === "other"
-              ? (warrantyOtherValue || "")
-              : (it.warranty || "");
-
-            return {
-              ...rest,
-              inventoryId: selectedInventoryId ? Number(selectedInventoryId) : null,
-              funding: !normalizedFunding && fundingOtherValue ? fundingOtherValue : normalizedFunding,
-              warranty: !normalizedWarranty && warrantyOtherValue ? warrantyOtherValue : normalizedWarranty,
-              qrcode: it.qrcode,
-              qrcodeUrl: it.qrcodeUrl,
-              qrcode2: it.qrcode2,
-              qrcode2Url: it.qrcode2Url
-            };
-          }))
-        });
-        const data = await res.json();
-        if (res.ok) {
-          alert(`Successfully submitted ${data.createdCount} items`);
-          setBulkFile(null);
-          setBulkItems([]);
-        } else {
-          alert('Bulk upload failed: ' + (data.error || 'unknown'));
-        }
+        alert(`Successfully submitted ${createdCount} items`);
+        setBulkFile(null);
+        setBulkItems([]);
+        setBulkGinSystemCache({});
+        setSelectedBulk({});
+        setSelectAllBulk(false);
       } catch (err) {
         console.error(err);
-        alert('Bulk upload failed (network). Ensure mock server is running at http://localhost:4000');
+        alert(err.message || "Bulk upload failed. Ensure the API server is running.");
+      } finally {
+        setBulkSubmitting(false);
       }
     })();
   };
@@ -899,6 +1319,12 @@ const AddNewItem = () => {
     }
 
     (async () => {
+      const identifiersValid = await runIdentifierValidation(itemData);
+
+      if (!identifiersValid) {
+        return;
+      }
+
       try {
         // prepare FormData for multipart upload (supports files)
         const form = new FormData();
@@ -961,7 +1387,10 @@ const AddNewItem = () => {
             handleReset();
           }
         } else {
-          alert("Save failed: " + (data.error || "unknown"));
+          if (data.conflicts) {
+            applyIdentifierConflicts(data.conflicts);
+          }
+          alert("Save failed: " + (data.error || data.message || "unknown"));
         }
       } catch (err) {
         console.error(err);
@@ -976,6 +1405,7 @@ const AddNewItem = () => {
       return;
     }
 
+    setIdentifierErrors(EMPTY_IDENTIFIER_ERRORS);
     setItemData({
       itemName: "",
       itemCode: "",
@@ -1138,10 +1568,15 @@ const AddNewItem = () => {
                     name="itemCode"
                     value={itemData.itemCode}
                     onChange={handleChange}
+                    onBlur={handleIdentifierBlur}
                     placeholder="Enter item code"
                     style={{ backgroundColor: '#F2F0F0' }}
                     className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    aria-invalid={Boolean(identifierErrors.itemCode)}
                   />
+                  {identifierErrors.itemCode && (
+                    <p className="text-sm text-danger">{identifierErrors.itemCode}</p>
+                  )}
                 </div>
 
                 {/* Serial Number */}
@@ -1152,10 +1587,15 @@ const AddNewItem = () => {
                     name="serialNo"
                     value={itemData.serialNo}
                     onChange={handleChange}
+                    onBlur={handleIdentifierBlur}
                     placeholder="Enter serial number"
                     style={{ backgroundColor: '#F2F0F0' }}
                     className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    aria-invalid={Boolean(identifierErrors.serialNo)}
                   />
+                  {identifierErrors.serialNo && (
+                    <p className="text-sm text-danger">{identifierErrors.serialNo}</p>
+                  )}
                 </div>
 
                 {/* Serial Number 2 */}
@@ -1166,10 +1606,15 @@ const AddNewItem = () => {
                     name="serialNo2"
                     value={itemData.serialNo2}
                     onChange={handleChange}
+                    onBlur={handleIdentifierBlur}
                     placeholder="Enter serial number 2"
                     style={{ backgroundColor: '#F2F0F0' }}
                     className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    aria-invalid={Boolean(identifierErrors.serialNo2)}
                   />
+                  {identifierErrors.serialNo2 && (
+                    <p className="text-sm text-danger">{identifierErrors.serialNo2}</p>
+                  )}
                 </div>
 
                 {/* Brand/Model */}
@@ -1658,6 +2103,7 @@ const AddNewItem = () => {
                 type="submit"
                 variant="primary"
                 icon="save"
+                disabled={hasIdentifierErrors}
               >
                 {isEditMode ? "Save Changes" : "Save Item"}
               </Button>
@@ -1743,55 +2189,131 @@ const AddNewItem = () => {
                   <p className="text-sm font-semibold text-success">
                     ✓ Ready to upload: {bulkItems.length} items
                   </p>
+                  <p className="text-xs text-text-light mt-2">
+                    CSV cannot include PDF or image files. Use the buttons in each row to attach GIN PDF and item image.
+                    Rows sharing the same GIN No reuse one GIN upload; rows with the same GIN, item code, and name reuse one image.
+                  </p>
                 </div>
 
-                {/* Items Preview Table */}
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto max-h-[28rem] overflow-y-auto border border-border rounded-lg">
                   <table className="w-full text-sm">
-                    <thead>
-                              <tr className="bg-gray-100 border-b">
-                                <th className="px-3 py-2 text-left font-semibold"><input type="checkbox" checked={selectAllBulk} onChange={(e)=>{
-                                  const checked = e.target.checked;
-                                  setSelectAllBulk(checked);
-                                  if (checked) {
-                                    const obj = {};
-                                    bulkItems.forEach((it, i) => { obj[i] = true; });
-                                    setSelectedBulk(obj);
-                                  } else {
-                                    setSelectedBulk({});
-                                  }
-                                }} /></th>
-                              <th className="px-3 py-2 text-left font-semibold">Item Name</th>
-                              <th className="px-3 py-2 text-left font-semibold">Item Code</th>
-                              <th className="px-3 py-2 text-left font-semibold">Serial No</th>
-                              <th className="px-3 py-2 text-left font-semibold">Value</th>
-                              <th className="px-3 py-2 text-left font-semibold">Location</th>
-                            </tr>
+                    <thead className="sticky top-0 bg-gray-100 z-10">
+                      <tr className="border-b">
+                        <th className="px-3 py-2 text-left font-semibold">
+                          <input
+                            type="checkbox"
+                            checked={selectAllBulk}
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              setSelectAllBulk(checked);
+                              if (checked) {
+                                const obj = {};
+                                bulkItems.forEach((_, i) => { obj[i] = true; });
+                                setSelectedBulk(obj);
+                              } else {
+                                setSelectedBulk({});
+                              }
+                            }}
+                          />
+                        </th>
+                        <th className="px-3 py-2 text-left font-semibold">Item Name</th>
+                        <th className="px-3 py-2 text-left font-semibold">Item Code</th>
+                        <th className="px-3 py-2 text-left font-semibold">Serial No</th>
+                        <th className="px-3 py-2 text-left font-semibold">GIN No</th>
+                        <th className="px-3 py-2 text-left font-semibold">GIN PDF</th>
+                        <th className="px-3 py-2 text-left font-semibold">Item Image</th>
+                        <th className="px-3 py-2 text-left font-semibold">Location</th>
+                      </tr>
                     </thead>
                     <tbody>
-                      {bulkItems.slice(0, 5).map((item, index) => (
-                        <tr key={index} className="border-b hover:bg-gray-50">
-                          <td className="px-3 py-2">
-                            <input type="checkbox" checked={!!selectedBulk[index]} onChange={(e) => {
-                              const obj = { ...selectedBulk };
-                              if (e.target.checked) obj[index] = true; else delete obj[index];
-                              setSelectedBulk(obj);
-                              // keep selectAll in sync
-                              setSelectAllBulk(Object.keys(obj).length === bulkItems.length);
-                            }} />
-                          </td>
-                          <td className="px-3 py-2">{item.itemname || item.itemName || '-'}</td>
-                          <td className="px-3 py-2">{item.itemcode || item.itemCode || '-'}</td>
-                          <td className="px-3 py-2">{item.serialno || item.serialNo || '-'}</td>
-                          <td className="px-3 py-2">{item.value || '-'}</td>
-                          <td className="px-3 py-2">{item.location || '-'}</td>
-                        </tr>
-                      ))}
+                      {bulkItems.map((item, index) => {
+                        const ginDisabled = isBulkGinUploadDisabled(index);
+                        const imageDisabled = isBulkImageUploadDisabled(index);
+                        const ginStatus = getBulkGinStatus(index);
+                        const imageStatus = getBulkImageStatus(index);
+                        const ginKey = getBulkGinKey(item);
+                        const systemGinPath = ginKey ? bulkGinSystemCache[ginKey] : "";
+
+                        return (
+                          <tr key={index} className="border-b hover:bg-gray-50 align-top">
+                            <td className="px-3 py-2">
+                              <input
+                                type="checkbox"
+                                checked={!!selectedBulk[index]}
+                                onChange={(e) => {
+                                  const obj = { ...selectedBulk };
+                                  if (e.target.checked) {
+                                    obj[index] = true;
+                                  } else {
+                                    delete obj[index];
+                                  }
+                                  setSelectedBulk(obj);
+                                  setSelectAllBulk(Object.keys(obj).length === bulkItems.length);
+                                }}
+                              />
+                            </td>
+                            <td className="px-3 py-2">{pickBulkField(item, "itemName", "itemname") || "-"}</td>
+                            <td className="px-3 py-2">{pickBulkField(item, "itemCode", "itemcode") || "-"}</td>
+                            <td className="px-3 py-2">{pickBulkField(item, "serialNo", "serialno") || "-"}</td>
+                            <td className="px-3 py-2">{getBulkGinNo(item) || "-"}</td>
+                            <td className="px-3 py-2 min-w-[180px]">
+                              <div className="space-y-1">
+                                {ginDisabled ? (
+                                  <span className="inline-block px-2 py-1 text-xs rounded bg-gray-100 text-text-light">
+                                    {systemGinPath ? "Stored PDF" : "Not required"}
+                                  </span>
+                                ) : (
+                                  <label className="inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded bg-primary-500 text-white cursor-pointer hover:bg-primary-600">
+                                    Upload PDF
+                                    <input
+                                      type="file"
+                                      accept=".pdf,application/pdf"
+                                      className="hidden"
+                                      onChange={(e) => handleBulkGinFileChange(index, e)}
+                                    />
+                                  </label>
+                                )}
+                                <p className={`text-xs ${ginDisabled && systemGinPath ? "text-green-700" : "text-text-light"}`}>
+                                  {ginStatus}
+                                </p>
+                                {systemGinPath && (
+                                  <a
+                                    href={resolveUploadUrl(systemGinPath)}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="text-xs text-primary-600 underline"
+                                  >
+                                    View stored PDF
+                                  </a>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-3 py-2 min-w-[180px]">
+                              <div className="space-y-1">
+                                {imageDisabled ? (
+                                  <span className="inline-block px-2 py-1 text-xs rounded bg-gray-100 text-text-light">
+                                    Not required
+                                  </span>
+                                ) : (
+                                  <label className="inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded bg-primary-500 text-white cursor-pointer hover:bg-primary-600">
+                                    Upload image
+                                    <input
+                                      type="file"
+                                      accept=".jpg,.jpeg,.png,image/jpeg,image/png"
+                                      className="hidden"
+                                      onChange={(e) => handleBulkImageFileChange(index, e)}
+                                    />
+                                  </label>
+                                )}
+                                <p className="text-xs text-text-light">{imageStatus}</p>
+                              </div>
+                            </td>
+                            <td className="px-3 py-2">{pickBulkField(item, "location") || "-"}</td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
-                  {bulkItems.length > 5 && (
-                    <p className="text-xs text-text-light mt-2">... and {bulkItems.length - 5} more items</p>
-                  )}
                 </div>
               </div>
             )}
@@ -1803,6 +2325,7 @@ const AddNewItem = () => {
                 onClick={() => {
                   setBulkFile(null);
                   setBulkItems([]);
+                  setBulkGinSystemCache({});
                 }}
                 variant="secondary"
               >
@@ -1827,9 +2350,9 @@ const AddNewItem = () => {
                 type="button"
                 onClick={handleBulkSubmit}
                 variant="primary"
-                disabled={bulkItems.length === 0}
+                disabled={bulkItems.length === 0 || bulkSubmitting}
               >
-                Upload {bulkItems.length} Items
+                {bulkSubmitting ? "Uploading..." : `Upload ${bulkItems.length} Items`}
               </Button>
             </div>
           </div>

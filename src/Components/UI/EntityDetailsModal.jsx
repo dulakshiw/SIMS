@@ -10,6 +10,8 @@ const EntityDetailsModal = ({
   selectedName,
   details = [],
   size = "md",
+  footer,
+  children,
 }) => {
   const formatValue = (value) => {
     if (value === 0) {
@@ -19,7 +21,7 @@ const EntityDetailsModal = ({
     return value || "-";
   };
 
-  const footer = (
+  const modalFooter = footer ?? (
     <div className="flex justify-end">
       <Button variant="secondary" onClick={onClose}>
         Close
@@ -32,7 +34,7 @@ const EntityDetailsModal = ({
       isOpen={isOpen}
       title={title}
       onClose={onClose}
-      footer={footer}
+      footer={modalFooter}
       size={size}
     >
       <div className="space-y-4">
@@ -49,6 +51,8 @@ const EntityDetailsModal = ({
             </div>
           ))}
         </div>
+
+        {children}
       </div>
     </Modal>
   );

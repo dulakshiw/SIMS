@@ -1,6 +1,13 @@
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Card, Button } from "../../Components/UI";
+import {
+  getPasswordStrength,
+  getPasswordStrengthColorClass,
+  isPasswordValid,
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_REQUIREMENTS_MESSAGE,
+} from "../../utils/passwordValidation";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
 
@@ -77,14 +84,8 @@ const SignUp = () => {
     const { name, value } = e.target;
     setFormData({ ...formData, [name]: value });
 
-    // Calculate password strength
     if (name === "password") {
-      let strength = 0;
-      if (value.length >= 8) strength++;
-      if (/[A-Z]/.test(value)) strength++;
-      if (/[0-9]/.test(value)) strength++;
-      if (/[^A-Za-z0-9]/.test(value)) strength++;
-      setPasswordStrength(strength);
+      setPasswordStrength(getPasswordStrength(value));
     }
   };
 
@@ -96,8 +97,8 @@ const SignUp = () => {
       return;
     }
 
-    if (passwordStrength < 2) {
-      alert("Password is too weak. Please use a stronger password.");
+    if (!isPasswordValid(formData.password)) {
+      alert(PASSWORD_REQUIREMENTS_MESSAGE);
       return;
     }
 
@@ -143,12 +144,6 @@ const SignUp = () => {
     } finally {
       setLoading(false);
     }
-  };
-
-  const getPasswordStrengthColor = () => {
-    if (passwordStrength <= 1) return "bg-danger";
-    if (passwordStrength <= 2) return "bg-warning";
-    return "bg-success";
   };
 
   return (
@@ -307,9 +302,11 @@ const SignUp = () => {
                 <input
                   type="password"
                   name="password"
-                  placeholder="Enter password (min 8 characters)"
+                  placeholder="8-12 chars: uppercase, number, symbol"
                   value={formData.password}
                   onChange={handleChange}
+                  minLength={8}
+                  maxLength={PASSWORD_MAX_LENGTH}
                   required
                   className="w-full px-4 py-2.5 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                   style={{ backgroundColor: '#F2F0F0' }}
@@ -341,7 +338,7 @@ const SignUp = () => {
                     <div
                       key={i}
                       className={`h-2 flex-1 rounded ${
-                        i < passwordStrength ? getPasswordStrengthColor() : "bg-gray-200"
+                        i < passwordStrength ? getPasswordStrengthColorClass(passwordStrength) : "bg-gray-200"
                       }`}
                     />
                   ))}
@@ -350,8 +347,10 @@ const SignUp = () => {
                   <p className="text-xs text-text-light">
                     {passwordStrength <= 1 && "Weak password"}
                     {passwordStrength === 2 && "Fair password"}
-                    {passwordStrength >= 3 && "Strong password"}
+                    {passwordStrength === 3 && "Good password"}
+                    {passwordStrength >= 4 && "Strong password"}
                   </p>
+                  <p className="text-xs text-text-light">{PASSWORD_REQUIREMENTS_MESSAGE}</p>
                   {formData.password && formData.confirmPassword && formData.password !== formData.confirmPassword && (
                     <p className="text-xs text-danger font-semibold">✗ Passwords do not match</p>
                   )}

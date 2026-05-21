@@ -7,6 +7,7 @@ import path from "path";
 import multer from "multer";
 import { parse as csvParse } from "csv-parse/sync";
 import { sendAccountActivationEmail } from "./emailService.js";
+import { PASSWORD_REQUIREMENTS_MESSAGE, validatePassword } from "./passwordValidation.js";
 
 dotenv.config();
 
@@ -498,6 +499,121 @@ const validateRequiredFields = (item) => {
     return "itemName is required";
   }
   return null;
+};
+
+const normalizeIdentifierValue = (value) => String(value ?? "").trim();
+
+const buildItemIdentifierExcludeClause = (dbColumns, excludeItemId) => {
+  const idColumn = getItemIdColumn(dbColumns);
+  const normalizedExcludeId = Number(excludeItemId ?? 0);
+
+  if (!idColumn || !Number.isInteger(normalizedExcludeId) || normalizedExcludeId <= 0) {
+    return { clause: "", params: [] };
+  }
+
+  return { clause: ` AND ${idColumn} <> ?`, params: [normalizedExcludeId] };
+};
+
+const getAllDbColumnsForLogicalKey = (dbColumns, logicalKey) => {
+  const aliases = ITEM_DB_COLUMN_ALIASES[logicalKey] || [logicalKey];
+  return aliases.filter((alias) => dbColumns.has(alias));
+};
+
+const findExistingItemByIdentifierMatch = async (dbColumns, logicalKeys, value, excludeItemId = 0) => {
+  const normalizedValue = normalizeIdentifierValue(value);
+
+  if (!normalizedValue) {
+    return null;
+  }
+
+  const keyList = Array.isArray(logicalKeys) ? logicalKeys : [logicalKeys];
+  const usableColumns = [
+    ...new Set(keyList.flatMap((logicalKey) => getAllDbColumnsForLogicalKey(dbColumns, logicalKey))),
+  ];
+
+  if (usableColumns.length === 0) {
+    return null;
+  }
+
+  const { clause: excludeClause, params: excludeParams } = buildItemIdentifierExcludeClause(
+    dbColumns,
+    excludeItemId
+  );
+  const matchConditions = usableColumns.map((column) => `LOWER(TRIM(${column})) = LOWER(?)`);
+  const matchParams = usableColumns.map(() => normalizedValue);
+
+  const [rows] = await pool.execute(
+    `SELECT ${getItemIdColumn(dbColumns)} AS id FROM ${DB_ITEMS_TABLE} WHERE (${matchConditions.join(" OR ")})${excludeClause} LIMIT 1`,
+    [...matchParams, ...excludeParams]
+  );
+
+  return rows[0] ?? null;
+};
+
+const validateItemIdentifiers = async (dbColumns, identifiers = {}) => {
+  const conflicts = {};
+  const itemCode = normalizeIdentifierValue(identifiers.itemCode);
+  const serialNo = normalizeIdentifierValue(identifiers.serialNo);
+  const serialNo2 = normalizeIdentifierValue(identifiers.serialNo2);
+  const excludeItemId = Number(identifiers.excludeItemId ?? 0);
+
+  if (serialNo && serialNo2 && serialNo.toLowerCase() === serialNo2.toLowerCase()) {
+    conflicts.serialNo2 = "Serial Number 2 must be different from Serial Number.";
+  }
+
+  if (itemCode) {
+    const existingCode = await findExistingItemByIdentifierMatch(
+      dbColumns,
+      ["itemCode"],
+      itemCode,
+      excludeItemId
+    );
+
+    if (existingCode) {
+      conflicts.itemCode = "This item code is already registered in the system.";
+    }
+  }
+
+  if (serialNo) {
+    const existingSerial = await findExistingItemByIdentifierMatch(
+      dbColumns,
+      ["serialNo", "serialNo2"],
+      serialNo,
+      excludeItemId
+    );
+
+    if (existingSerial) {
+      conflicts.serialNo = "This serial number is already registered in the system.";
+    }
+  }
+
+  if (serialNo2) {
+    const existingSerial2 = await findExistingItemByIdentifierMatch(
+      dbColumns,
+      ["serialNo", "serialNo2"],
+      serialNo2,
+      excludeItemId
+    );
+
+    if (existingSerial2) {
+      conflicts.serialNo2 = "This serial number is already registered in the system.";
+    }
+  }
+
+  return {
+    valid: Object.keys(conflicts).length === 0,
+    conflicts,
+  };
+};
+
+const formatItemIdentifierValidationError = (conflicts = {}) => {
+  const messages = Object.values(conflicts).filter(Boolean);
+
+  if (messages.length === 0) {
+    return "Item identifiers must be unique.";
+  }
+
+  return messages.join(" ");
 };
 
 let authSchema = null;
@@ -1333,6 +1449,22 @@ const ensureInventoryCreationRequestsTable = async () => {
     inventoryRequestColumns.add("submitted_by_role");
   }
 
+  if (!inventoryRequestColumns.has("target_inventory_id")) {
+    const afterClause = inventoryRequestColumns.has("created_inventory_id")
+      ? "AFTER created_inventory_id"
+      : "";
+    await pool.query(`ALTER TABLE inventory_creation_requests ADD COLUMN target_inventory_id INT NULL ${afterClause}`);
+    inventoryRequestColumns.add("target_inventory_id");
+  }
+
+  if (!inventoryRequestColumns.has("previous_incharge_user_id")) {
+    const afterClause = inventoryRequestColumns.has("incharge_user_id")
+      ? "AFTER incharge_user_id"
+      : "";
+    await pool.query(`ALTER TABLE inventory_creation_requests ADD COLUMN previous_incharge_user_id INT NULL ${afterClause}`);
+    inventoryRequestColumns.add("previous_incharge_user_id");
+  }
+
   if (inventoryRequestColumns.has("submitted_by_role") && inventoryRequestColumns.has("requested_by_id")) {
     const schema = await getAuthSchema();
     const userIdColumn = schema.userColumns.has("id") ? "id" : "user_id";
@@ -1802,6 +1934,9 @@ app.get(
     const inchargeJoin = inventoryRequestColumns.has("incharge_user_id")
       ? `LEFT JOIN users inch ON inch.${userIdColumn} = icr.incharge_user_id`
       : "";
+    const previousInchargeJoin = inventoryRequestColumns.has("previous_incharge_user_id")
+      ? `LEFT JOIN users prev_inch ON prev_inch.${userIdColumn} = icr.previous_incharge_user_id`
+      : "";
     const hodApproverJoin = inventoryRequestColumns.has("hod_approved_by_id")
       ? `LEFT JOIN users hod ON hod.${userIdColumn} = icr.hod_approved_by_id`
       : "";
@@ -1817,6 +1952,15 @@ app.get(
     const inchargeNameSelect = inventoryRequestColumns.has("incharge_user_id")
       ? `inch.${userNameColumn} AS incharge_name`
       : "NULL AS incharge_name";
+    const previousInchargeUserIdSelect = inventoryRequestColumns.has("previous_incharge_user_id")
+      ? "icr.previous_incharge_user_id"
+      : "NULL AS previous_incharge_user_id";
+    const previousInchargeNameSelect = inventoryRequestColumns.has("previous_incharge_user_id")
+      ? `prev_inch.${userNameColumn} AS previous_incharge_name`
+      : "NULL AS previous_incharge_name";
+    const targetInventoryIdSelect = inventoryRequestColumns.has("target_inventory_id")
+      ? "icr.target_inventory_id"
+      : "NULL AS target_inventory_id";
     const hodApprovedBySelect = inventoryRequestColumns.has("hod_approved_by_id")
       ? `hod.${userNameColumn} AS hod_approved_by_name`
       : "NULL AS hod_approved_by_name";
@@ -1837,9 +1981,12 @@ app.get(
           ${departmentNameSelect},
           ${requestedByCol} AS requested_by_id,
           ${inchargeCol} AS incharge_user_id,
+          ${previousInchargeUserIdSelect},
           ${hodUserIdCol} AS hod_user_id,
           ${requestedByNameSelect},
           ${inchargeNameSelect},
+          ${previousInchargeNameSelect},
+          ${targetInventoryIdSelect},
           ${hodApprovedBySelect},
           ${hodApprovedDateSelect},
           ${createdInventoryIdSelect},
@@ -1854,6 +2001,7 @@ app.get(
         ${requesterJoin}
         ${requesterRoleJoin}
         ${inchargeJoin}
+        ${previousInchargeJoin}
         ${hodApproverJoin}
         WHERE ${whereParts.join(" AND ")}
         ORDER BY ${requestedDateCol} DESC, ${inventoryRequestIdColumn} DESC
@@ -1876,6 +2024,9 @@ app.get(
         requestedByName: row.requested_by_name || "-",
         inchargeUserId: row.incharge_user_id ?? null,
         inchargeName: row.incharge_name || "-",
+        previousInchargeUserId: row.previous_incharge_user_id ?? null,
+        previousInchargeName: row.previous_incharge_name || "-",
+        targetInventoryId: row.target_inventory_id ?? null,
         hodUserId: row.hod_user_id ?? null,
         hodApprovedBy: row.hod_approved_by_name || "-",
         hodApprovedDate: row.hod_approved_date
@@ -2561,8 +2712,11 @@ app.patch(
       return res.status(400).json({ success: false, message: "Provide a new password or mobile number to update this account." });
     }
 
-    if (nextPassword && nextPassword.length < 8) {
-      return res.status(400).json({ success: false, message: "Password must be at least 8 characters long." });
+    if (nextPassword) {
+      const passwordCheck = validatePassword(nextPassword);
+      if (!passwordCheck.valid) {
+        return res.status(400).json({ success: false, message: passwordCheck.message });
+      }
     }
 
     const userIdColumn = schema.userColumns.has("id") ? "u.id" : "u.user_id";
@@ -2638,27 +2792,106 @@ app.patch(
   })
 );
 
+app.patch(
+  "/api/users/:id/password",
+  withDatabase(async (req, res) => {
+    const userId = Number(req.params.id);
+    const nextPassword = String(req.body?.password ?? "");
+    const schema = await getAuthSchema();
+
+    if (!Number.isInteger(userId) || userId <= 0) {
+      return res.status(400).json({ success: false, message: "A valid user id is required." });
+    }
+
+    const passwordCheck = validatePassword(nextPassword);
+    if (!passwordCheck.valid) {
+      return res.status(400).json({
+        success: false,
+        message: passwordCheck.message || PASSWORD_REQUIREMENTS_MESSAGE,
+      });
+    }
+
+    const userIdColumn = schema.userColumns.has("id") ? "id" : "user_id";
+    const userNameColumn = schema.userColumns.has("name") ? "name" : "full_name";
+    const [userRows] = await pool.execute(
+      `SELECT ${userNameColumn} AS name FROM users WHERE ${userIdColumn} = ? LIMIT 1`,
+      [userId]
+    );
+
+    if (userRows.length === 0) {
+      return res.status(404).json({ success: false, message: "User not found." });
+    }
+
+    await pool.execute(`UPDATE users SET password = ? WHERE ${userIdColumn} = ?`, [nextPassword, userId]);
+
+    return res.json({
+      success: true,
+      message: `Password reset successfully for ${userRows[0].name || "the user"}.`,
+    });
+  })
+);
+
 app.get(
   "/api/departments",
-  withDatabase(async (_req, res) => {
+  withDatabase(async (req, res) => {
     const schema = await getAuthSchema();
 
     if (!schema.hasDepartmentsTable) {
       return res.json({ success: true, departments: [] });
     }
 
+    const includeInactive =
+      String(req.query?.includeInactive ?? req.query?.management ?? "").toLowerCase() === "true";
     const departmentIdColumn = schema.departmentColumns.has("id") ? "id" : "department_id";
     const departmentNameColumn = schema.departmentColumns.has("name") ? "name" : "department_name";
-    const departmentCodeColumn = schema.departmentColumns.has("code") ? "code" : null;
+    const departmentCodeColumn = schema.departmentColumns.has("code")
+      ? "code"
+      : schema.departmentColumns.has("department_code")
+        ? "department_code"
+        : null;
     const departmentHeadIdColumn = schema.departmentColumns.has("head_id") ? "head_id" : null;
     const departmentStatusColumn = schema.departmentColumns.has("status") ? "status" : null;
-    const departmentCreatedDateColumn = schema.departmentColumns.has("created_date") ? "created_date" : null;
+    const departmentCreatedDateColumn = schema.departmentColumns.has("created_date")
+      ? "created_date"
+      : schema.departmentColumns.has("created_at")
+        ? "created_at"
+        : null;
     const userIdColumn = schema.userColumns.has("id") ? "id" : "user_id";
     const userNameColumn = schema.userColumns.has("name") ? "name" : "full_name";
+    const userRoleColumn = schema.userColumns.has("role") ? "role" : null;
+    const inventoryColumns = await ensureInventoriesLocationColumn();
+    const inventoryIdColumn = getInventoryIdColumn(inventoryColumns);
+    const hasUsersDepartmentId = schema.userColumns.has("department_id");
+    const hasInventoriesDepartmentId = inventoryColumns.has("department_id") && inventoryIdColumn;
 
     const headJoinClause = departmentHeadIdColumn
       ? `LEFT JOIN users u ON u.${userIdColumn} = d.${departmentHeadIdColumn}`
       : "LEFT JOIN users u ON 1 = 0";
+
+    const hodByDepartmentSelection =
+      hasUsersDepartmentId && userRoleColumn
+        ? `(
+            SELECT hod.${userNameColumn}
+            FROM users hod
+            WHERE hod.department_id = d.${departmentIdColumn}
+              AND LOWER(COALESCE(hod.status, '')) = 'active'
+              AND LOWER(REPLACE(COALESCE(hod.${userRoleColumn}, ''), ' ', '_')) IN ('head_of_department', 'head_of_the_department')
+            ORDER BY hod.${userIdColumn} ASC
+            LIMIT 1
+          )`
+        : "NULL";
+
+    const headNameSelection =
+      departmentHeadIdColumn || hasUsersDepartmentId
+        ? `COALESCE(u.${userNameColumn}, ${hodByDepartmentSelection})`
+        : "NULL";
+
+    const userCountSelection = hasUsersDepartmentId
+      ? `(SELECT COUNT(*) FROM users usr WHERE usr.department_id = d.${departmentIdColumn}) AS user_count`
+      : "0 AS user_count";
+    const inventoryCountSelection = hasInventoriesDepartmentId
+      ? `(SELECT COUNT(*) FROM inventories inv WHERE inv.department_id = d.${departmentIdColumn}) AS inventory_count`
+      : "0 AS inventory_count";
 
     const [rows] = await pool.execute(
       `
@@ -2669,27 +2902,85 @@ app.get(
           ${departmentHeadIdColumn ? `d.${departmentHeadIdColumn}` : "NULL"} AS head_id,
           ${departmentStatusColumn ? `d.${departmentStatusColumn}` : "NULL"} AS status,
           ${departmentCreatedDateColumn ? `d.${departmentCreatedDateColumn}` : "NULL"} AS created_date,
-          u.${userNameColumn} AS head_name
+          ${headNameSelection} AS head_name,
+          ${userCountSelection},
+          ${inventoryCountSelection}
         FROM departments d
         ${headJoinClause}
         ORDER BY d.${departmentNameColumn} ASC
       `
     );
 
+    const formatDepartmentCreatedDate = (value) => {
+      if (!value) return "";
+      const parsed = new Date(value);
+      if (Number.isNaN(parsed.getTime())) {
+        return String(value).split("T")[0] || "";
+      }
+      return parsed.toISOString().split("T")[0];
+    };
+
     const departments = rows
-      .filter((row) => !row.status || String(row.status).toLowerCase() === "active")
+      .filter((row) =>
+        includeInactive ? true : !row.status || String(row.status).toLowerCase() === "active"
+      )
       .map((row) => ({
         id: row.id,
         name: row.name,
-        code: row.code || "",
-        head: row.head_name || "",
-        status: row.status || "active",
-        createdDate: row.created_date ? new Date(row.created_date).toISOString().split("T")[0] : "",
-        userCount: 0, // TODO: Add user count
-        inventoryCount: 0, // TODO: Add inventory count
+        code: String(row.code ?? "").trim(),
+        head: String(row.head_name ?? "").trim(),
+        headId: row.head_id ?? null,
+        status: String(row.status || "active").toLowerCase(),
+        createdDate: formatDepartmentCreatedDate(row.created_date),
+        userCount: Number(row.user_count ?? 0),
+        inventoryCount: Number(row.inventory_count ?? 0),
       }));
 
     return res.json({ success: true, departments });
+  })
+);
+
+app.patch(
+  "/api/departments/:id/status",
+  withDatabase(async (req, res) => {
+    const departmentId = Number(req.params.id);
+    const nextStatus = String(req.body?.status || "").trim().toLowerCase();
+    const schema = await getAuthSchema();
+
+    if (!schema.hasDepartmentsTable) {
+      return res.status(400).json({ success: false, message: "Departments are not supported by the current schema." });
+    }
+
+    if (!Number.isInteger(departmentId) || departmentId <= 0 || !["active", "inactive"].includes(nextStatus)) {
+      return res.status(400).json({ success: false, message: "A valid department id and status are required." });
+    }
+
+    const departmentIdColumn = schema.departmentColumns.has("id") ? "id" : "department_id";
+    const departmentNameColumn = schema.departmentColumns.has("name") ? "name" : "department_name";
+    const departmentStatusColumn = schema.departmentColumns.has("status") ? "status" : null;
+
+    if (!departmentStatusColumn) {
+      return res.status(400).json({ success: false, message: "Department status updates are not supported by the current schema." });
+    }
+
+    const [rows] = await pool.execute(
+      `SELECT ${departmentNameColumn} AS name FROM departments WHERE ${departmentIdColumn} = ? LIMIT 1`,
+      [departmentId]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ success: false, message: "Department not found." });
+    }
+
+    await pool.execute(
+      `UPDATE departments SET ${departmentStatusColumn} = ? WHERE ${departmentIdColumn} = ?`,
+      [nextStatus, departmentId]
+    );
+
+    return res.json({
+      success: true,
+      message: `Department "${rows[0].name}" marked as ${nextStatus}.`,
+    });
   })
 );
 
@@ -3676,10 +3967,11 @@ app.post(
       return res.status(403).json({ success: false, error: "Registrar accounts can only be created by an administrator." });
     }
 
-    if (password.length < 8) {
+    const passwordCheck = validatePassword(password);
+    if (!passwordCheck.valid) {
       return res.status(400).json({
         success: false,
-        error: "Password must be at least 8 characters long.",
+        error: passwordCheck.message || PASSWORD_REQUIREMENTS_MESSAGE,
       });
     }
 
@@ -3957,6 +4249,16 @@ app.post(
     }
 
     const dbColumns = await ensureInventoryItemsColumns();
+    const identifierValidation = await validateItemIdentifiers(dbColumns, item);
+
+    if (!identifierValidation.valid) {
+      return res.status(409).json({
+        success: false,
+        error: formatItemIdentifierValidationError(identifierValidation.conflicts),
+        conflicts: identifierValidation.conflicts,
+      });
+    }
+
     const insertSpec = getItemInsertSpec(dbColumns);
     const insertColumns = insertSpec.map((entry) => entry.column);
     const placeholders = insertSpec.map(() => "?").join(", ");
@@ -4009,6 +4311,19 @@ app.put(
       return res.status(400).json({ success: false, error: validationError });
     }
 
+    const identifierValidation = await validateItemIdentifiers(dbColumns, {
+      ...item,
+      excludeItemId: itemId,
+    });
+
+    if (!identifierValidation.valid) {
+      return res.status(409).json({
+        success: false,
+        error: formatItemIdentifierValidationError(identifierValidation.conflicts),
+        conflicts: identifierValidation.conflicts,
+      });
+    }
+
     const insertSpec = getItemInsertSpec(dbColumns);
     const { assignments, values } = buildItemUpdateAssignments(item, insertSpec);
     values.push(itemId);
@@ -4045,6 +4360,20 @@ app.post(
     }
 
     const dbColumns = await ensureInventoryItemsColumns();
+
+    for (let index = 0; index < items.length; index += 1) {
+      const identifierValidation = await validateItemIdentifiers(dbColumns, items[index]);
+
+      if (!identifierValidation.valid) {
+        return res.status(409).json({
+          success: false,
+          error: `Row ${index + 1}: ${formatItemIdentifierValidationError(identifierValidation.conflicts)}`,
+          conflicts: identifierValidation.conflicts,
+          rowIndex: index,
+        });
+      }
+    }
+
     const insertSpec = getItemInsertSpec(dbColumns);
     const insertColumns = insertSpec.map((entry) => entry.column);
     const rowPlaceholder = `(${insertSpec.map(() => "?").join(", ")})`;
@@ -4093,6 +4422,20 @@ app.post(
     }
 
     const dbColumns = await ensureInventoryItemsColumns();
+
+    for (let index = 0; index < items.length; index += 1) {
+      const identifierValidation = await validateItemIdentifiers(dbColumns, items[index]);
+
+      if (!identifierValidation.valid) {
+        return res.status(409).json({
+          success: false,
+          error: `Row ${index + 1}: ${formatItemIdentifierValidationError(identifierValidation.conflicts)}`,
+          conflicts: identifierValidation.conflicts,
+          rowIndex: index,
+        });
+      }
+    }
+
     const insertSpec = getItemInsertSpec(dbColumns);
     const insertColumns = insertSpec.map((entry) => entry.column);
     const rowPlaceholder = `(${insertSpec.map(() => "?").join(", ")})`;
@@ -4310,6 +4653,16 @@ app.put(
       });
     }
 
+    if (updatingPassword) {
+      const passwordCheck = validatePassword(nextPassword);
+      if (!passwordCheck.valid) {
+        return res.status(400).json({
+          success: false,
+          message: passwordCheck.message || PASSWORD_REQUIREMENTS_MESSAGE,
+        });
+      }
+    }
+
     const schema = await getAuthSchema();
     const idColumnName = schema.userColumns.has("id") ? "id" : "user_id";
     const whereClause = email ? "LOWER(email) = ?" : `${idColumnName} = ?`;
@@ -4512,7 +4865,9 @@ app.post(
     }
 
     const requestType = String(inv.request_type || "new_inventory_creation").toLowerCase();
-    const nextStatus = requestType === "add_inventory" ? "pending_admin" : "pending_registrar";
+    const nextStatus = requestType === "add_inventory" || requestType === "change_incharge"
+      ? "pending_admin"
+      : "pending_registrar";
 
     const updateParts = [];
     const updateValues = [];
@@ -4544,9 +4899,11 @@ app.post(
     return res.json({
       success: true,
       message:
-        requestType === "add_inventory"
-          ? "Inventory addition approved by the Head of Department and forwarded to the administrator for activation."
-          : "Inventory creation request approved by the Head of Department and forwarded to the registrar.",
+        requestType === "change_incharge"
+          ? "Inventory officer change recommended by the Head of Department and forwarded to the administrator for approval."
+          : requestType === "add_inventory"
+            ? "Inventory addition approved by the Head of Department and forwarded to the administrator for activation."
+            : "Inventory creation request approved by the Head of Department and forwarded to the registrar.",
       approvalStatus: nextStatus,
     });
   })
@@ -4594,6 +4951,9 @@ app.post(
     const departmentId = Number(inv.department_id ?? 0);
     const inchargeId = Number(inv.incharge_user_id ?? 0);
     const hodUserId = Number(inv.hod_user_id ?? 0);
+    const previousInchargeId = Number(inv.previous_incharge_user_id ?? 0);
+    const targetInventoryId = Number(inv.target_inventory_id ?? 0);
+    const inventoryIdColumn = getInventoryIdColumn(inventoryColumns);
 
     if (!name || !location || !Number.isInteger(departmentId) || departmentId <= 0) {
       return res.status(400).json({ success: false, message: "Request is missing required inventory details." });
@@ -4603,21 +4963,74 @@ app.post(
       return res.status(400).json({ success: false, message: "Request is missing a valid in-charge person." });
     }
 
-    const insertColumns = [inventoryNameColumn, "department_id", inventoryInchargeColumn, "location"];
-    const insertValues = [name, departmentId, inchargeId, location];
+    let resultingInventoryId = null;
 
-    if (inventoryHodColumn && Number.isInteger(hodUserId) && hodUserId > 0) {
-      insertColumns.push(inventoryHodColumn);
-      insertValues.push(hodUserId);
+    if (requestType === "change_incharge") {
+      if (!inventoryIdColumn || !Number.isInteger(targetInventoryId) || targetInventoryId <= 0) {
+        return res.status(400).json({ success: false, message: "Request is missing a valid target inventory." });
+      }
+
+      const [existingInventoryRows] = await pool.execute(
+        `SELECT ${inventoryInchargeColumn} AS incharge_id FROM inventories WHERE ${inventoryIdColumn} = ? LIMIT 1`,
+        [targetInventoryId]
+      );
+
+      if (existingInventoryRows.length === 0) {
+        return res.status(404).json({ success: false, message: "Target inventory was not found." });
+      }
+
+      const currentInchargeOnRecord = Number(existingInventoryRows[0]?.incharge_id ?? 0);
+
+      if (previousInchargeId > 0 && currentInchargeOnRecord !== previousInchargeId) {
+        return res.status(409).json({
+          success: false,
+          message: "This inventory already has a different officer assigned. The reassignment request is out of date.",
+        });
+      }
+
+      const updateAssignments = [`${inventoryInchargeColumn} = ?`];
+      const updateValues = [inchargeId];
+
+      if (inventoryHodColumn && Number.isInteger(hodUserId) && hodUserId > 0) {
+        updateAssignments.push(`${inventoryHodColumn} = ?`);
+        updateValues.push(hodUserId);
+      }
+
+      updateValues.push(targetInventoryId);
+
+      await pool.execute(
+        `UPDATE inventories SET ${updateAssignments.join(", ")} WHERE ${inventoryIdColumn} = ?`,
+        updateValues
+      );
+
+      const assignmentCounts = await getInventoryAssignmentCounts();
+      await syncInventoryInchargeRole(inchargeId, assignmentCounts);
+
+      const priorInchargeId = previousInchargeId > 0 ? previousInchargeId : currentInchargeOnRecord;
+
+      if (priorInchargeId > 0 && priorInchargeId !== inchargeId) {
+        await syncInventoryInchargeRole(priorInchargeId, assignmentCounts);
+      }
+
+      resultingInventoryId = targetInventoryId;
+    } else {
+      const insertColumns = [inventoryNameColumn, "department_id", inventoryInchargeColumn, "location"];
+      const insertValues = [name, departmentId, inchargeId, location];
+
+      if (inventoryHodColumn && Number.isInteger(hodUserId) && hodUserId > 0) {
+        insertColumns.push(inventoryHodColumn);
+        insertValues.push(hodUserId);
+      }
+
+      const placeholders = insertColumns.map(() => "?").join(", ");
+      const [inventoryResult] = await pool.execute(
+        `INSERT INTO inventories (${insertColumns.join(", ")}) VALUES (${placeholders})`,
+        insertValues
+      );
+
+      await syncInventoryInchargeRole(inchargeId);
+      resultingInventoryId = inventoryResult.insertId;
     }
-
-    const placeholders = insertColumns.map(() => "?").join(", ");
-    const [inventoryResult] = await pool.execute(
-      `INSERT INTO inventories (${insertColumns.join(", ")}) VALUES (${placeholders})`,
-      insertValues
-    );
-
-    await syncInventoryInchargeRole(inchargeId);
 
     const updateParts = [];
     const updateValues = [];
@@ -4636,9 +5049,9 @@ app.post(
       updateValues.push(approverUserId);
     }
 
-    if (inventoryRequestColumns.has("created_inventory_id")) {
+    if (inventoryRequestColumns.has("created_inventory_id") && resultingInventoryId) {
       updateParts.push("created_inventory_id = ?");
-      updateValues.push(inventoryResult.insertId);
+      updateValues.push(resultingInventoryId);
     }
 
     if (updateParts.length === 0) {
@@ -4654,11 +5067,13 @@ app.post(
     return res.json({
       success: true,
       message:
-        requestType === "add_inventory"
-          ? "Existing inventory activated in the system."
-          : "Inventory created and request approved.",
+        requestType === "change_incharge"
+          ? "Inventory officer updated. The previous officer no longer has access; the new officer can manage this inventory."
+          : requestType === "add_inventory"
+            ? "Existing inventory activated in the system."
+            : "Inventory created and request approved.",
       approvalStatus: "approved_by_admin",
-      inventoryId: inventoryResult.insertId,
+      inventoryId: resultingInventoryId,
     });
   })
 );
@@ -4836,23 +5251,138 @@ app.post(
     const name = String(req.body?.name ?? "").trim();
     const location = String(req.body?.location ?? "").trim();
     const departmentName = String(req.body?.department ?? req.body?.departmentName ?? "").trim();
-    const inchargeUserId = Number(req.body?.inchargeId ?? 0);
+    const inchargeUserId = Number(req.body?.inchargeId ?? req.body?.inchargeUserId ?? 0);
     const hodUserId = Number(req.body?.hodUserId ?? 0);
     const reason = String(req.body?.description ?? req.body?.reason ?? "").trim();
-    const normalizedRequestType = requestType === "add_inventory" ? "add_inventory" : "new_inventory_creation";
+    const targetInventoryId = Number(req.body?.targetInventoryId ?? req.body?.inventoryId ?? 0);
+    const normalizedRequestType = requestType === "change_incharge"
+      ? "change_incharge"
+      : requestType === "add_inventory"
+        ? "add_inventory"
+        : "new_inventory_creation";
 
     if (!Number.isInteger(requestedById) || requestedById <= 0) {
       return res.status(400).json({ success: false, message: "A valid requesting user is required." });
     }
 
-    if (!name || !location || !departmentName || !Number.isInteger(inchargeUserId) || inchargeUserId <= 0) {
+    let resolvedName = name;
+    let resolvedLocation = location;
+    let resolvedDepartmentName = departmentName;
+    let resolvedDepartmentId = null;
+    let resolvedInchargeUserId = inchargeUserId;
+    let previousInchargeUserId = null;
+
+    if (normalizedRequestType === "change_incharge") {
+      if (!Number.isInteger(targetInventoryId) || targetInventoryId <= 0) {
+        return res.status(400).json({ success: false, message: "A valid inventory id is required." });
+      }
+
+      if (!Number.isInteger(inchargeUserId) || inchargeUserId <= 0) {
+        return res.status(400).json({ success: false, message: "A proposed inventory officer is required." });
+      }
+
+      if (!reason) {
+        return res.status(400).json({ success: false, message: "A reason for changing the inventory officer is required." });
+      }
+
+      if (inchargeUserId === requestedById) {
+        return res.status(400).json({ success: false, message: "The new inventory officer must be different from the current officer." });
+      }
+
+      const inventoryColumns = await ensureInventoriesLocationColumn();
+      const inventoryIdColumn = getInventoryIdColumn(inventoryColumns);
+      const inventoryNameColumn = getInventoryNameColumn(inventoryColumns);
+      const inventoryInchargeColumn = getInventoryInchargeColumn(inventoryColumns);
+
+      if (!inventoryIdColumn || !inventoryNameColumn || !inventoryInchargeColumn) {
+        return res.status(500).json({ success: false, message: "Inventory schema is missing required columns." });
+      }
+
+      const [inventoryRows] = await pool.execute(
+        `
+          SELECT
+            i.${inventoryIdColumn} AS inventory_id,
+            i.${inventoryNameColumn} AS inventory_name,
+            i.${inventoryInchargeColumn} AS incharge_id,
+            i.department_id,
+            ${inventoryColumns.has("location") ? "i.location" : "NULL AS location"}
+          FROM inventories i
+          WHERE i.${inventoryIdColumn} = ?
+          LIMIT 1
+        `,
+        [targetInventoryId]
+      );
+
+      if (inventoryRows.length === 0) {
+        return res.status(404).json({ success: false, message: "Inventory was not found." });
+      }
+
+      const inventoryRow = inventoryRows[0];
+      const currentInchargeId = Number(inventoryRow.incharge_id ?? 0);
+
+      if (currentInchargeId !== requestedById) {
+        return res.status(403).json({
+          success: false,
+          message: "Only the current inventory officer can request a change of officer.",
+        });
+      }
+
+      resolvedDepartmentId = Number(inventoryRow.department_id ?? 0);
+      resolvedName = String(inventoryRow.inventory_name ?? "").trim() || name;
+      resolvedLocation = String(inventoryRow.location ?? "").trim() || location;
+      previousInchargeUserId = currentInchargeId;
+      resolvedInchargeUserId = inchargeUserId;
+
+      if (schema.hasDepartmentsTable && resolvedDepartmentId > 0) {
+        const departmentJoinIdColumn = schema.departmentColumns.has("id") ? "id" : "department_id";
+        const departmentNameColumn = schema.departmentColumns.has("name")
+          ? "name"
+          : schema.departmentColumns.has("department_name")
+            ? "department_name"
+            : null;
+
+        if (departmentNameColumn) {
+          const [departmentRows] = await pool.execute(
+            `SELECT ${departmentNameColumn} AS department_name FROM departments WHERE ${departmentJoinIdColumn} = ? LIMIT 1`,
+            [resolvedDepartmentId]
+          );
+          resolvedDepartmentName = String(departmentRows[0]?.department_name ?? "").trim() || departmentName;
+        }
+      }
+
+      const inventoryRequestColumns = await ensureInventoryCreationRequestsTable();
+      const inventoryRequestIdColumn = getInventoryRequestPrimaryKeyColumn(inventoryRequestColumns);
+      const pendingStatuses = ["pending_hod", "pending_staff", "pending_registrar", "pending_admin", "approved_by_hod"];
+
+      if (inventoryRequestColumns.has("request_type") && inventoryRequestColumns.has("target_inventory_id")) {
+        const pendingPlaceholders = pendingStatuses.map(() => "?").join(", ");
+        const [pendingRows] = await pool.execute(
+          `
+            SELECT ${inventoryRequestIdColumn} AS id
+            FROM inventory_creation_requests
+            WHERE target_inventory_id = ?
+              AND LOWER(COALESCE(request_type, '')) = 'change_incharge'
+              AND LOWER(COALESCE(approval_status, '')) IN (${pendingPlaceholders})
+            LIMIT 1
+          `,
+          [targetInventoryId, ...pendingStatuses.map((status) => toDbInventoryApprovalStatus(status))]
+        );
+
+        if (pendingRows.length > 0) {
+          return res.status(409).json({
+            success: false,
+            message: "A change of inventory officer is already pending approval for this inventory.",
+          });
+        }
+      }
+    } else if (!name || !location || !departmentName || !Number.isInteger(inchargeUserId) || inchargeUserId <= 0) {
       return res.status(400).json({
         success: false,
         message: "Name, location, department, and in-charge person are required.",
       });
     }
 
-    const departmentId = await resolveDepartmentId(schema, departmentName);
+    const departmentId = resolvedDepartmentId || await resolveDepartmentId(schema, resolvedDepartmentName || departmentName);
 
     if (!departmentId) {
       return res.status(400).json({ success: false, message: "Selected department was not found." });
@@ -4868,7 +5398,12 @@ app.post(
 
     const requesterRole = await resolveRequestingUserRole(schema, requestedById);
     const insertColumns = ["name", "department_id", "requested_by_id", "approval_status"];
-    const insertValues = [name, departmentId, requestedById, toDbInventoryApprovalStatus("pending_hod")];
+    const insertValues = [
+      resolvedName || name,
+      departmentId,
+      requestedById,
+      toDbInventoryApprovalStatus("pending_hod"),
+    ];
 
     if (inventoryRequestColumns.has("request_type")) {
       insertColumns.push("request_type");
@@ -4877,12 +5412,22 @@ app.post(
 
     if (inventoryRequestColumns.has("location")) {
       insertColumns.push("location");
-      insertValues.push(location);
+      insertValues.push(resolvedLocation || location);
     }
 
     if (inventoryRequestColumns.has("incharge_user_id")) {
       insertColumns.push("incharge_user_id");
-      insertValues.push(inchargeUserId);
+      insertValues.push(resolvedInchargeUserId);
+    }
+
+    if (inventoryRequestColumns.has("previous_incharge_user_id") && Number.isInteger(previousInchargeUserId) && previousInchargeUserId > 0) {
+      insertColumns.push("previous_incharge_user_id");
+      insertValues.push(previousInchargeUserId);
+    }
+
+    if (inventoryRequestColumns.has("target_inventory_id") && Number.isInteger(targetInventoryId) && targetInventoryId > 0) {
+      insertColumns.push("target_inventory_id");
+      insertValues.push(targetInventoryId);
     }
 
     if (inventoryRequestColumns.has("hod_user_id")) {
@@ -4910,11 +5455,13 @@ app.post(
 
     return res.status(201).json({
       success: true,
-      message: isAdminSubmitted
-        ? "Inventory request submitted for HOD review. It is listed under Inventory Management → Creation Requests; approve or reject will be available after required approvals."
-        : normalizedRequestType === "add_inventory"
-          ? "Inventory addition request submitted to your Head of Department for approval. After HOD approval, it will be forwarded to the administrator for activation."
-          : "New inventory creation request submitted for HOD review. After HOD approval, it will proceed to registrar and admin approval.",
+      message: normalizedRequestType === "change_incharge"
+        ? "Inventory officer change request submitted to your Head of Department for recommendation. After HOD approval, the administrator will assign the new officer."
+        : isAdminSubmitted
+          ? "Inventory request submitted for HOD review. It is listed under Inventory Management → Creation Requests; approve or reject will be available after required approvals."
+          : normalizedRequestType === "add_inventory"
+            ? "Inventory addition request submitted to your Head of Department for approval. After HOD approval, it will be forwarded to the administrator for activation."
+            : "New inventory creation request submitted for HOD review. After HOD approval, it will proceed to registrar and admin approval.",
       requestId: result.insertId,
       requestType: normalizedRequestType,
       approvalStatus: "pending_hod",
@@ -5803,6 +6350,25 @@ app.get(
         rejectedCount: trimmedHistory.filter((entry) => entry.action === "rejected").length,
       },
       history: trimmedHistory,
+    });
+  })
+);
+
+app.get(
+  "/api/item-identifiers/check",
+  withDatabase(async (req, res) => {
+    const dbColumns = await ensureInventoryItemsColumns();
+    const validation = await validateItemIdentifiers(dbColumns, {
+      itemCode: req.query?.itemCode,
+      serialNo: req.query?.serialNo,
+      serialNo2: req.query?.serialNo2,
+      excludeItemId: Number(req.query?.excludeItemId ?? 0),
+    });
+
+    return res.json({
+      success: true,
+      valid: validation.valid,
+      conflicts: validation.conflicts,
     });
   })
 );

@@ -1,9 +1,29 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import AdminLayout from '../../Components/Layouts/AdminLayout'
 import { Card, Button, FormInput, PageHeader } from '../../Components/UI'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000'
+
+const normalizeStatus = (status) => String(status || '').toLowerCase()
+
+const isHodAlreadyAssigned = (user, departments = []) => {
+  const userId = Number(user?.id)
+  if (!Number.isInteger(userId) || userId <= 0) return false
+
+  if (departments.some((department) => Number(department.headId) === userId)) {
+    return true
+  }
+
+  const userDepartment = String(user.department || '').trim().toLowerCase()
+  if (!userDepartment || userDepartment === '-') {
+    return false
+  }
+
+  return departments.some(
+    (department) => String(department.name || '').trim().toLowerCase() === userDepartment
+  )
+}
 
 const CreateDepartment = () => {
   const navigate = useNavigate()
@@ -15,6 +35,8 @@ const CreateDepartment = () => {
     description: '',
   })
   const [users, setUsers] = useState([])
+  const [departments, setDepartments] = useState([])
+  const [optionsLoading, setOptionsLoading] = useState(true)
   const [submitError, setSubmitError] = useState('')
   const [submitMessage, setSubmitMessage] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -22,22 +44,38 @@ const CreateDepartment = () => {
   useEffect(() => {
     let isMounted = true
 
-    const loadUsers = async () => {
+    const loadOptions = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/api/users`)
-        const data = await response.json()
+        setOptionsLoading(true)
+        const [usersResponse, departmentsResponse] = await Promise.all([
+          fetch(`${API_BASE_URL}/api/users`),
+          fetch(`${API_BASE_URL}/api/departments?includeInactive=true`),
+        ])
+
+        const [usersData, departmentsData] = await Promise.all([
+          usersResponse.json().catch(() => ({})),
+          departmentsResponse.json().catch(() => ({})),
+        ])
 
         if (!isMounted) return
 
-        if (response.ok && data.success) {
-          setUsers(data.users || [])
+        if (usersResponse.ok && usersData.success) {
+          setUsers(usersData.users || [])
+        }
+
+        if (departmentsResponse.ok && departmentsData.success) {
+          setDepartments(departmentsData.departments || [])
         }
       } catch (error) {
-        console.error('Failed to load users:', error)
+        console.error('Failed to load department head options:', error)
+      } finally {
+        if (isMounted) {
+          setOptionsLoading(false)
+        }
       }
     }
 
-    loadUsers()
+    loadOptions()
 
     return () => {
       isMounted = false
@@ -49,9 +87,28 @@ const CreateDepartment = () => {
     setFormData((prev) => ({ ...prev, [name]: value }))
   }
 
-  const departmentHeadOptions = users
-    .filter((user) => user.role === 'head_of_department' || user.role === 'dean')
-    .map((user) => ({ value: user.name, label: user.name }))
+  const departmentHeadOptions = useMemo(
+    () =>
+      users
+        .filter(
+          (user) =>
+            user.role === 'head_of_department' && normalizeStatus(user.status) === 'active'
+        )
+        .filter((user) => !isHodAlreadyAssigned(user, departments))
+        .map((user) => ({
+          value: user.name,
+          label: user.name,
+        })),
+    [users, departments]
+  )
+
+  useEffect(() => {
+    if (!formData.head) return
+    const stillAvailable = departmentHeadOptions.some((option) => option.value === formData.head)
+    if (!stillAvailable) {
+      setFormData((prev) => ({ ...prev, head: '' }))
+    }
+  }, [departmentHeadOptions, formData.head])
 
   const handleSubmit = async (e) => {
     e?.preventDefault()
@@ -171,15 +228,23 @@ const CreateDepartment = () => {
                   name="head"
                   value={formData.head}
                   onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-border-lighter rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  disabled={optionsLoading}
+                  className="w-full px-3 py-2 border border-border-lighter rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent disabled:bg-gray-100"
                 >
-                  <option value="">Select department head</option>
+                  <option value="">
+                    {optionsLoading ? 'Loading department heads...' : 'Select department head'}
+                  </option>
                   {departmentHeadOptions.map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}
                     </option>
                   ))}
                 </select>
+                {!optionsLoading && departmentHeadOptions.length === 0 ? (
+                  <p className="mt-1 text-xs text-warning">
+                    No available department heads. Create a staff account with the HOD role first, or free an existing HOD assignment.
+                  </p>
+                ) : null}
               </div>
             </div>
 

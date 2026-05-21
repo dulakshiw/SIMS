@@ -21,12 +21,7 @@ const getStoredUser = () => {
   }
 };
 
-const formatDetailValue = (value) => {
-  if (value === 0) {
-    return "0";
-  }
-  return value || "—";
-};
+const normalizeStatus = (status) => String(status || "").toLowerCase();
 
 const InventoryManagement = () => {
   const navigate = useNavigate();
@@ -280,15 +275,6 @@ const InventoryManagement = () => {
     },
   ];
 
-  const actions = [
-    { label: "Assign Inventory Officer", icon: "person_add", onClick: (row) => handleAssignIncharge(row) },
-    {
-      label: "Toggle Status",
-      icon: "toggle_on",
-      onClick: (row) => console.log("Toggle status", row),
-    },
-  ];
-
   const requestColumns = [
     {
       field: "id",
@@ -300,13 +286,14 @@ const InventoryManagement = () => {
     {
       field: "requestType",
       label: "Request Type",
-      render: (value) => (
-        <Badge
-          label={value === INVENTORY_REQUEST_TYPE.ADD_EXISTING ? "Add Inventory" : "New Inventory Creation"}
-          variant={value === INVENTORY_REQUEST_TYPE.ADD_EXISTING ? "info" : "primary"}
-          size="sm"
-        />
-      ),
+      render: (value) => {
+        const typeLabels = {
+          [INVENTORY_REQUEST_TYPE.ADD_EXISTING]: { label: "Add Inventory", variant: "info" },
+          [INVENTORY_REQUEST_TYPE.CHANGE_INCHARGE]: { label: "Change Officer", variant: "warning" },
+        };
+        const config = typeLabels[value] || { label: "New Inventory Creation", variant: "primary" };
+        return <Badge label={config.label} variant={config.variant} size="sm" />;
+      },
     },
     { field: "department", label: "Department", sortable: true },
     { field: "requestedBy", label: "Requested By", sortable: true },
@@ -335,9 +322,11 @@ const InventoryManagement = () => {
   );
 
   const handleApproveRequest = async (request) => {
-    const typeLabel = request.requestType === INVENTORY_REQUEST_TYPE.ADD_EXISTING
-      ? "add this inventory to the system"
-      : "create this inventory in the system";
+    const typeLabel = request.requestType === INVENTORY_REQUEST_TYPE.CHANGE_INCHARGE
+      ? "assign the new inventory officer"
+      : request.requestType === INVENTORY_REQUEST_TYPE.ADD_EXISTING
+        ? "add this inventory to the system"
+        : "create this inventory in the system";
     const confirmed = window.confirm(
       `Approve and ${typeLabel} for "${request.name}" (${request.department})?`
     );
@@ -431,13 +420,20 @@ const InventoryManagement = () => {
     };
     const typeLabel = INVENTORY_REQUEST_TYPE_LABELS[request.requestType] || request.requestType;
 
+    const officerFields = request.requestType === INVENTORY_REQUEST_TYPE.CHANGE_INCHARGE
+      ? [
+        { label: "Current officer", value: request.previousInchargeName || request.requestedByName },
+        { label: "Proposed officer", value: request.inchargeName },
+      ]
+      : [{ label: "Inventory officer", value: request.inchargeName }];
+
     return [
       { label: "Request type", value: typeLabel },
       { label: "Inventory name", value: request.name },
       { label: "Department", value: request.department },
       { label: "Location", value: request.location },
       { label: "Requested by", value: request.requestedByName || request.requestedBy },
-      { label: "Inventory officer", value: request.inchargeName },
+      ...officerFields,
       { label: "HOD approved by", value: request.hodApprovedBy },
       { label: "HOD approval date", value: request.hodApprovedDate },
       { label: "Request date", value: request.requestedDate },
@@ -550,13 +546,48 @@ const InventoryManagement = () => {
 
   const handleAssignIncharge = (inventory) => {
     setSelectedInventory(inventory);
-    setSelectedIncharge(inventory.incharge);
+    setSelectedIncharge(inventory.incharge || "");
     setAssignInchargeModalOpen(true);
+  };
+
+  const closeInventoryDetails = () => {
+    setIsInventoryDetailsModalOpen(false);
+    setSelectedInventoryDetails(null);
   };
 
   const handleViewInventoryDetails = (inventory) => {
     setSelectedInventoryDetails(inventory);
     setIsInventoryDetailsModalOpen(true);
+  };
+
+  const handleDeactivateInventory = async (inventory) => {
+    const confirmed = window.confirm(
+      `Deactivate "${inventory.name}"? Items and history are preserved; the inventory will be hidden from active use until reactivated.`
+    );
+    if (!confirmed) return;
+
+    setInventories((prev) =>
+      prev.map((inv) => (inv.id === inventory.id ? { ...inv, status: "inactive" } : inv))
+    );
+    setSelectedInventoryDetails((prev) =>
+      prev && prev.id === inventory.id ? { ...prev, status: "inactive" } : prev
+    );
+    window.alert(`"${inventory.name}" has been deactivated.`);
+  };
+
+  const handleReactivateInventory = async (inventory) => {
+    const confirmed = window.confirm(
+      `Reactivate "${inventory.name}"? It will be available for use again.`
+    );
+    if (!confirmed) return;
+
+    setInventories((prev) =>
+      prev.map((inv) => (inv.id === inventory.id ? { ...inv, status: "active" } : inv))
+    );
+    setSelectedInventoryDetails((prev) =>
+      prev && prev.id === inventory.id ? { ...prev, status: "active" } : prev
+    );
+    window.alert(`"${inventory.name}" has been reactivated.`);
   };
 
   const handleAssignInchargeSubmit = () => {
@@ -588,6 +619,75 @@ const InventoryManagement = () => {
       <Button variant="primary" onClick={handleAssignInchargeSubmit}>
         Assign Inventory Officer
       </Button>
+    </div>
+  );
+
+  const selectedInventoryIsInactive =
+    normalizeStatus(selectedInventoryDetails?.status) === "inactive";
+
+  const inventoryDetailsFooter = (
+    <div className="flex flex-wrap justify-end gap-3">
+      <Button variant="secondary" onClick={closeInventoryDetails}>
+        Close
+      </Button>
+      {selectedInventoryDetails ? (
+        selectedInventoryIsInactive ? (
+          <Button
+            variant="primary"
+            icon="check_circle"
+            onClick={() => handleReactivateInventory(selectedInventoryDetails)}
+          >
+            Reactivate
+          </Button>
+        ) : (
+          <>
+            <Button
+              variant="primary"
+              icon="person_add"
+              onClick={() => handleAssignIncharge(selectedInventoryDetails)}
+            >
+              Assign Officer
+            </Button>
+            <Button
+              variant="danger"
+              icon="block"
+              onClick={() => handleDeactivateInventory(selectedInventoryDetails)}
+            >
+              Deactivate
+            </Button>
+          </>
+        )
+      ) : null}
+    </div>
+  );
+
+  const requestDetailsFooter = (
+    <div className="flex flex-wrap justify-end gap-3">
+      <Button variant="secondary" onClick={closeRequestDetailModal} disabled={isSelectedRequestLoading}>
+        Close
+      </Button>
+      {canActOnSelectedRequest ? (
+        <>
+          <Button
+            variant="danger"
+            icon="cancel"
+            onClick={() => handleRejectRequest(selectedRequestDetails)}
+            disabled={isSelectedRequestLoading}
+            loading={isSelectedRequestLoading}
+          >
+            Reject
+          </Button>
+          <Button
+            variant="primary"
+            icon="check_circle"
+            onClick={() => handleApproveRequest(selectedRequestDetails)}
+            disabled={isSelectedRequestLoading}
+            loading={isSelectedRequestLoading}
+          >
+            Approve
+          </Button>
+        </>
+      ) : null}
     </div>
   );
 
@@ -657,10 +757,12 @@ const InventoryManagement = () => {
         {activeTab === "inventories" ? (
           <Card title="All Inventories" icon="inventory_2">
             {inventoryError && <p className="mb-4 rounded bg-error/10 px-3 py-2 text-sm text-error">{inventoryError}</p>}
+            <p className="mb-4 text-sm text-text-light bg-background-light p-3 rounded">
+              Click an inventory row to open details. Assign an officer or deactivate from the detail view only.
+            </p>
             <Table
               columns={columns}
               data={filteredInventories}
-              actions={actions}
               onRowClick={handleViewInventoryDetails}
               paginated
               itemsPerPage={10}
@@ -670,8 +772,7 @@ const InventoryManagement = () => {
           <Card title="Inventory Creation Requests" icon="request_quote">
             <div className="space-y-4">
               <p className="text-sm text-text-light bg-background-light p-3 rounded">
-                Includes admin-submitted inventory requests (from Create Inventory) while they await HOD and other
-                approvals, and staff requests ready for admin activation. Approve and reject are enabled only when the
+                Click a request row to open details. Approve and reject are available in the detail view when the
                 request is awaiting admin activation.
               </p>
               {inventoryRequestsError ? (
@@ -697,75 +798,32 @@ const InventoryManagement = () => {
           </Card>
         )}
 
-        <Modal
+        <EntityDetailsModal
           isOpen={isRequestDetailModalOpen}
           onClose={closeRequestDetailModal}
           title={requestDetailModalTitle}
+          selectedLabel="Inventory Request"
+          selectedName={selectedRequestDetails?.name}
           size="lg"
-          footer={(
-            <div className="flex flex-wrap justify-end gap-3">
-              <Button variant="secondary" onClick={closeRequestDetailModal} disabled={isSelectedRequestLoading}>
-                Close
-              </Button>
-              {canActOnSelectedRequest ? (
-                <>
-                  <Button
-                    variant="danger"
-                    icon="cancel"
-                    onClick={() => handleRejectRequest(selectedRequestDetails)}
-                    disabled={isSelectedRequestLoading}
-                    loading={isSelectedRequestLoading}
-                  >
-                    Reject
-                  </Button>
-                  <Button
-                    variant="primary"
-                    icon="check_circle"
-                    onClick={() => handleApproveRequest(selectedRequestDetails)}
-                    disabled={isSelectedRequestLoading}
-                    loading={isSelectedRequestLoading}
-                  >
-                    Approve
-                  </Button>
-                </>
-              ) : null}
-            </div>
-          )}
+          footer={requestDetailsFooter}
+          details={requestDetailFields}
         >
-          <div className="space-y-4">
-            <div className="bg-background-light p-4 rounded-lg">
-              <p className="text-sm text-text-light">Inventory</p>
-              <p className="text-lg font-semibold text-text-dark">
-                {formatDetailValue(selectedRequestDetails?.name)}
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-              {requestDetailFields.map((detail) => (
-                <div key={detail.label} className={detail.fullWidth ? "md:col-span-2" : ""}>
-                  <p className="text-text-light">{detail.label}</p>
-                  <p className="font-semibold text-text-dark whitespace-pre-wrap">
-                    {formatDetailValue(detail.value)}
-                  </p>
-                </div>
-              ))}
-            </div>
-
-            <p className="text-xs text-text-light">
-              {canActOnSelectedRequest
-                ? "Approve to create or activate this inventory in the system, or reject to decline the request."
-                : "This request is still awaiting HOD or registrar approval. Approve and reject will be available when it reaches admin activation."}
-            </p>
-          </div>
-        </Modal>
+          <p className="border-t border-border-lighter pt-4 text-xs text-text-light">
+            {canActOnSelectedRequest
+              ? "Approve to create or activate this inventory in the system, or reject to decline the request."
+              : "This request is still awaiting HOD or registrar approval. Approve and reject will be available when it reaches admin activation."}
+          </p>
+        </EntityDetailsModal>
 
         {/* Inventory Details Modal */}
         <EntityDetailsModal
           isOpen={isInventoryDetailsModalOpen}
-          onClose={() => setIsInventoryDetailsModalOpen(false)}
+          onClose={closeInventoryDetails}
           title={`Inventory Details${selectedInventoryDetails?.name ? ` - ${selectedInventoryDetails.name}` : ""}`}
           selectedLabel="Selected Inventory"
           selectedName={selectedInventoryDetails?.name}
+          size="lg"
+          footer={inventoryDetailsFooter}
           details={[
             { label: "Department", value: selectedInventoryDetails?.department },
             { label: "Inventory Officer", value: selectedInventoryDetails?.incharge },
@@ -775,14 +833,21 @@ const InventoryManagement = () => {
             {
               label: "Status",
               value: selectedInventoryDetails?.status
-                ? selectedInventoryDetails.status.charAt(0).toUpperCase() + selectedInventoryDetails.status.slice(1)
+                ? normalizeStatus(selectedInventoryDetails.status).charAt(0).toUpperCase() +
+                  normalizeStatus(selectedInventoryDetails.status).slice(1)
                 : "-",
             },
             { label: "Created Date", value: selectedInventoryDetails?.createdDate },
             { label: "Last Updated", value: selectedInventoryDetails?.lastUpdated },
             { label: "Inventory ID", value: selectedInventoryDetails?.id },
           ]}
-        />
+        >
+          {selectedInventoryIsInactive ? (
+            <p className="border-t border-border-lighter pt-4 text-sm text-text-light">
+              Reactivate this inventory to restore use. Assigning an inventory officer is available when the inventory is active.
+            </p>
+          ) : null}
+        </EntityDetailsModal>
 
         {/* Create/Edit Inventory Modal */}
         <Modal

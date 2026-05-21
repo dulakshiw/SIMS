@@ -15,6 +15,7 @@ const FormInput = ({
   name,
   id,
   rows,
+  ...rest
 }) => {
   const [isFocused, setIsFocused] = useState(false);
 
@@ -59,6 +60,7 @@ const FormInput = ({
             className={`${inputStyles} ${icon ? "pl-12" : ""} resize-none`}
             onFocus={() => setIsFocused(true)}
             onBlur={() => setIsFocused(false)}
+            {...rest}
           />
         ) : (
           <input
@@ -73,6 +75,7 @@ const FormInput = ({
             className={`${inputStyles} ${icon ? "pl-12" : ""}`}
             onFocus={() => setIsFocused(true)}
             onBlur={() => setIsFocused(false)}
+            {...rest}
           />
         )}
 

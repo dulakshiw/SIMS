@@ -5,19 +5,17 @@ import AdminLayout from '../../Components/Layouts/AdminLayout'
 import { PageHeader } from '../../Components/UI'
 import { ROLE_HIERARCHY } from '../../utils/constants'
 import { resolveSidebarVariant } from '../../utils/helpers'
+import {
+  getPasswordStrength,
+  getPasswordStrengthLabel,
+  isPasswordValid,
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_REQUIREMENTS_MESSAGE,
+} from '../../utils/passwordValidation'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000'
 
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-
-const passwordStrength = (pwd = '') => {
-  let score = 0
-  if (pwd.length >= 8) score++
-  if (/[A-Z]/.test(pwd)) score++
-  if (/[0-9]/.test(pwd)) score++
-  if (/[^A-Za-z0-9]/.test(pwd)) score++
-  return score // 0..4
-}
 
 const Profile = () => {
   const location = useLocation()
@@ -119,14 +117,14 @@ const Profile = () => {
     }
   }, [])
 
-  const strength = useMemo(() => passwordStrength(password), [password])
+  const strength = useMemo(() => getPasswordStrength(password), [password])
 
   const mobileNoChanged = mobileNo !== originalMobileNo
   const passwordAttempt = currentPassword.length > 0 || password.length > 0 || confirmPassword.length > 0
-  const isPasswordValid = password.length > 0 ? password.length >= 8 && strength >= 3 : false
+  const isNewPasswordValid = password.length > 0 ? isPasswordValid(password) : false
   const isConfirmMatch = password === confirmPassword && password.length > 0
   const isCurrentProvided = currentPassword.length > 0
-  const passwordValid = !passwordAttempt || (isCurrentProvided && isPasswordValid && isConfirmMatch)
+  const passwordValid = !passwordAttempt || (isCurrentProvided && isNewPasswordValid && isConfirmMatch)
 
   const canSave = (mobileNoChanged || passwordAttempt) && passwordValid && !loading
 
@@ -137,7 +135,7 @@ const Profile = () => {
 
     if (passwordAttempt) {
       if (!isCurrentProvided) return setError('Enter your current password')
-      if (!isPasswordValid) return setError('Password must be at least 8 characters and include uppercase, number and special char')
+      if (!isNewPasswordValid) return setError(PASSWORD_REQUIREMENTS_MESSAGE)
       if (!isConfirmMatch) return setError('Passwords do not match')
     }
 
@@ -334,6 +332,7 @@ const Profile = () => {
                 className="w-full px-4 py-2.5 border border-border rounded-lg mt-1"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                maxLength={PASSWORD_MAX_LENGTH}
               />
               <div className="mt-2 flex items-center gap-2">
                 {[0, 1, 2, 3].map((i) => (
@@ -342,8 +341,11 @@ const Profile = () => {
                     className={`h-2 flex-1 rounded-full ${i < strength ? 'bg-primary-600' : 'bg-gray-200'}`}
                   />
                 ))}
-                <span className="text-xs text-gray-500 ml-2">{password ? ['Very weak', 'Weak', 'Good', 'Strong'][Math.max(0, strength - 1)] : 'No password'}</span>
+                <span className="text-xs text-gray-500 ml-2">
+                  {password ? getPasswordStrengthLabel(strength) : 'No password'}
+                </span>
               </div>
+              <p className="text-xs text-gray-500 mt-1">{PASSWORD_REQUIREMENTS_MESSAGE}</p>
             </div>
 
             <div>

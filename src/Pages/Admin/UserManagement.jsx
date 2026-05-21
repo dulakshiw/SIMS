@@ -3,24 +3,34 @@ import { useLocation, useNavigate } from "react-router-dom";
 import AdminLayout from "../../Components/Layouts/AdminLayout";
 import { Card, Button, SearchBox, Table, Badge, Modal, FormInput, Select, EntityDetailsModal, PageHeader } from "../../Components/UI";
 import { ROLE_HIERARCHY, ACCOUNT_REQUEST_STATUS, ACCOUNT_REQUEST_STATUS_META } from "../../utils/constants";
+import {
+  getPasswordStrength,
+  getPasswordStrengthColorClass,
+  isPasswordValid,
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_REQUIREMENTS_MESSAGE,
+} from "../../utils/passwordValidation";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
+
+const normalizeStatus = (status) => String(status || "").toLowerCase();
 
 const UserManagement = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const singletonRoles = ["head_of_department", "dean", "registrar"];
   const [searchTerm, setSearchTerm] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isChangeRoleModalOpen, setIsChangeRoleModalOpen] = useState(false);
   const [isApproveAccountModalOpen, setIsApproveAccountModalOpen] = useState(false);
   const [isUserDetailsModalOpen, setIsUserDetailsModalOpen] = useState(false);
-  const [isEditAccountModalOpen, setIsEditAccountModalOpen] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState(null);
   const [selectedUserName, setSelectedUserName] = useState("");
   const [selectedUserDetails, setSelectedUserDetails] = useState(null);
-  const [newRole, setNewRole] = useState("");
-  const [activeTab, setActiveTab] = useState("active-users"); // active-users or pending-approvals
+  const [resetPassword, setResetPassword] = useState("");
+  const [resetConfirmPassword, setResetConfirmPassword] = useState("");
+  const [resetPasswordStrength, setResetPasswordStrength] = useState(0);
+  const [resetPasswordLoading, setResetPasswordLoading] = useState(false);
+  const [resetPasswordError, setResetPasswordError] = useState("");
+  const [activeTab, setActiveTab] = useState("active-users");
   const [otherDesignation, setOtherDesignation] = useState("");
   const [passwordStrength, setPasswordStrength] = useState(0);
   const [formData, setFormData] = useState({
@@ -40,13 +50,6 @@ const UserManagement = () => {
   const [accountRequestsLoading, setAccountRequestsLoading] = useState(true);
   const [accountRequestsError, setAccountRequestsError] = useState("");
   const [submitError, setSubmitError] = useState("");
-  const [editAccountError, setEditAccountError] = useState("");
-  const [editAccountLoading, setEditAccountLoading] = useState(false);
-  const [editFormData, setEditFormData] = useState({
-    mobileNo: "",
-    password: "",
-    confirmPassword: "",
-  });
 
   const [accountRequests, setAccountRequests] = useState([]);
   const [departments, setDepartments] = useState([]);
@@ -97,40 +100,6 @@ const UserManagement = () => {
     loadAccountRequests();
   };
 
-  const columns = [
-    {
-      field: "id",
-      label: "No",
-      sortable: false,
-      render: (_value, row) => filteredUsers.length - filteredUsers.findIndex((user) => user.id === row.id),
-    },
-    { field: "name", label: "Name", sortable: true },
-    { field: "department", label: "Department", sortable: true },
-    { field: "designation", label: "Designation", sortable: true },
-    {
-      field: "role",
-      label: "Role",
-      render: (value) => (
-        <Badge
-          label={ROLE_HIERARCHY[value]?.label || value.toUpperCase()}
-          variant="primary"
-          size="sm"
-        />
-      ),
-    },
-    {
-      field: "status",
-      label: "Status",
-      render: (value) => (
-        <Badge
-          label={value.charAt(0).toUpperCase() + value.slice(1)}
-          variant={value === "active" ? "success" : "warning"}
-          size="sm"
-        />
-      ),
-    },
-  ];
-
   const accountRequestColumns = [
     {
       field: "id",
@@ -164,17 +133,6 @@ const UserManagement = () => {
     { field: "requestedDate", label: "Requested Date" },
   ];
 
-  const actions = [
-    { label: "Edit", icon: "edit", onClick: (row) => handleEditAccount(row) },
-    { label: "Change Role", icon: "admin_panel_settings", onClick: (row) => handleChangeRole(row) },
-    {
-      label: "Toggle Status",
-      icon: "toggle_on",
-      onClick: (row) => handleToggleStatus(row),
-    },
-    { label: "Delete", icon: "delete", onClick: (row) => console.log("Delete", row) },
-  ];
-
   const requestActions = [
     {
       label: "Approve",
@@ -189,8 +147,9 @@ const UserManagement = () => {
   ];
 
   useEffect(() => {
-    if (location.state?.activeTab === "pending-approvals") {
-      setActiveTab("pending-approvals");
+    const tab = location.state?.activeTab;
+    if (tab === "pending-approvals" || tab === "inactive-users" || tab === "active-users") {
+      setActiveTab(tab);
     }
   }, [location.state?.activeTab]);
 
@@ -252,21 +211,9 @@ const UserManagement = () => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
 
-    // Calculate password strength
     if (name === "password") {
-      let strength = 0;
-      if (value.length >= 8) strength++;
-      if (/[A-Z]/.test(value)) strength++;
-      if (/[0-9]/.test(value)) strength++;
-      if (/[^A-Za-z0-9]/.test(value)) strength++;
-      setPasswordStrength(strength);
+      setPasswordStrength(getPasswordStrength(value));
     }
-  };
-
-  const getPasswordStrengthColor = () => {
-    if (passwordStrength <= 1) return "bg-danger";
-    if (passwordStrength <= 2) return "bg-warning";
-    return "bg-success";
   };
 
   const hasDeanAccount = users.some((user) => user.role === "dean");
@@ -315,8 +262,8 @@ const UserManagement = () => {
       return;
     }
 
-    if (passwordStrength < 2) {
-      alert("Password is too weak. Please use a stronger password.");
+    if (!isPasswordValid(formData.password)) {
+      alert(PASSWORD_REQUIREMENTS_MESSAGE);
       return;
     }
     
@@ -394,9 +341,7 @@ const UserManagement = () => {
     }
   };
 
-  const handleToggleStatus = async (user) => {
-    const nextStatus = user.status === "active" ? "inactive" : "active";
-
+  const updateUserStatus = async (user, nextStatus) => {
     try {
       const response = await fetch(`${API_BASE_URL}/api/users/${user.id}/status`, {
         method: "PATCH",
@@ -414,131 +359,122 @@ const UserManagement = () => {
           u.id === user.id ? { ...u, status: nextStatus } : u
         )
       );
+
+      return {
+        success: true,
+        message: data.message || `User marked as ${nextStatus}.`,
+      };
     } catch (error) {
       window.alert(error.message || "Failed to update user status.");
+      return { success: false };
     }
   };
 
-  const handleChangeRole = (user) => {
-    setSelectedUserId(user.id);
-    setSelectedUserName(user.name);
-    setNewRole(user.role);
-    setIsChangeRoleModalOpen(true);
+  const handleDeactivateUser = async (user) => {
+    const confirmed = window.confirm(
+      `Deactivate ${user.name}'s account? They will lose system access until reactivated. Account history is preserved.`
+    );
+    if (!confirmed) return;
+
+    const result = await updateUserStatus(user, "inactive");
+    if (result?.success) {
+      setSelectedUserDetails((prev) =>
+        prev && prev.id === user.id ? { ...prev, status: "inactive" } : prev
+      );
+      window.alert(result.message || `${user.name}'s account has been deactivated.`);
+    }
   };
 
-  const handleEditAccount = (user) => {
-    if (!singletonRoles.includes(user.role)) {
-      window.alert("The edit flow is currently limited to dean, HOD, and registrar re-appointment updates.");
-      return;
-    }
+  const handleReactivateUser = async (user) => {
+    const confirmed = window.confirm(
+      `Reactivate ${user.name}'s account? They will be able to log in again.`
+    );
+    if (!confirmed) return;
 
-    setSelectedUserDetails(user);
-    setSelectedUserId(user.id);
-    setSelectedUserName(user.name);
-    setEditAccountError("");
-    setEditFormData({
-      mobileNo: user.mobileNo || "",
-      password: "",
-      confirmPassword: "",
-    });
-    setIsEditAccountModalOpen(true);
+    const result = await updateUserStatus(user, "active");
+    if (result?.success) {
+      setSelectedUserDetails((prev) =>
+        prev && prev.id === user.id ? { ...prev, status: "active" } : prev
+      );
+      window.alert(result.message || `${user.name}'s account has been reactivated.`);
+    }
+  };
+
+  const closeUserDetails = () => {
+    setIsUserDetailsModalOpen(false);
+    setSelectedUserDetails(null);
+    setResetPassword("");
+    setResetConfirmPassword("");
+    setResetPasswordStrength(0);
+    setResetPasswordError("");
   };
 
   const handleViewUserDetails = (user) => {
     setSelectedUserDetails(user);
+    setResetPassword("");
+    setResetConfirmPassword("");
+    setResetPasswordStrength(0);
+    setResetPasswordError("");
     setIsUserDetailsModalOpen(true);
   };
 
-  const handleRoleChangeSubmit = async () => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/users/${selectedUserId}/role`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: newRole }),
-      });
-      const data = await response.json().catch(() => ({}));
-
-      if (!response.ok || !data.success) {
-        throw new Error(data.message || data.error || "Failed to update user role.");
-      }
-
-      setUsers((prevUsers) =>
-        prevUsers.map((u) =>
-          u.id === selectedUserId ? { ...u, role: newRole } : u
-        )
-      );
-      setIsChangeRoleModalOpen(false);
-      setSelectedUserId(null);
-      setSelectedUserName("");
-      setNewRole("");
-    } catch (error) {
-      window.alert(error.message || "Failed to update user role.");
-    }
-  };
-
-  const handleEditFormChange = (e) => {
+  const handleResetPasswordChange = (e) => {
     const { name, value } = e.target;
-    setEditFormData((prev) => ({ ...prev, [name]: value }));
+    if (name === "resetPassword") {
+      setResetPassword(value);
+      setResetPasswordStrength(getPasswordStrength(value));
+    } else if (name === "resetConfirmPassword") {
+      setResetConfirmPassword(value);
+    }
+    setResetPasswordError("");
   };
 
-  const handleEditAccountSubmit = async () => {
-    setEditAccountError("");
+  const handleAdminResetPassword = async () => {
+    if (!selectedUserDetails?.id) return;
 
-    const trimmedMobileNo = String(editFormData.mobileNo || "").trim();
-    const nextPassword = String(editFormData.password || "");
+    setResetPasswordError("");
 
-    if (!trimmedMobileNo && !nextPassword) {
-      setEditAccountError("Enter a new mobile number or password to update this account.");
+    if (!resetPassword) {
+      setResetPasswordError("Enter a new password.");
       return;
     }
 
-    if (nextPassword && nextPassword !== editFormData.confirmPassword) {
-      setEditAccountError("Passwords do not match.");
+    if (!isPasswordValid(resetPassword)) {
+      setResetPasswordError(PASSWORD_REQUIREMENTS_MESSAGE);
       return;
     }
 
-    if (nextPassword && nextPassword.length < 8) {
-      setEditAccountError("Password must be at least 8 characters long.");
+    if (resetPassword !== resetConfirmPassword) {
+      setResetPasswordError("Passwords do not match.");
       return;
     }
+
+    const confirmed = window.confirm(
+      `Reset the password for ${selectedUserDetails.name}? Confirm this was requested by the user.`
+    );
+    if (!confirmed) return;
 
     try {
-      setEditAccountLoading(true);
-      const response = await fetch(`${API_BASE_URL}/api/users/${selectedUserId}/reappointment`, {
+      setResetPasswordLoading(true);
+      const response = await fetch(`${API_BASE_URL}/api/users/${selectedUserDetails.id}/password`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          mobileNo: trimmedMobileNo,
-          password: nextPassword,
-        }),
+        body: JSON.stringify({ password: resetPassword }),
       });
       const data = await response.json().catch(() => ({}));
 
       if (!response.ok || !data.success) {
-        throw new Error(data.message || data.error || "Failed to update the account.");
+        throw new Error(data.message || data.error || "Failed to reset password.");
       }
 
-      setUsers((prevUsers) =>
-        prevUsers.map((user) => (
-          user.id === selectedUserId
-            ? { ...user, mobileNo: trimmedMobileNo || user.mobileNo }
-            : user
-        ))
-      );
-
-      setSelectedUserDetails((prev) => (
-        prev && prev.id === selectedUserId
-          ? { ...prev, mobileNo: trimmedMobileNo || prev.mobileNo }
-          : prev
-      ));
-
-      window.alert(data.message || "Account updated successfully.");
-      setIsEditAccountModalOpen(false);
-      setEditFormData({ mobileNo: "", password: "", confirmPassword: "" });
+      setResetPassword("");
+      setResetConfirmPassword("");
+      setResetPasswordStrength(0);
+      window.alert(data.message || "Password reset successfully.");
     } catch (error) {
-      setEditAccountError(error.message || "Failed to update the account.");
+      setResetPasswordError(error.message || "Failed to reset password.");
     } finally {
-      setEditAccountLoading(false);
+      setResetPasswordLoading(false);
     }
   };
 
@@ -630,14 +566,28 @@ const UserManagement = () => {
     }
   };
 
-  const filteredUsers = users.filter(
-    (user) =>
-      user.status === "active" &&
-      (
-        user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        user.email.toLowerCase().includes(searchTerm.toLowerCase())
-      )
+  const blockedAccountUserIds = new Set(
+    accountRequests
+      .filter((request) => request.approvalStatus !== ACCOUNT_REQUEST_STATUS.APPROVED_BY_ADMIN)
+      .map((request) => Number(request.userId))
+      .filter((userId) => Number.isInteger(userId) && userId > 0)
   );
+
+  const matchesUserSearch = (user) =>
+    user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    user.email.toLowerCase().includes(searchTerm.toLowerCase());
+
+  const filteredUsers = users.filter(
+    (user) => normalizeStatus(user.status) === "active" && matchesUserSearch(user)
+  );
+
+  const inactiveUserList = users.filter(
+    (user) =>
+      normalizeStatus(user.status) === "inactive" &&
+      !blockedAccountUserIds.has(Number(user.id))
+  );
+
+  const filteredInactiveUsers = inactiveUserList.filter(matchesUserSearch);
 
   const filteredRequests = accountRequests.filter(
     (request) =>
@@ -648,20 +598,60 @@ const UserManagement = () => {
   const getAccountRequestActions = (row) => (
     row.canAdminAct ? requestActions : []
   );
-  const blockedAccountUserIds = new Set(
-    accountRequests
-      .filter((request) => request.approvalStatus !== ACCOUNT_REQUEST_STATUS.APPROVED_BY_ADMIN)
-      .map((request) => Number(request.userId))
-      .filter((userId) => Number.isInteger(userId) && userId > 0)
-  );
 
   const totalUsers = users.length;
-  const activeUsers = users.filter((u) => u.status === "active").length;
-  const inactiveUsers = users.filter(
-    (u) => u.status === "inactive" && !blockedAccountUserIds.has(Number(u.id))
-  ).length;
+  const activeUsers = users.filter((u) => normalizeStatus(u.status) === "active").length;
+  const inactiveUsersCount = inactiveUserList.length;
   const pendingRequests = accountRequests.length;
   const hideSummaryCards = location.state?.hideSummaryCards === true;
+
+  const currentUserTableRows =
+    activeTab === "inactive-users" ? filteredInactiveUsers : filteredUsers;
+
+  const userColumns = useMemo(
+    () => [
+      {
+        field: "id",
+        label: "No",
+        sortable: false,
+        render: (_value, row) =>
+          currentUserTableRows.length -
+          currentUserTableRows.findIndex((user) => user.id === row.id),
+      },
+      { field: "name", label: "Name", sortable: true },
+      { field: "department", label: "Department", sortable: true },
+      { field: "designation", label: "Designation", sortable: true },
+      {
+        field: "role",
+        label: "Role",
+        render: (value) => (
+          <Badge
+            label={ROLE_HIERARCHY[value]?.label || value.toUpperCase()}
+            variant="primary"
+            size="sm"
+          />
+        ),
+      },
+      {
+        field: "status",
+        label: "Status",
+        render: (value) => {
+          const normalized = normalizeStatus(value);
+          return (
+            <Badge
+              label={normalized.charAt(0).toUpperCase() + normalized.slice(1)}
+              variant={normalized === "active" ? "success" : "warning"}
+              size="sm"
+            />
+          );
+        },
+      },
+    ],
+    [currentUserTableRows]
+  );
+
+  const selectedUserIsInactive =
+    normalizeStatus(selectedUserDetails?.status) === "inactive";
 
   const modalFooter = (
     <div className="flex gap-3 justify-end">
@@ -670,17 +660,6 @@ const UserManagement = () => {
       </Button>
       <Button variant="primary" onClick={handleSubmit}>
         {isDirectProvisionedRole ? "Create & Activate User" : "Submit Request"}
-      </Button>
-    </div>
-  );
-
-  const changeRoleModalFooter = (
-    <div className="flex gap-3 justify-end">
-      <Button variant="secondary" onClick={() => setIsChangeRoleModalOpen(false)}>
-        Cancel
-      </Button>
-      <Button variant="primary" onClick={handleRoleChangeSubmit}>
-        Change Role
       </Button>
     </div>
   );
@@ -696,14 +675,30 @@ const UserManagement = () => {
     </div>
   );
 
-  const editAccountFooter = (
-    <div className="flex gap-3 justify-end">
-      <Button variant="secondary" onClick={() => setIsEditAccountModalOpen(false)}>
-        Cancel
+  const userDetailsFooter = (
+    <div className="flex flex-wrap justify-end gap-3">
+      <Button variant="secondary" onClick={closeUserDetails}>
+        Close
       </Button>
-      <Button variant="primary" onClick={handleEditAccountSubmit} disabled={editAccountLoading}>
-        {editAccountLoading ? "Updating..." : "Update Account"}
-      </Button>
+      {selectedUserDetails ? (
+        selectedUserIsInactive ? (
+          <Button
+            variant="primary"
+            icon="check_circle"
+            onClick={() => handleReactivateUser(selectedUserDetails)}
+          >
+            Reactivate
+          </Button>
+        ) : (
+          <Button
+            variant="danger"
+            icon="block"
+            onClick={() => handleDeactivateUser(selectedUserDetails)}
+          >
+            Deactivate
+          </Button>
+        )
+      ) : null}
     </div>
   );
 
@@ -711,7 +706,7 @@ const UserManagement = () => {
     <AdminLayout>
       <PageHeader
         title="User Management"
-        subtitle="Manage system users, roles, and account approvals"
+        subtitle="Manage users, account approvals, deactivation, and password resets"
         actions={
           <Button icon="add_circle" onClick={() => navigate('/admin/users/create')}>
             Create User
@@ -730,8 +725,14 @@ const UserManagement = () => {
             <Card title="Active" icon="check_circle">
               <p className="text-3xl font-bold text-success">{activeUsers}</p>
             </Card>
-            <Card title="Inactive" icon="person_off">
-              <p className="text-3xl font-bold text-warning">{inactiveUsers}</p>
+            <Card
+              title="Inactive Users"
+              icon="person_off"
+              onClick={() => setActiveTab("inactive-users")}
+              className={activeTab === "inactive-users" ? "ring-2 ring-warning border-warning" : "cursor-pointer"}
+            >
+              <p className="text-3xl font-bold text-warning">{inactiveUsersCount}</p>
+              <p className="text-xs text-text-light mt-1">Click to view and reactivate</p>
             </Card>
             <Card title="Pending Approvals" icon="hourglass_empty">
               <p className="text-3xl font-bold text-info">{pendingRequests}</p>
@@ -753,6 +754,16 @@ const UserManagement = () => {
               Active Users
             </button>
             <button
+              onClick={() => setActiveTab("inactive-users")}
+              className={`px-6 py-3 border-b-2 font-medium transition-colors ${
+                activeTab === "inactive-users"
+                  ? "border-primary-600 text-primary-600"
+                  : "border-transparent text-text-light hover:text-text-dark"
+              }`}
+            >
+              Inactive Users {inactiveUsersCount > 0 && `(${inactiveUsersCount})`}
+            </button>
+            <button
               onClick={() => setActiveTab("pending-approvals")}
               className={`px-6 py-3 border-b-2 font-medium transition-colors ${
                 activeTab === "pending-approvals"
@@ -769,10 +780,14 @@ const UserManagement = () => {
         <SearchBox
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
-          placeholder={activeTab === "active-users" ? "Search users..." : "Search account requests..."}
+          placeholder={
+            activeTab === "pending-approvals"
+              ? "Search account requests..."
+              : "Search users by name or email..."
+          }
         />
 
-        {activeTab === "active-users" && usersError && (
+        {activeTab !== "pending-approvals" && usersError && (
           <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
             {usersError}
           </div>
@@ -785,15 +800,35 @@ const UserManagement = () => {
         )}
 
         {/* Users Table or Requests Table */}
-        {activeTab === "active-users" ? (
-          <Card>
+        {activeTab === "active-users" || activeTab === "inactive-users" ? (
+          <Card
+            title={activeTab === "inactive-users" ? "Inactive Users" : "Active Users"}
+            icon={activeTab === "inactive-users" ? "person_off" : "group"}
+          >
+            <p className="mb-4 text-sm text-text-light bg-background-light p-3 rounded">
+              Click a user row to open details.
+              {activeTab === "inactive-users"
+                ? " Use the detail view to reactivate accounts. Password reset is available after the user is active."
+                : " Deactivate accounts or reset passwords from the detail view."}
+              {activeTab === "inactive-users"
+                ? " Users still in the signup approval workflow are hidden until HOD and admin approval is completed."
+                : ""}
+            </p>
             {usersLoading ? (
               <p className="text-sm text-text-light p-4">Loading users from database...</p>
+            ) : currentUserTableRows.length === 0 ? (
+              <div className="text-center py-10 text-text-light">
+                <span className="material-symbols-outlined text-5xl mb-2 block">
+                  {activeTab === "inactive-users" ? "person_off" : "group"}
+                </span>
+                {activeTab === "inactive-users"
+                  ? "No inactive users to display"
+                  : "No active users found"}
+              </div>
             ) : (
               <Table
-                columns={columns}
-                data={filteredUsers}
-                actions={actions}
+                columns={userColumns}
+                data={currentUserTableRows}
                 onRowClick={handleViewUserDetails}
                 paginated
                 itemsPerPage={10}
@@ -831,10 +866,12 @@ const UserManagement = () => {
       {/* User Details Modal */}
       <EntityDetailsModal
         isOpen={isUserDetailsModalOpen}
-        onClose={() => setIsUserDetailsModalOpen(false)}
+        onClose={closeUserDetails}
         title={`User Details${selectedUserDetails?.name ? ` - ${selectedUserDetails.name}` : ""}`}
         selectedLabel="Selected User"
         selectedName={selectedUserDetails?.name}
+        size="lg"
+        footer={userDetailsFooter}
         details={[
           { label: "Email", value: selectedUserDetails?.email },
           { label: "Role", value: ROLE_HIERARCHY[selectedUserDetails?.role]?.label || selectedUserDetails?.role },
@@ -843,7 +880,8 @@ const UserManagement = () => {
           {
             label: "Status",
             value: selectedUserDetails?.status
-              ? selectedUserDetails.status.charAt(0).toUpperCase() + selectedUserDetails.status.slice(1)
+              ? normalizeStatus(selectedUserDetails.status).charAt(0).toUpperCase() +
+                normalizeStatus(selectedUserDetails.status).slice(1)
               : "-",
           },
           { label: "Mobile No", value: selectedUserDetails?.mobileNo },
@@ -851,7 +889,76 @@ const UserManagement = () => {
           { label: "Created Date", value: selectedUserDetails?.createdDate },
           { label: "User ID", value: selectedUserDetails?.id },
         ]}
-      />
+      >
+        {selectedUserIsInactive ? (
+          <p className="border-t border-border-lighter pt-4 text-sm text-text-light">
+            Reactivate this account to restore login access. Password reset will be available once the user is active.
+          </p>
+        ) : (
+          <div className="border-t border-border-lighter pt-4 space-y-4">
+            <div>
+              <h4 className="text-sm font-semibold text-text-dark">Reset password (on user request)</h4>
+              <p className="text-xs text-text-light mt-1">
+                Set a new password when an active user requests a reset.
+              </p>
+            </div>
+
+            {resetPasswordError ? (
+              <p className="rounded bg-error/10 px-3 py-2 text-sm text-error">{resetPasswordError}</p>
+            ) : null}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <FormInput
+                label="New Password"
+                name="resetPassword"
+                type="password"
+                placeholder="8-12 chars: uppercase, number, symbol"
+                value={resetPassword}
+                onChange={handleResetPasswordChange}
+                maxLength={PASSWORD_MAX_LENGTH}
+              />
+              <FormInput
+                label="Confirm New Password"
+                name="resetConfirmPassword"
+                type="password"
+                placeholder="Confirm new password"
+                value={resetConfirmPassword}
+                onChange={handleResetPasswordChange}
+                maxLength={PASSWORD_MAX_LENGTH}
+              />
+            </div>
+
+            {resetPassword ? (
+              <div className="space-y-2">
+                <div className="flex gap-1">
+                  {[...Array(4)].map((_, i) => (
+                    <div
+                      key={i}
+                      className={`h-2 flex-1 rounded ${
+                        i < resetPasswordStrength
+                          ? getPasswordStrengthColorClass(resetPasswordStrength)
+                          : "bg-gray-200"
+                      }`}
+                    />
+                  ))}
+                </div>
+                <p className="text-xs text-text-light">{PASSWORD_REQUIREMENTS_MESSAGE}</p>
+              </div>
+            ) : null}
+
+            <div className="flex justify-end">
+              <Button
+                variant="primary"
+                icon="lock_reset"
+                onClick={handleAdminResetPassword}
+                disabled={resetPasswordLoading || !resetPassword || !resetConfirmPassword}
+              >
+                {resetPasswordLoading ? "Resetting..." : "Reset Password"}
+              </Button>
+            </div>
+          </div>
+        )}
+      </EntityDetailsModal>
 
       {/* Create User Modal */}
       <Modal
@@ -962,9 +1069,10 @@ const UserManagement = () => {
               label="Password"
               name="password"
               type="password"
-              placeholder="Enter password (min 8 characters)"
+              placeholder="8-12 chars: uppercase, number, symbol"
               value={formData.password}
               onChange={handleInputChange}
+              maxLength={PASSWORD_MAX_LENGTH}
               required
             />
             <FormInput
@@ -984,7 +1092,7 @@ const UserManagement = () => {
                   <div
                     key={i}
                     className={`h-2 flex-1 rounded ${
-                      i < passwordStrength ? getPasswordStrengthColor() : "bg-gray-200"
+                      i < passwordStrength ? getPasswordStrengthColorClass(passwordStrength) : "bg-gray-200"
                     }`}
                   />
                 ))}
@@ -1010,53 +1118,6 @@ const UserManagement = () => {
             </p>
           ) : null}
         </form>
-      </Modal>
-
-      {/* Change Role Modal */}
-      <Modal
-        isOpen={isChangeRoleModalOpen}
-        onClose={() => setIsChangeRoleModalOpen(false)}
-        title={`Change Role for ${selectedUserName}`}
-        footer={changeRoleModalFooter}
-        size="md"
-      >
-        <div className="space-y-4">
-          <div className="bg-background-light p-4 rounded-lg">
-            <p className="text-sm text-text-light">User</p>
-            <p className="text-lg font-semibold text-text-dark">{selectedUserName}</p>
-          </div>
-
-          <div className="space-y-2">
-            <label className="block text-sm font-semibold text-text-dark">Select New Role:</label>
-            <div className="space-y-2">
-              {Object.entries(ROLE_HIERARCHY)
-                .filter(([key]) => ["staff", "head_of_department", "dean"].includes(key))
-                .map(([role, data]) => (
-                  <label
-                    key={role}
-                    className={`flex items-center gap-3 p-3 border rounded cursor-pointer transition ${
-                      newRole === role
-                        ? "border-primary-600 bg-primary-50"
-                        : "border-border-light hover:border-primary-600"
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="role"
-                      value={role}
-                      checked={newRole === role}
-                      onChange={(e) => setNewRole(e.target.value)}
-                      className="w-4 h-4"
-                    />
-                    <div className="flex-1">
-                      <p className="text-sm font-medium text-text-dark">{data.label}</p>
-                      <p className="text-xs text-text-light">{data.description}</p>
-                    </div>
-                  </label>
-                ))}
-            </div>
-          </div>
-        </div>
       </Modal>
 
       {/* Approve Account Modal */}
@@ -1113,46 +1174,6 @@ const UserManagement = () => {
         </div>
       </Modal>
 
-      <Modal
-        isOpen={isEditAccountModalOpen}
-        onClose={() => setIsEditAccountModalOpen(false)}
-        title={`Update Account for ${selectedUserName}`}
-        footer={editAccountFooter}
-        size="md"
-      >
-        <div className="space-y-4">
-          {editAccountError ? <p className="rounded bg-error/10 px-3 py-2 text-sm text-error">{editAccountError}</p> : null}
-          <div className="rounded-lg bg-background-light p-4 text-sm text-text-dark">
-            <p><strong>Role:</strong> {ROLE_HIERARCHY[selectedUserDetails?.role]?.label || selectedUserDetails?.role}</p>
-            <p><strong>Email:</strong> {selectedUserDetails?.email || "-"}</p>
-            <p><strong>Department:</strong> {selectedUserDetails?.department || "-"}</p>
-            <p><strong>Designation:</strong> {selectedUserDetails?.designation || "-"}</p>
-          </div>
-          <FormInput
-            label="Mobile No"
-            name="mobileNo"
-            placeholder="e.g., 0771234567"
-            value={editFormData.mobileNo}
-            onChange={handleEditFormChange}
-          />
-          <FormInput
-            label="New Password"
-            name="password"
-            type="password"
-            placeholder="Enter new password"
-            value={editFormData.password}
-            onChange={handleEditFormChange}
-          />
-          <FormInput
-            label="Confirm New Password"
-            name="confirmPassword"
-            type="password"
-            placeholder="Confirm new password"
-            value={editFormData.confirmPassword}
-            onChange={handleEditFormChange}
-          />
-        </div>
-      </Modal>
     </AdminLayout>
   );
 };

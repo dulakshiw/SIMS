@@ -178,6 +178,7 @@ export const INVENTORY_REQUEST_STATUS = {
 export const INVENTORY_REQUEST_TYPE = {
   ADD_EXISTING: "add_inventory",
   CREATE_NEW: "new_inventory_creation",
+  CHANGE_INCHARGE: "change_incharge",
 };
 
 export const INVENTORY_REQUEST_STATUS_META = {
@@ -196,6 +197,7 @@ export const INVENTORY_REQUEST_STATUS_META = {
 export const INVENTORY_REQUEST_TYPE_LABELS = {
   add_inventory: "Add to existing inventory",
   new_inventory_creation: "New inventory creation",
+  change_incharge: "Change inventory officer",
 };
 
 // Item Transfer/Disposal Status

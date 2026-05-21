@@ -2,7 +2,14 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import MainLayout from "../../Components/Layouts/MainLayout";
 import { Card, Button, SearchBox, Table, Badge, PageHeader, Modal } from "../../Components/UI";
-import { ITEM_STATUS, INVENTORY_REQUEST_STATUS_META, INVENTORY_REQUEST_TYPE_LABELS } from "../../utils/constants";
+import {
+  ITEM_STATUS,
+  INVENTORY_REQUEST_STATUS_META,
+  INVENTORY_REQUEST_TYPE,
+  INVENTORY_REQUEST_TYPE_LABELS,
+} from "../../utils/constants";
+
+const ALLOWED_INCHARGE_DESIGNATIONS = new Set(["Technical Officer", "Management Assistant"]);
 import { resolveSidebarVariant } from "../../utils/helpers";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
@@ -26,6 +33,14 @@ const InventoryListView = () => {
   const [error, setError] = useState("");
   const [selectedPendingRequest, setSelectedPendingRequest] = useState(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [assignModalOpen, setAssignModalOpen] = useState(false);
+  const [assignTargetInventory, setAssignTargetInventory] = useState(null);
+  const [officerCandidates, setOfficerCandidates] = useState([]);
+  const [proposedOfficerId, setProposedOfficerId] = useState("");
+  const [assignReason, setAssignReason] = useState("");
+  const [assignSubmitting, setAssignSubmitting] = useState(false);
+  const [assignError, setAssignError] = useState("");
+  const [assignOptionsLoading, setAssignOptionsLoading] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const { role } = useParams();
@@ -277,6 +292,140 @@ const InventoryListView = () => {
     navigate(`/inventory/item/${row.id}/${role || sidebarVariant}`);
   };
 
+  const hasPendingOfficerChange = useCallback(
+    (inventoryId) => pendingRequests.some(
+      (request) => request.requestType === INVENTORY_REQUEST_TYPE.CHANGE_INCHARGE
+        && Number(request.targetInventoryId) === Number(inventoryId)
+        && !["rejected", "approved_by_admin", "completed"].includes(String(request.approvalStatus || "").toLowerCase())
+    ),
+    [pendingRequests]
+  );
+
+  const loadOfficerCandidates = async (inventory) => {
+    setAssignOptionsLoading(true);
+    setAssignError("");
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/users`);
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || data.message || "Failed to load staff members.");
+      }
+
+      const departmentKey = String(inventory.department || "").trim().toLowerCase();
+      const assignedInchargeIds = new Set(
+        (inventories || [])
+          .map((entry) => Number(entry.inchargeId))
+          .filter((id) => Number.isInteger(id) && id > 0)
+      );
+
+      const candidates = (data.users || []).filter((user) => {
+        const userDepartment = String(user.department || user.departmentName || "").trim().toLowerCase();
+        const designation = String(user.designation || "").trim();
+        const userId = resolveUserId(user);
+
+        return user.status === "active"
+          && ["staff", "inventory_incharge"].includes(String(user.role || "").toLowerCase())
+          && ALLOWED_INCHARGE_DESIGNATIONS.has(designation)
+          && userDepartment === departmentKey
+          && userId !== currentUserId
+          && !assignedInchargeIds.has(userId);
+      });
+
+      setOfficerCandidates(candidates);
+    } catch (loadError) {
+      setOfficerCandidates([]);
+      setAssignError(loadError.message || "Failed to load officer candidates.");
+    } finally {
+      setAssignOptionsLoading(false);
+    }
+  };
+
+  const openAssignOfficerModal = (row) => {
+    const inventory = inventories.find((entry) => Number(entry.id) === Number(row.id));
+
+    if (!inventory) {
+      return;
+    }
+
+    if (hasPendingOfficerChange(inventory.id)) {
+      window.alert("A change of inventory officer is already pending approval for this inventory.");
+      return;
+    }
+
+    setAssignTargetInventory(inventory);
+    setProposedOfficerId("");
+    setAssignReason("");
+    setAssignError("");
+    setAssignModalOpen(true);
+    loadOfficerCandidates(inventory);
+  };
+
+  const resetAssignOfficerModal = () => {
+    setAssignModalOpen(false);
+    setAssignTargetInventory(null);
+    setProposedOfficerId("");
+    setAssignReason("");
+    setAssignError("");
+    setOfficerCandidates([]);
+  };
+
+  const closeAssignOfficerModal = () => {
+    if (assignSubmitting) {
+      return;
+    }
+    resetAssignOfficerModal();
+  };
+
+  const submitAssignOfficerRequest = async () => {
+    if (!assignTargetInventory || !currentUserId) {
+      return;
+    }
+
+    const nextOfficerId = Number(proposedOfficerId);
+
+    if (!Number.isInteger(nextOfficerId) || nextOfficerId <= 0) {
+      setAssignError("Select a new inventory officer.");
+      return;
+    }
+
+    if (!assignReason.trim()) {
+      setAssignError("Provide a reason for this change.");
+      return;
+    }
+
+    try {
+      setAssignSubmitting(true);
+      setAssignError("");
+
+      const response = await fetch(`${API_BASE_URL}/api/inventory-creation-requests`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          requestType: INVENTORY_REQUEST_TYPE.CHANGE_INCHARGE,
+          requestedById: currentUserId,
+          targetInventoryId: assignTargetInventory.id,
+          inchargeId: nextOfficerId,
+          reason: assignReason.trim(),
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || data.error || "Failed to submit officer change request.");
+      }
+
+      resetAssignOfficerModal();
+      await loadInchargeData({ current: true });
+      window.alert(data.message || "Request submitted to your Head of Department for recommendation.");
+    } catch (submitError) {
+      setAssignError(submitError.message || "Failed to submit officer change request.");
+    } finally {
+      setAssignSubmitting(false);
+    }
+  };
+
   const inventoryActions = [
     {
       label: "Open Items",
@@ -287,6 +436,11 @@ const InventoryListView = () => {
       label: "Add Item",
       icon: "add_circle",
       onClick: (row) => navigate(`/inventory/add/incharge?inventoryId=${row.id}`),
+    },
+    {
+      label: "Assign Officer",
+      icon: "person_add",
+      onClick: (row) => openAssignOfficerModal(row),
     },
   ];
 
@@ -325,6 +479,12 @@ const InventoryListView = () => {
       { label: "Inventory name", value: selectedPendingRequest.name },
       { label: "Department", value: selectedPendingRequest.department },
       { label: "Location", value: selectedPendingRequest.location },
+      ...(selectedPendingRequest.requestType === INVENTORY_REQUEST_TYPE.CHANGE_INCHARGE
+        ? [
+          { label: "Current officer", value: selectedPendingRequest.previousInchargeName || currentUser.name || "—" },
+          { label: "Proposed officer", value: selectedPendingRequest.inchargeName || "—" },
+        ]
+        : []),
       { label: "Requested date", value: selectedPendingRequest.requestedDate },
       {
         label: "Status",
@@ -362,7 +522,7 @@ const InventoryListView = () => {
         }
         subtitle={
           isInchargeView && !viewingInventoryItems
-            ? "Pending creation requests stay here until an administrator activates the inventory. Activated inventories appear as assigned inventories you can manage."
+            ? "Pending requests stay here until approved. Use Assign Officer to request a new inventory officer (HOD recommendation, then administrator approval)."
             : viewingInventoryItems
               ? selectedInventory
                 ? `Items in ${selectedInventory.name} at ${selectedInventory.location || "your assigned location"}.`
@@ -460,7 +620,11 @@ const InventoryListView = () => {
       <Modal
         isOpen={isDetailModalOpen}
         onClose={closePendingDetail}
-        title="Inventory creation request"
+        title={
+          selectedPendingRequest?.requestType === INVENTORY_REQUEST_TYPE.CHANGE_INCHARGE
+            ? "Change inventory officer"
+            : "Inventory creation request"
+        }
         size="md"
         footer={(
           <div className="flex justify-end">
@@ -486,7 +650,96 @@ const InventoryListView = () => {
               ))}
             </div>
             <p className="text-sm text-text-light border-t border-border-lighter pt-4">
-              This inventory will appear as an assigned inventory once the administrator completes activation.
+              {selectedPendingRequest.requestType === INVENTORY_REQUEST_TYPE.CHANGE_INCHARGE
+                ? "After HOD recommendation and administrator approval, this inventory will be assigned to the proposed officer and removed from your list."
+                : "This inventory will appear as an assigned inventory once the administrator completes activation."}
+            </p>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        isOpen={assignModalOpen}
+        onClose={closeAssignOfficerModal}
+        title="Assign new inventory officer"
+        size="md"
+        footer={(
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={closeAssignOfficerModal} disabled={assignSubmitting}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              onClick={submitAssignOfficerRequest}
+              disabled={assignSubmitting || assignOptionsLoading || officerCandidates.length === 0}
+            >
+              {assignSubmitting ? "Submitting..." : "Submit to HOD"}
+            </Button>
+          </div>
+        )}
+      >
+        {assignTargetInventory && (
+          <div className="space-y-4">
+            <div className="bg-background-light p-4 rounded-lg">
+              <p className="text-sm text-text-light">Inventory</p>
+              <p className="text-lg font-semibold text-text-dark">{assignTargetInventory.name}</p>
+              <p className="text-sm text-text-light mt-1">
+                {assignTargetInventory.department}
+                {assignTargetInventory.location ? ` · ${assignTargetInventory.location}` : ""}
+              </p>
+            </div>
+
+            {assignError && (
+              <div className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
+                {assignError}
+              </div>
+            )}
+
+            <div>
+              <label className="block text-sm font-medium text-text-dark mb-1" htmlFor="proposed-officer">
+                New inventory officer
+              </label>
+              <select
+                id="proposed-officer"
+                className="w-full rounded border border-border-lighter px-3 py-2 text-sm"
+                value={proposedOfficerId}
+                onChange={(event) => setProposedOfficerId(event.target.value)}
+                disabled={assignOptionsLoading || assignSubmitting}
+              >
+                <option value="">Select staff member</option>
+                {officerCandidates.map((user) => (
+                  <option key={resolveUserId(user)} value={resolveUserId(user)}>
+                    {user.name}
+                    {user.designation ? ` (${user.designation})` : ""}
+                  </option>
+                ))}
+              </select>
+              {assignOptionsLoading && (
+                <p className="text-xs text-text-light mt-1">Loading eligible staff...</p>
+              )}
+              {!assignOptionsLoading && officerCandidates.length === 0 && (
+                <p className="text-xs text-text-light mt-1">
+                  No eligible staff in this department. Only active Technical Officers or Management Assistants who are not already inventory officers can be selected.
+                </p>
+              )}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-text-dark mb-1" htmlFor="assign-reason">
+                Reason
+              </label>
+              <textarea
+                id="assign-reason"
+                className="w-full rounded border border-border-lighter px-3 py-2 text-sm min-h-[96px]"
+                value={assignReason}
+                onChange={(event) => setAssignReason(event.target.value)}
+                placeholder="Explain why a new inventory officer is needed"
+                disabled={assignSubmitting}
+              />
+            </div>
+
+            <p className="text-sm text-text-light border-t border-border-lighter pt-3">
+              Your Head of Department will review and recommend this change. The administrator will then update the inventory officer. You will lose access to this inventory after approval.
             </p>
           </div>
         )}

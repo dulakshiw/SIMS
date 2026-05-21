@@ -1,6 +1,13 @@
 import React, { useState, useEffect } from "react";
 import { useSearchParams, useNavigate, Link } from "react-router-dom";
 import { Card, Button } from "../../Components/UI";
+import {
+  getPasswordStrength,
+  getPasswordStrengthColorClass,
+  isPasswordValid,
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_REQUIREMENTS_MESSAGE,
+} from "../../utils/passwordValidation";
 
 const ResetPassword = () => {
   const [searchParams] = useSearchParams();
@@ -34,14 +41,8 @@ const ResetPassword = () => {
     const { name, value } = e.target;
     setFormData({ ...formData, [name]: value });
 
-    // Calculate password strength
     if (name === "newPassword") {
-      let strength = 0;
-      if (value.length >= 8) strength++;
-      if (/[A-Z]/.test(value)) strength++;
-      if (/[0-9]/.test(value)) strength++;
-      if (/[^A-Za-z0-9]/.test(value)) strength++;
-      setPasswordStrength(strength);
+      setPasswordStrength(getPasswordStrength(value));
     }
   };
 
@@ -51,15 +52,8 @@ const ResetPassword = () => {
     setMessage("");
 
     // Validation
-    if (formData.newPassword.length < 8) {
-      setMessage("Password must be at least 8 characters long");
-      setMessageType("error");
-      setLoading(false);
-      return;
-    }
-
-    if (passwordStrength < 2) {
-      setMessage("Password is too weak. Use uppercase, numbers, and special characters.");
+    if (!isPasswordValid(formData.newPassword)) {
+      setMessage(PASSWORD_REQUIREMENTS_MESSAGE);
       setMessageType("error");
       setLoading(false);
       return;
@@ -83,12 +77,6 @@ const ResetPassword = () => {
       }, 2000);
       setLoading(false);
     }, 1500);
-  };
-
-  const getPasswordStrengthColor = () => {
-    if (passwordStrength <= 1) return "bg-danger";
-    if (passwordStrength <= 2) return "bg-warning";
-    return "bg-success";
   };
 
   if (!email || !otp) {
@@ -171,6 +159,7 @@ const ResetPassword = () => {
                     onChange={handleChange}
                     placeholder="Enter new password"
                     required
+                    maxLength={PASSWORD_MAX_LENGTH}
                     className="w-full px-4 py-2.5 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                     style={{ backgroundColor: '#F2F0F0' }}
                   />
@@ -191,7 +180,7 @@ const ResetPassword = () => {
                         <div
                           key={i}
                           className={`h-2 flex-1 rounded ${
-                            i < passwordStrength ? getPasswordStrengthColor() : "bg-gray-200"
+                            i < passwordStrength ? getPasswordStrengthColorClass(passwordStrength) : "bg-gray-200"
                           }`}
                         />
                       ))}
@@ -201,9 +190,7 @@ const ResetPassword = () => {
                       {passwordStrength === 2 && "Fair password"}
                       {passwordStrength >= 3 && "Strong password"}
                     </p>
-                    <p className="text-xs text-text-light mt-1">
-                      Requirements: 8+ characters, uppercase, number, special character
-                    </p>
+                    <p className="text-xs text-text-light mt-1">{PASSWORD_REQUIREMENTS_MESSAGE}</p>
                   </div>
                 )}
               </div>
@@ -262,7 +249,7 @@ const ResetPassword = () => {
                   !formData.newPassword ||
                   !formData.confirmPassword ||
                   formData.newPassword !== formData.confirmPassword ||
-                  passwordStrength < 2
+                  !isPasswordValid(formData.newPassword)
                 }
               >
                 {loading ? "Resetting..." : "Reset Password"}
