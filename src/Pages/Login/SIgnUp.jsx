@@ -302,7 +302,7 @@ const SignUp = () => {
                 <input
                   type="password"
                   name="password"
-                  placeholder="8-12 chars: uppercase, number, symbol"
+                  placeholder="8-12 characters: uppercase, number, symbol"
                   value={formData.password}
                   onChange={handleChange}
                   minLength={8}
