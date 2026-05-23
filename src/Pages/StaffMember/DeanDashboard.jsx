@@ -13,18 +13,12 @@ const getStoredUser = () => {
   }
 };
 
-const getLastName = (fullName = 'User') => {
-  const nameParts = String(fullName).trim().split(/\s+/).filter(Boolean);
-  return nameParts[nameParts.length - 1] || 'User';
-};
-
 const DeanDashboard = () => {
   const [currentUser, setCurrentUser] = useState(getStoredUser);
   const [accountRequests, setAccountRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [actionLoadingId, setActionLoadingId] = useState(null);
   const [error, setError] = useState('');
-  const greeting = `${getTimeOfDayGreeting()} ${getLastName(currentUser.name || localStorage.getItem('username') || 'User')}`;
 
   const loadRequests = async () => {
     try {

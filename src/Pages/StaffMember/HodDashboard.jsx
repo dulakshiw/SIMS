@@ -37,25 +37,6 @@ const getStoredUser = () => {
 
 const getDepartmentName = (user) => user.departmentName || user.department || 'Department';
 
-const getTimeOfDayGreeting = () => {
-  const hour = new Date().getHours();
-
-  if (hour < 12) {
-    return 'Good morning';
-  }
-
-  if (hour < 18) {
-    return 'Good afternoon';
-  }
-
-  return 'Good evening';
-};
-
-const getLastName = (fullName = 'User') => {
-  const nameParts = String(fullName).trim().split(/\s+/).filter(Boolean);
-  return nameParts[nameParts.length - 1] || 'User';
-};
-
 const mapPendingRows = (rows) => {
   const sorted = [...rows].sort(
     (a, b) => String(b.requestedDate).localeCompare(String(a.requestedDate)) || a.queueKey.localeCompare(b.queueKey)
@@ -83,7 +64,6 @@ const HodDashboard = () => {
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
 
   const departmentName = getDepartmentName(currentUser);
-  const greeting = `${getTimeOfDayGreeting()} ${getLastName(currentUser.name || localStorage.getItem('username') || 'User')}`;
 
   const loadRequests = async () => {
     try {
@@ -542,7 +522,7 @@ const HodDashboard = () => {
   return (
     <MainLayout variant="hod">
       <PageHeader
-        title={greeting}
+        title="Dashboard"
         subtitle="Review new accounts, deactivation requests, and inventory creation or addition requests for your department. Approve or recommend items awaiting your review."
         actions={
           <Button variant="secondary" icon="refresh" onClick={loadRequests} disabled={loading || actionLoadingKey !== null}>

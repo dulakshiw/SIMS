@@ -3,6 +3,17 @@ import { useLocation, useNavigate, useParams } from "react-router-dom";
 import MainLayout from "../../Components/Layouts/MainLayout";
 import { Card, Button, PageHeader, Select } from "../../Components/UI";
 import { resolveSidebarVariant } from "../../utils/helpers";
+import { generateQrDataUrl, getExternalQrImageUrl } from "../../utils/qrCodeUtils";
+import {
+  ITEM_FORM_OTHER_VALUE,
+  ITEM_FUNDING_KNOWN_VALUES,
+  ITEM_FUNDING_OPTIONS,
+  ITEM_WARRANTY_KNOWN_VALUES,
+  ITEM_WARRANTY_OPTIONS,
+  LEGACY_FUNDING_VALUES,
+  LEGACY_WARRANTY_VALUES,
+  resolveItemOptionField,
+} from "../../utils/itemFormOptions";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
 
@@ -25,8 +36,6 @@ const COMMON_PLACE_OPTIONS = [
 
 const LOCATION_OTHER_VALUE = "other";
 const LOCATION_EXCLUDED_ROLES = new Set(["admin", "registrar"]);
-const FUNDING_OPTION_VALUES = new Set(["Capital Fund", "University Development Fund", "Faculty Development Fund", "Department Development Fund"]);
-const WARRANTY_OPTION_VALUES = new Set(["1 Year", "2 Years", "3 Years", "5 Years"]);
 
 const formatDateInputValue = (value) => {
   if (!value) {
@@ -37,17 +46,6 @@ const formatDateInputValue = (value) => {
     return "";
   }
   return parsed.toISOString().slice(0, 10);
-};
-
-const resolveOptionField = (value, knownValues) => {
-  const normalized = String(value || "").trim();
-  if (!normalized) {
-    return { selected: "", other: "" };
-  }
-  if (knownValues.has(normalized)) {
-    return { selected: normalized, other: "" };
-  }
-  return { selected: "other", other: normalized };
 };
 
 const pickItemField = (item, ...keys) => {
@@ -75,6 +73,8 @@ const pickBulkField = (item, ...keys) => {
 
 const getBulkGinNo = (item) => pickBulkField(item, "ginNo", "ginno");
 const getBulkGinKey = (item) => getBulkGinNo(item).toLowerCase();
+
+/** Same GIN No + item code + item name share one item image (mirrors GIN PDF grouping by GIN No). */
 const getBulkImageGroupKey = (item) => {
   const gin = getBulkGinKey(item);
   const code = pickBulkField(item, "itemCode", "itemcode").toLowerCase();
@@ -110,6 +110,7 @@ const AddNewItem = () => {
   const [bulkItems, setBulkItems] = useState([]);
   const [bulkGinSystemCache, setBulkGinSystemCache] = useState({});
   const [bulkSubmitting, setBulkSubmitting] = useState(false);
+  const [bulkPrintLoading, setBulkPrintLoading] = useState(false);
   const [selectedBulk, setSelectedBulk] = useState({});
   const [selectAllBulk, setSelectAllBulk] = useState(false);
   const [labelLayout, setLabelLayout] = useState('grid'); // 'grid' or 'avery'
@@ -154,6 +155,7 @@ const AddNewItem = () => {
   const [existingItemImage, setExistingItemImage] = useState("");
   const [pendingEditLocation, setPendingEditLocation] = useState("");
   const [identifierErrors, setIdentifierErrors] = useState(EMPTY_IDENTIFIER_ERRORS);
+  const [itemNameSuggestions, setItemNameSuggestions] = useState([]);
 
   useEffect(() => {
     if (!isInchargeMode || !currentUser.id) {
@@ -325,11 +327,13 @@ const AddNewItem = () => {
         }
 
         const item = data.item;
-        const funding = resolveOptionField(
-          pickItemField(item, "funding", "funding_source"),
-          FUNDING_OPTION_VALUES
-        );
-        const warranty = resolveOptionField(pickItemField(item, "warranty"), WARRANTY_OPTION_VALUES);
+        const fundingRaw =
+          LEGACY_FUNDING_VALUES[pickItemField(item, "funding", "funding_source")] ||
+          pickItemField(item, "funding", "funding_source");
+        const funding = resolveItemOptionField(fundingRaw, ITEM_FUNDING_KNOWN_VALUES);
+        const warrantyRaw =
+          LEGACY_WARRANTY_VALUES[pickItemField(item, "warranty")] || pickItemField(item, "warranty");
+        const warranty = resolveItemOptionField(warrantyRaw, ITEM_WARRANTY_KNOWN_VALUES);
         const ginPath = pickItemField(item, "ginfile", "gin_pdf", "gin_file");
         const imagePath = pickItemField(item, "itemImage", "item_image", "image");
 
@@ -351,11 +355,23 @@ const AddNewItem = () => {
           ginfile: null,
           poNo: pickItemField(item, "poNo", "po_no"),
           supplier: pickItemField(item, "supplier"),
-          funding: funding.selected,
-          fundingOther: funding.other,
+          funding:
+            funding.selected === ITEM_FORM_OTHER_VALUE
+              ? ITEM_FORM_OTHER_VALUE
+              : funding.selected,
+          fundingOther:
+            funding.selected === ITEM_FORM_OTHER_VALUE
+              ? pickItemField(item, "fundingOther", "funding_other") || funding.other
+              : "",
           receivedfrom: pickItemField(item, "receivedfrom", "received_from"),
-          warranty: warranty.selected,
-          warrantyOther: warranty.other,
+          warranty:
+            warranty.selected === ITEM_FORM_OTHER_VALUE
+              ? ITEM_FORM_OTHER_VALUE
+              : warranty.selected,
+          warrantyOther:
+            warranty.selected === ITEM_FORM_OTHER_VALUE
+              ? pickItemField(item, "warrantyOther", "warranty_other") || warranty.other
+              : "",
           location: pickItemField(item, "location"),
           remarks: pickItemField(item, "remarks"),
         });
@@ -541,6 +557,47 @@ const AddNewItem = () => {
   };
 
   const hasIdentifierErrors = Object.values(identifierErrors).some(Boolean);
+  const isItemNameMissing = !String(itemData.itemName || "").trim();
+  const isSaveDisabled = hasIdentifierErrors || isItemNameMissing;
+
+  const handleSelectFieldChange = (name) => (value) => {
+    handleChange({ target: { name, value } });
+  };
+
+  useEffect(() => {
+    const query = String(itemData.itemName || "").trim();
+
+    if (!query) {
+      setItemNameSuggestions([]);
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      try {
+        const params = new URLSearchParams({ q: query, limit: "10" });
+        const response = await fetch(`${API_BASE_URL}/api/items/names?${params.toString()}`, {
+          signal: controller.signal,
+        });
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok || !data.success) {
+          return;
+        }
+
+        setItemNameSuggestions(data.names || []);
+      } catch (error) {
+        if (error.name !== "AbortError") {
+          setItemNameSuggestions([]);
+        }
+      }
+    }, 300);
+
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [itemData.itemName]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -550,11 +607,11 @@ const AddNewItem = () => {
         [name]: value
       };
 
-      if (name === "funding" && value !== "other") {
+      if (name === "funding" && value !== ITEM_FORM_OTHER_VALUE) {
         next.fundingOther = "";
       }
 
-      if (name === "warranty" && value !== "other") {
+      if (name === "warranty" && value !== ITEM_FORM_OTHER_VALUE) {
         next.warrantyOther = "";
       }
 
@@ -721,6 +778,169 @@ const AddNewItem = () => {
     return normalizedCode;
   };
 
+  const buildItemScanUrl = (payload, receivedfrom = "") => {
+    if (!payload) {
+      return "";
+    }
+
+    const params = new URLSearchParams({ q: payload });
+    if (receivedfrom) {
+      params.set("incharge", receivedfrom);
+    }
+
+    return `${window.location.origin}/inventory/scan?${params.toString()}`;
+  };
+
+  const buildBulkQrPayload = (item, rowIndex = 0) => {
+    const code = pickBulkField(item, "itemCode", "itemcode");
+    const serial = pickBulkField(item, "serialNo", "serialno");
+    const serial2 = pickBulkField(item, "serialNo2", "serialno2");
+    const receivedfrom = pickBulkField(item, "receivedfrom", "receivedFrom");
+    const serial2Value = String(serial2 || "").trim();
+    const computed = computeQRCodeValue(code, serial);
+    const computed2 = serial2Value ? computeQRCodeValue(code, serial2) : "";
+    const csvQr = pickBulkField(item, "QRCode", "qrcode");
+    const csvQr2 = pickBulkField(item, "QRCode2", "qrcode2");
+
+    const qrcode =
+      computed ||
+      String(csvQr || item.qrcode || "").trim() ||
+      `AUTO_${Date.now()}_${rowIndex}`;
+    const qrcode2 = computed2 || String(csvQr2 || item.qrcode2 || "").trim();
+
+    return {
+      qrcode,
+      qrcode2,
+      qrcodeUrl: buildItemScanUrl(qrcode, receivedfrom),
+      qrcode2Url: buildItemScanUrl(qrcode2, receivedfrom),
+    };
+  };
+
+  const escapePrintHtml = (value) => String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+
+  const buildBulkPrintLabelEntries = async (items, imageSize = 200) => {
+    const entries = [];
+
+    for (let index = 0; index < items.length; index += 1) {
+      const item = items[index];
+      const qr = buildBulkQrPayload(item, index);
+      const name = pickBulkField(item, "itemName", "itemname");
+      const code = pickBulkField(item, "itemCode", "itemcode");
+      const serial = pickBulkField(item, "serialNo", "serialno");
+      const serial2 = pickBulkField(item, "serialNo2", "serialno2");
+      const receivedfrom = pickBulkField(item, "receivedfrom", "receivedFrom");
+
+      const labelJobs = [
+        { payload: qr.qrcode, serialLabel: serial, scanUrl: qr.qrcodeUrl },
+        { payload: qr.qrcode2, serialLabel: serial2, scanUrl: qr.qrcode2Url },
+      ];
+
+      for (const { payload, serialLabel, scanUrl } of labelJobs) {
+        if (!payload) {
+          continue;
+        }
+
+        const resolvedScanUrl = scanUrl || buildItemScanUrl(payload, receivedfrom);
+        const qrImageUrl = await generateQrDataUrl(resolvedScanUrl, imageSize);
+
+        if (!qrImageUrl) {
+          continue;
+        }
+
+        entries.push({
+          name,
+          code,
+          serial: serialLabel,
+          qrImageUrl,
+        });
+      }
+    }
+
+    return entries;
+  };
+
+  const openQrLabelPrintWindow = (labelEntries, layout = "grid") => {
+    const w = window.open("", "_blank");
+    if (!w) {
+      alert("Unable to open print window. Please allow popups.");
+      return;
+    }
+
+    const cardHtml = labelEntries
+      .map((entry) => {
+        const { qrImageUrl, name, code, serial } = entry;
+        const safeName = escapePrintHtml(name);
+        const safeCode = escapePrintHtml(code);
+        const safeSerial = escapePrintHtml(serial);
+
+        if (layout === "avery") {
+          return `
+            <div style="width:180px;height:110px;display:inline-block;margin:6px;padding:6px;border:0;box-sizing:border-box;text-align:center;font-family:Arial,Helvetica,sans-serif;vertical-align:top">
+              <img src="${qrImageUrl}" alt="QR code" style="width:86px;height:86px;object-fit:contain;display:block;margin:0 auto" />
+              <div style="margin-top:6px;font-weight:600;font-size:11px">${safeName}</div>
+              <div style="font-size:10px;color:#444">${safeCode}${safeSerial ? ` | ${safeSerial}` : ""}</div>
+            </div>
+          `;
+        }
+
+        return `
+          <div style="width:240px;height:320px;display:inline-block;margin:8px;padding:8px;border:1px solid #e5e7eb;box-sizing:border-box;text-align:center;font-family:Arial,Helvetica,sans-serif">
+            <img src="${qrImageUrl}" alt="QR code" style="width:200px;height:200px;object-fit:contain" />
+            <div style="margin-top:8px;font-weight:600">${safeName}</div>
+            <div style="font-size:12px;color:#444">${safeCode}${safeSerial ? ` | ${safeSerial}` : ""}</div>
+          </div>
+        `;
+      })
+      .join("\n");
+
+    w.document.write(
+      `<!doctype html><html><head><title>QR Labels</title><style>body{padding:20px}@media print{body{padding:0}}</style></head><body>${cardHtml}</body></html>`
+    );
+    w.document.close();
+
+    const triggerPrint = () => {
+      w.focus();
+      w.print();
+    };
+
+    const images = Array.from(w.document.images || []);
+    if (images.length === 0) {
+      triggerPrint();
+      return;
+    }
+
+    const allImagesReady = () =>
+      images.every((img) => img.complete && img.naturalWidth > 0);
+
+    if (allImagesReady()) {
+      triggerPrint();
+      return;
+    }
+
+    let settledCount = 0;
+    const tryPrintWhenReady = () => {
+      settledCount += 1;
+      if (allImagesReady() || settledCount >= images.length) {
+        triggerPrint();
+      }
+    };
+
+    images.forEach((img) => {
+      img.addEventListener("load", tryPrintWhenReady, { once: true });
+      img.addEventListener("error", tryPrintWhenReady, { once: true });
+    });
+
+    window.setTimeout(() => {
+      if (!w.closed) {
+        triggerPrint();
+      }
+    }, 500);
+  };
+
   const generateAndSetQRCode = (slot = 1, force = false) => {
     const code = itemData.itemCode && itemData.itemCode.trim();
     const serial =
@@ -753,13 +973,7 @@ const AddNewItem = () => {
     );
   };
 
-  const getQrImageUrl = (value, size = 200) => {
-    if (!value) return null;
-    return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(value)}`;
-  };
-
-  const handlePrintQr = () => {
-    // Build payload: itemCode + serialNo + inventory name
+  const handlePrintQr = async () => {
     const code = itemData.itemCode && itemData.itemCode.trim();
     const serial = itemData.serialNo && itemData.serialNo.trim();
     const serial2 = itemData.serialNo2 && itemData.serialNo2.trim();
@@ -775,43 +989,40 @@ const AddNewItem = () => {
       return;
     }
 
-    const labels = [];
+    const labelEntries = [];
+
     if (payload) {
-      labels.push({
-        payload,
-        title: name || '',
-        sub: `${code || ''}${serial ? ' | ' + serial : ''}`
-      });
-    }
-    if (payload2) {
-      labels.push({
-        payload: payload2,
-        title: name || '',
-        sub: `${code || ''}${serial2 ? ' | ' + serial2 : ''}`
-      });
+      const scanUrl = buildItemScanUrl(payload, itemData.receivedfrom || "");
+      const qrImageUrl = await generateQrDataUrl(scanUrl, 300);
+      if (qrImageUrl) {
+        labelEntries.push({
+          name: name || "",
+          code: code || "",
+          serial,
+          qrImageUrl,
+        });
+      }
     }
 
-    const w = window.open('', '_blank');
-    if (!w) {
-      alert('Unable to open print window. Please allow popups.');
+    if (payload2) {
+      const scanUrl = buildItemScanUrl(payload2, itemData.receivedfrom || "");
+      const qrImageUrl = await generateQrDataUrl(scanUrl, 300);
+      if (qrImageUrl) {
+        labelEntries.push({
+          name: name || "",
+          code: code || "",
+          serial: serial2,
+          qrImageUrl,
+        });
+      }
+    }
+
+    if (labelEntries.length === 0) {
+      alert("Unable to generate QR images for printing.");
       return;
     }
-    w.document.write(`<html><head><title>Print QR</title></head><body style="display:flex;align-items:center;justify-content:center;min-height:100vh">`);
-    w.document.write(`<div style="display:flex;gap:24px;flex-wrap:wrap;align-items:center;justify-content:center;font-family:Arial,Helvetica,sans-serif">`);
-    labels.forEach((label) => {
-      const qrDataUrl = `${window.location.origin}/inventory/scan?q=${encodeURIComponent(label.payload)}&incharge=${encodeURIComponent(itemData.receivedfrom || '')}`;
-      const url = getQrImageUrl(qrDataUrl, 300);
-      w.document.write(`<div style="text-align:center">`);
-      w.document.write(`<img src="${url}" alt="QR" style="width:300px;height:300px;"/>`);
-      w.document.write(`<div style="margin-top:12px;font-weight:bold">${label.title}</div>`);
-      w.document.write(`<div style="margin-top:6px">${label.sub}</div>`);
-      w.document.write(`<div style="margin-top:8px;font-size:12px;color:#666">Scan or visit: ${qrDataUrl}</div>`);
-      w.document.write(`</div>`);
-    });
-    w.document.write(`</div></body></html>`);
-    w.document.close();
-    w.focus();
-    setTimeout(() => { w.print(); }, 250);
+
+    openQrLabelPrintWindow(labelEntries, "grid");
   };
 
   const updateBulkItemAt = (index, patch) => {
@@ -917,43 +1128,57 @@ const AddNewItem = () => {
     return item.ginfile instanceof File ? "PDF attached" : "Upload required";
   };
 
+  const getBulkImageSourceIndex = (groupKey, items = bulkItems) => {
+    if (!groupKey) {
+      return -1;
+    }
+
+    return items.findIndex(
+      (row) => getBulkImageGroupKey(row) === groupKey && row.itemImage instanceof File
+    );
+  };
+
   const getFirstBulkImageRowIndex = (groupKey, items = bulkItems) => (
     items.findIndex((row) => getBulkImageGroupKey(row) === groupKey)
   );
 
   const isBulkImageUploadDisabled = (index, items = bulkItems) => {
-    const groupKey = getBulkImageGroupKey(items[index]);
-    const firstIndex = getFirstBulkImageRowIndex(groupKey, items);
-    if (firstIndex >= 0 && firstIndex !== index) {
+    const item = items[index];
+    const groupKey = getBulkImageGroupKey(item);
+
+    if (!groupKey.replace(/::/g, "").trim()) {
+      return false;
+    }
+
+    const sourceIndex = getBulkImageSourceIndex(groupKey, items);
+    if (sourceIndex >= 0 && sourceIndex !== index) {
       return true;
     }
 
-    const sourceIndex = items.findIndex(
-      (row, rowIndex) => rowIndex !== index
-        && getBulkImageGroupKey(row) === groupKey
-        && row.itemImage instanceof File
-    );
-
-    return sourceIndex >= 0;
+    const firstIndex = getFirstBulkImageRowIndex(groupKey, items);
+    return firstIndex >= 0 && firstIndex !== index;
   };
 
   const getBulkImageStatus = (index, items = bulkItems) => {
     const item = items[index];
     const groupKey = getBulkImageGroupKey(item);
-    const sourceIndex = items.findIndex(
-      (row) => getBulkImageGroupKey(row) === groupKey && row.itemImage instanceof File
-    );
+
+    if (!groupKey.replace(/::/g, "").trim()) {
+      return item.itemImage instanceof File ? "Image attached" : "Optional";
+    }
+
+    const sourceIndex = getBulkImageSourceIndex(groupKey, items);
 
     if (sourceIndex === index) {
       return "Image attached (shared for matching rows)";
     }
 
-    if (sourceIndex >= 0) {
+    if (sourceIndex >= 0 && sourceIndex !== index) {
       return "Uses image from first matching row";
     }
 
     if (isBulkImageUploadDisabled(index, items)) {
-      return "Upload on first row with same item & GIN";
+      return "Upload on first row with same GIN, item code & name";
     }
 
     return item.itemImage instanceof File ? "Image attached" : "Optional";
@@ -1024,22 +1249,28 @@ const AddNewItem = () => {
 
   const resolveBulkImageSource = (item, items = bulkItems) => {
     const groupKey = getBulkImageGroupKey(item);
-    const sourceIndex = items.findIndex(
-      (row) => getBulkImageGroupKey(row) === groupKey && row.itemImage instanceof File
-    );
+    const sourceIndex = getBulkImageSourceIndex(groupKey, items);
 
-    return sourceIndex >= 0 ? items[sourceIndex] : item;
+    if (sourceIndex >= 0) {
+      return items[sourceIndex];
+    }
+
+    const firstIndex = getFirstBulkImageRowIndex(groupKey, items);
+    return firstIndex >= 0 ? items[firstIndex] : item;
   };
 
-  const buildBulkItemFormData = (item, items = bulkItems) => {
+  const buildBulkItemFormData = (item, items = bulkItems, index = 0) => {
     const ginSource = resolveBulkGinSource(item, items);
     const imageSource = resolveBulkImageSource(item, items);
+    const qr = buildBulkQrPayload(item, index);
     const fundingOtherValue = pickBulkField(item, "fundingOther", "fundingother");
     const warrantyOtherValue = pickBulkField(item, "warrantyOther", "warrantyother");
     const fundingValue = pickBulkField(item, "funding");
     const warrantyValue = pickBulkField(item, "warranty");
-    const normalizedFunding = fundingValue === "other" ? fundingOtherValue : fundingValue;
-    const normalizedWarranty = warrantyValue === "other" ? warrantyOtherValue : warrantyValue;
+    const normalizedFunding =
+      fundingValue === ITEM_FORM_OTHER_VALUE ? fundingOtherValue : fundingValue;
+    const normalizedWarranty =
+      warrantyValue === ITEM_FORM_OTHER_VALUE ? warrantyOtherValue : warrantyValue;
 
     const form = new FormData();
     form.append("inventoryId", selectedInventoryId ? String(selectedInventoryId) : "");
@@ -1048,8 +1279,10 @@ const AddNewItem = () => {
     form.append("serialNo", pickBulkField(item, "serialNo", "serialno"));
     form.append("serialNo2", pickBulkField(item, "serialNo2", "serialno2"));
     form.append("model", pickBulkField(item, "model"));
-    form.append("QRCode", item.qrcode || item.QRCode || "");
-    form.append("QRCode2", item.qrcode2 || item.QRCode2 || "");
+    form.append("QRCode", qr.qrcode);
+    form.append("QRCode2", qr.qrcode2);
+    form.append("qrcodeUrl", qr.qrcodeUrl);
+    form.append("qrcode2Url", qr.qrcode2Url);
     form.append("pageno", pickBulkField(item, "pageno"));
     form.append("value", pickBulkField(item, "value"));
     form.append("purchaseDate", pickBulkField(item, "purchaseDate", "purchasedate"));
@@ -1094,9 +1327,10 @@ const AddNewItem = () => {
         
         const items = [];
         for (let i = 1; i < lines.length; i++) {
-          if (lines[i].trim() === '') continue;
-          
-          const values = lines[i].split(',').map(v => v.trim());
+          const line = lines[i].trim();
+          if (!line || line.startsWith("#")) continue;
+
+          const values = line.split(',').map(v => v.trim());
           const item = {};
           headers.forEach((header, index) => {
             item[header] = values[index] || '';
@@ -1104,18 +1338,8 @@ const AddNewItem = () => {
           items.push(item);
         }
         
-        // assign QR codes for parsed items where possible
         const itemsWithQr = items.map((it, idx) => {
-          const code = it.itemcode || it.itemCode || '';
-          const serial = it.serialno || it.serialNo || '';
-          const serial2 = it.serialno2 || it.serialNo2 || '';
-          const serial2Value = String(serial2 || "").trim();
-          const computed = computeQRCodeValue(code, serial);
-          const computed2 = serial2Value ? computeQRCodeValue(code, serial2) : "";
-          const q = computed && computed !== "" ? computed : `AUTO_${Date.now()}_${idx}`;
-          const qUrl = `${window.location.origin}/inventory/scan?q=${encodeURIComponent(q)}&incharge=${encodeURIComponent(it.receivedfrom||'')}`;
-          const q2 = computed2 && computed2 !== "" ? computed2 : "";
-          const q2Url = q2 ? `${window.location.origin}/inventory/scan?q=${encodeURIComponent(q2)}&incharge=${encodeURIComponent(it.receivedfrom||'')}` : '';
+          const qr = buildBulkQrPayload(it, idx);
           return {
             ...it,
             itemName: pickBulkField(it, "itemName", "itemname"),
@@ -1126,10 +1350,10 @@ const AddNewItem = () => {
             ginfile: null,
             existingGinfile: "",
             itemImage: null,
-            qrcode: q,
-            qrcodeUrl: qUrl,
-            qrcode2: q2,
-            qrcode2Url: q2Url,
+            qrcode: qr.qrcode,
+            qrcodeUrl: qr.qrcodeUrl,
+            qrcode2: qr.qrcode2,
+            qrcode2Url: qr.qrcode2Url,
           };
         });
 
@@ -1148,15 +1372,15 @@ const AddNewItem = () => {
 
   const downloadTemplate = () => {
     const headers = [
-      'itemName', 'itemCode', 'serialNo', 'serialNo2', 'model', 
-      'QRCode', 'QRCode2', "pageno", 'value', 'purchaseDate', 'ginNo', 'poNo', 
+      'itemName', 'itemCode', 'serialNo', 'serialNo2', 'model',
+      'pageno', 'value', 'purchaseDate', 'ginNo', 'poNo',
       'supplier', 'funding', 'fundingOther', 'receivedfrom', 'warranty', 'warrantyOther', 'location', 'remarks'
     ];
     
     const csvContent = [
-      headers.join(','),
-      'Core i7 Computer,ITDEOFQCE 01,SN123,SN456,HP,QR001,QR002,1,5000,2025-01-15,15550,PO001,VSIS,other,Alumni Grant,Stores,other,4 Years,Deans Office,Good condition'
-    ].join('\n');
+      headers.join(","),
+      "Core i7 Computer,ITDEOFQCE 01,SN123,SN456,HP,1,5000,2025-01-15,15550,PO001,VSIS,Capital Fund,,Stores,2 Years,Deans Office,Good condition",
+    ].join("\n");
     
     const blob = new Blob([csvContent], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
@@ -1184,7 +1408,7 @@ const AddNewItem = () => {
 
         for (let index = 0; index < bulkItems.length; index += 1) {
           const item = bulkItems[index];
-          const form = buildBulkItemFormData(item, bulkItems);
+          const form = buildBulkItemFormData(item, bulkItems, index);
           const res = await fetch(`${API_BASE_URL}/api/items`, {
             method: "POST",
             body: form,
@@ -1214,62 +1438,36 @@ const AddNewItem = () => {
     })();
   };
 
-  const handleBulkPrint = () => {
+  const handleBulkPrint = async () => {
     if (!bulkItems || bulkItems.length === 0) {
-      alert('No parsed items to print.');
+      alert("No parsed items to print.");
       return;
     }
 
-    const w = window.open('', '_blank');
-    if (!w) {
-      alert('Unable to open print window. Please allow popups.');
-      return;
-    }
-
-    // pick items based on selection if any
     const itemsToPrint = Object.keys(selectedBulk).length > 0
-      ? bulkItems.filter((_, i) => selectedBulk[i])
+      ? bulkItems.filter((_, index) => selectedBulk[index])
       : bulkItems;
 
-    const labelEntries = itemsToPrint.flatMap((it) => {
-      const name = it.itemname || it.itemName || '';
-      const code = it.itemcode || it.itemCode || '';
-      const serial = it.serialno || it.serialNo || '';
-      const serial2 = it.serialno2 || it.serialNo2 || '';
-      const entries = [];
-      const url = it.qrcodeUrl || `${window.location.origin}/inventory/scan?q=${encodeURIComponent(it.qrcode || '')}`;
-      entries.push({ name, code, serial, url });
-      if (it.qrcode2 || serial2) {
-        const url2 = it.qrcode2Url || `${window.location.origin}/inventory/scan?q=${encodeURIComponent(it.qrcode2 || '')}`;
-        entries.push({ name, code, serial: serial2, url: url2 });
-      }
-      return entries;
-    });
+    const imageSize = labelLayout === "avery" ? 140 : 200;
 
-    const cardHtml = labelEntries.map((entry) => {
-      const qrImg = getQrImageUrl(entry.url, labelLayout === 'avery' ? 140 : 200);
-      if (labelLayout === 'avery') {
-        return `
-          <div style="width:180px;height:110px;display:inline-block;margin:6px;padding:6px;border:0;box-sizing:border-box;text-align:center;font-family:Arial,Helvetica,sans-serif;vertical-align:top">
-            <img src="${qrImg}" style="width:86px;height:86px;object-fit:contain;display:block;margin:0 auto" />
-            <div style="margin-top:6px;font-weight:600;font-size:11px">${entry.name}</div>
-            <div style="font-size:10px;color:#444">${entry.code}${entry.serial ? ' | ' + entry.serial : ''}</div>
-          </div>
-        `;
-      }
-      return `
-        <div style="width:240px;height:320px;display:inline-block;margin:8px;padding:8px;border:1px solid #e5e7eb;box-sizing:border-box;text-align:center;font-family:Arial,Helvetica,sans-serif">
-          <img src="${qrImg}" style="width:200px;height:200px;object-fit:contain" />
-          <div style="margin-top:8px;font-weight:600">${entry.name}</div>
-          <div style="font-size:12px;color:#444">${entry.code}${entry.serial ? ' | ' + entry.serial : ''}</div>
-        </div>
-      `;
-    }).join('\n');
+    try {
+      setBulkPrintLoading(true);
+      const labelEntries = await buildBulkPrintLabelEntries(itemsToPrint, imageSize);
 
-    w.document.write(`<!doctype html><html><head><title>QR Labels</title><style>body{padding:20px}</style></head><body>${cardHtml}</body></html>`);
-    w.document.close();
-    w.focus();
-    setTimeout(() => { w.print(); }, 300);
+      if (labelEntries.length === 0) {
+        alert(
+          "No QR data available to print. Ensure each row has an item code (and serial numbers where needed) before printing labels."
+        );
+        return;
+      }
+
+      openQrLabelPrintWindow(labelEntries, labelLayout);
+    } catch (error) {
+      console.error(error);
+      alert("Failed to generate QR labels for printing.");
+    } finally {
+      setBulkPrintLoading(false);
+    }
   };
 
   const handleSubmit = (e) => {
@@ -1328,10 +1526,10 @@ const AddNewItem = () => {
       try {
         // prepare FormData for multipart upload (supports files)
         const form = new FormData();
-        const normalizedFunding = itemData.funding === "other"
+        const normalizedFunding = itemData.funding === ITEM_FORM_OTHER_VALUE
           ? (itemData.fundingOther || "")
           : (itemData.funding || "");
-        const normalizedWarranty = itemData.warranty === "other"
+        const normalizedWarranty = itemData.warranty === ITEM_FORM_OTHER_VALUE
           ? (itemData.warrantyOther || "")
           : (itemData.warranty || "");
 
@@ -1554,10 +1752,18 @@ const AddNewItem = () => {
                     value={itemData.itemName}
                     onChange={handleChange}
                     required
+                    list="item-name-suggestions"
+                    autoComplete="off"
                     placeholder="Enter item name"
                     style={{ backgroundColor: '#F2F0F0' }}
                     className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    aria-invalid={isItemNameMissing}
                   />
+                  <datalist id="item-name-suggestions">
+                    {itemNameSuggestions.map((name) => (
+                      <option key={name} value={name} />
+                    ))}
+                  </datalist>
                 </div>
 
                 {/* Item Code */}
@@ -1575,7 +1781,9 @@ const AddNewItem = () => {
                     aria-invalid={Boolean(identifierErrors.itemCode)}
                   />
                   {identifierErrors.itemCode && (
-                    <p className="text-sm text-danger">{identifierErrors.itemCode}</p>
+                    <p className="rounded bg-yellow-100 px-4 py-3 text-sm text-text-dark border border-red-200 text-justify">
+                      {identifierErrors.itemCode}
+                    </p>
                   )}
                 </div>
 
@@ -1594,7 +1802,9 @@ const AddNewItem = () => {
                     aria-invalid={Boolean(identifierErrors.serialNo)}
                   />
                   {identifierErrors.serialNo && (
-                    <p className="text-sm text-danger">{identifierErrors.serialNo}</p>
+                    <p className="rounded bg-yellow-100 px-4 py-3 text-sm text-text-dark border border-red-200 text-justify">
+                      {identifierErrors.serialNo}
+                    </p>
                   )}
                 </div>
 
@@ -1613,7 +1823,9 @@ const AddNewItem = () => {
                     aria-invalid={Boolean(identifierErrors.serialNo2)}
                   />
                   {identifierErrors.serialNo2 && (
-                    <p className="text-sm text-danger">{identifierErrors.serialNo2}</p>
+                    <p className="rounded bg-yellow-100 px-4 py-3 text-sm text-text-dark border border-red-200 text-justify">
+                      {identifierErrors.serialNo2}
+                    </p>
                   )}
                 </div>
 
@@ -1669,7 +1881,13 @@ const AddNewItem = () => {
 
                   {itemData.QRCode && (
                     <div className="mt-3 flex items-center gap-4">
-                      <img src={getQrImageUrl(itemData.QRCode, 120)} alt="QR preview" />
+                      <img
+                        src={getExternalQrImageUrl(
+                          buildItemScanUrl(itemData.QRCode, itemData.receivedfrom || ""),
+                          120
+                        )}
+                        alt="QR preview"
+                      />
                       <div className="text-sm">
                         <div className="font-semibold">{itemData.QRCode}</div>
                         <div className="text-text-light">Scan to view item</div>
@@ -1730,7 +1948,13 @@ const AddNewItem = () => {
 
                   {itemData.QRCode2 && (
                     <div className="mt-3 flex items-center gap-4">
-                      <img src={getQrImageUrl(itemData.QRCode2, 120)} alt="QR preview" />
+                      <img
+                        src={getExternalQrImageUrl(
+                          buildItemScanUrl(itemData.QRCode2, itemData.receivedfrom || ""),
+                          120
+                        )}
+                        alt="QR preview"
+                      />
                       <div className="text-sm">
                         <div className="font-semibold">{itemData.QRCode2}</div>
                         <div className="text-text-light">Scan to view item</div>
@@ -1832,7 +2056,7 @@ const AddNewItem = () => {
                     value={itemData.supplier}
                     onChange={handleChange}
                     placeholder="Enter supplier name"
-                    style={{ backgroundColor: '#F2F0F0' }}
+                    style={{ backgroundColor: "#F2F0F0" }}
                     className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                   />
                 </div>
@@ -1902,21 +2126,15 @@ const AddNewItem = () => {
 
                 {/* Funding Source */}
                 <div className="space-y-2">
-                  <label className="block text-sm font-semibold text-text-dark">Funding Source</label>
-                  <select
+                  <Select
+                    label="Funding Source"
                     name="funding"
                     value={itemData.funding}
-                    onChange={handleChange}
-                    style={{ backgroundColor: '#F2F0F0' }}
-                    className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  >
-                    <option value="capital">Capital Fund</option>
-                    <option value="unidevfund">University Development Fund</option>
-                    <option value="facdevfund">Faculty Development Fund</option>
-                    <option value="deptdevfund">Department Development Fund</option>
-                    <option value="other">Other (please specify)</option>
-                  </select>
-                  {itemData.funding === "other" && (
+                    onChange={handleSelectFieldChange("funding")}
+                    options={ITEM_FUNDING_OPTIONS}
+                    placeholder="Select funding source"
+                  />
+                  {itemData.funding === ITEM_FORM_OTHER_VALUE && (
                     <input
                       type="text"
                       name="fundingOther"
@@ -1924,13 +2142,13 @@ const AddNewItem = () => {
                       onChange={handleChange}
                       required
                       placeholder="Specify funding source"
-                      style={{ backgroundColor: '#F2F0F0' }}
+                      style={{ backgroundColor: "#F2F0F0" }}
                       className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                     />
                   )}
                 </div>
 
-                 {/* Received/Transferred From */}
+                {/* Received/Transferred From */}
                 <div className="space-y-2">
                   <label className="block text-sm font-semibold text-text-dark">Received/Transferred From</label>
                   <input
@@ -1939,29 +2157,22 @@ const AddNewItem = () => {
                     value={itemData.receivedfrom}
                     onChange={handleChange}
                     placeholder="Enter source"
-                    style={{ backgroundColor: '#F2F0F0' }}
+                    style={{ backgroundColor: "#F2F0F0" }}
                     className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                   />
                 </div>
 
                 {/* Warranty Period */}
                 <div className="space-y-2">
-                  <label className="block text-sm font-semibold text-text-dark">Warranty Period</label>
-                  <select
+                  <Select
+                    label="Warranty Period"
                     name="warranty"
                     value={itemData.warranty}
-                    onChange={handleChange}
-                    style={{ backgroundColor: '#F2F0F0' }}
-                    className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  >
-                    <option value="1year">6 Months</option>
-                    <option value="1year">1 Year</option>
-                    <option value="2years">2 Years</option>
-                    <option value="3years">3 Years</option>
-                    <option value="5years">5 Years</option>
-                    <option value="other">Other (please specify)</option>
-                  </select>
-                  {itemData.warranty === "other" && (
+                    onChange={handleSelectFieldChange("warranty")}
+                    options={ITEM_WARRANTY_OPTIONS}
+                    placeholder="Select warranty period"
+                  />
+                  {itemData.warranty === ITEM_FORM_OTHER_VALUE && (
                     <input
                       type="text"
                       name="warrantyOther"
@@ -1969,7 +2180,7 @@ const AddNewItem = () => {
                       onChange={handleChange}
                       required
                       placeholder="Specify warranty period"
-                      style={{ backgroundColor: '#F2F0F0' }}
+                      style={{ backgroundColor: "#F2F0F0" }}
                       className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                     />
                   )}
@@ -2103,7 +2314,7 @@ const AddNewItem = () => {
                 type="submit"
                 variant="primary"
                 icon="save"
-                disabled={hasIdentifierErrors}
+                disabled={isSaveDisabled}
               >
                 {isEditMode ? "Save Changes" : "Save Item"}
               </Button>
@@ -2119,14 +2330,17 @@ const AddNewItem = () => {
             {/* Section Header */}
             <div className="pb-4 border-b-2 border-primary-500">
               <h2 className="text-xl font-bold text-text-dark">Bulk Item Upload</h2>
-              <p className="text-text-light text-sm mt-2">Upload multiple items at once using a CSV file</p>
+              <p className="text-text-light text-sm mt-2">
+                Upload multiple items at once using a CSV file. QR codes are generated automatically from each row&apos;s item code and serial number(s) and saved when you upload.
+              </p>
             </div>
 
             {/* Download Template */}
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <p className="text-sm text-text-dark mb-3">
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-3">
+              <p className="text-sm text-text-dark">
                 <strong>Need a template?</strong> Download the CSV template to get started with the correct format.
               </p>
+           
               <button
                 type="button"
                 onClick={downloadTemplate}
@@ -2191,7 +2405,7 @@ const AddNewItem = () => {
                   </p>
                   <p className="text-xs text-text-light mt-2">
                     CSV cannot include PDF or image files. Use the buttons in each row to attach GIN PDF and item image.
-                    Rows sharing the same GIN No reuse one GIN upload; rows with the same GIN, item code, and name reuse one image.
+                    Rows sharing the same GIN No reuse one GIN PDF upload; rows with the same GIN, item code, and name reuse one item image.
                   </p>
                 </div>
 
@@ -2233,6 +2447,7 @@ const AddNewItem = () => {
                         const imageStatus = getBulkImageStatus(index);
                         const ginKey = getBulkGinKey(item);
                         const systemGinPath = ginKey ? bulkGinSystemCache[ginKey] : "";
+                        const imageSourceIndex = getBulkImageSourceIndex(getBulkImageGroupKey(item), bulkItems);
 
                         return (
                           <tr key={index} className="border-b hover:bg-gray-50 align-top">
@@ -2292,7 +2507,7 @@ const AddNewItem = () => {
                               <div className="space-y-1">
                                 {imageDisabled ? (
                                   <span className="inline-block px-2 py-1 text-xs rounded bg-gray-100 text-text-light">
-                                    Not required
+                                    {imageSourceIndex >= 0 ? "Shared image" : "Not required"}
                                   </span>
                                 ) : (
                                   <label className="inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded bg-primary-500 text-white cursor-pointer hover:bg-primary-600">
@@ -2342,9 +2557,9 @@ const AddNewItem = () => {
                 type="button"
                 onClick={handleBulkPrint}
                 variant="secondary"
-                disabled={bulkItems.length === 0}
+                disabled={bulkItems.length === 0 || bulkPrintLoading}
               >
-                Print QR Labels
+                {bulkPrintLoading ? "Generating QR labels..." : "Print QR Labels"}
               </Button>
               <Button
                 type="button"

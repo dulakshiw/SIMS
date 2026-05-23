@@ -178,6 +178,60 @@ const normalizeItemPayload = (payload = {}) => ({
   qrcode2Url: payload.qrcode2Url ?? payload.QRCode2Url ?? "",
 });
 
+const computeItemQrPayload = (code, serial) => {
+  const normalizedCode = String(code || "").trim();
+  if (!normalizedCode) {
+    return "";
+  }
+
+  const normalizedSerial = String(serial || "").trim();
+  if (normalizedSerial) {
+    return `${normalizedCode}_${normalizedSerial}`;
+  }
+
+  return normalizedCode;
+};
+
+const buildItemQrScanUrl = (payload, receivedfrom = "") => {
+  if (!payload) {
+    return "";
+  }
+
+  const origin = String(process.env.CLIENT_ORIGIN || "http://localhost:5173").replace(/\/$/, "");
+  const params = new URLSearchParams({ q: payload });
+  if (receivedfrom) {
+    params.set("incharge", receivedfrom);
+  }
+
+  return `${origin}/inventory/scan?${params.toString()}`;
+};
+
+const enrichItemQrFields = (item = {}) => {
+  const next = { ...item };
+  const code = String(next.itemCode || "").trim();
+  const serial = String(next.serialNo || "").trim();
+  const serial2 = String(next.serialNo2 || "").trim();
+  const receivedfrom = String(next.receivedfrom || "").trim();
+
+  if (!String(next.QRCode || "").trim() && code) {
+    next.QRCode = computeItemQrPayload(code, serial);
+  }
+
+  if (!String(next.QRCode2 || "").trim() && code && serial2) {
+    next.QRCode2 = computeItemQrPayload(code, serial2);
+  }
+
+  if (next.QRCode && !String(next.qrcodeUrl || "").trim()) {
+    next.qrcodeUrl = buildItemQrScanUrl(next.QRCode, receivedfrom);
+  }
+
+  if (next.QRCode2 && !String(next.qrcode2Url || "").trim()) {
+    next.qrcode2Url = buildItemQrScanUrl(next.QRCode2, receivedfrom);
+  }
+
+  return next;
+};
+
 const ITEM_DB_COLUMN_ALIASES = {
   inventory_id: ["inventory_id"],
   itemName: ["itemName", "item_name"],
@@ -557,7 +611,8 @@ const validateItemIdentifiers = async (dbColumns, identifiers = {}) => {
   const serialNo2 = normalizeIdentifierValue(identifiers.serialNo2);
   const excludeItemId = Number(identifiers.excludeItemId ?? 0);
 
-  if (serialNo && serialNo2 && serialNo.toLowerCase() === serialNo2.toLowerCase()) {
+  if (serialNo && serialNo2 && serialNo.toLowerCase() === serialNo2.toLowerCase()) 
+  {
     conflicts.serialNo2 = "Serial Number 2 must be different from Serial Number.";
   }
 
@@ -569,9 +624,10 @@ const validateItemIdentifiers = async (dbColumns, identifiers = {}) => {
       excludeItemId
     );
 
-    if (existingCode) {
+    if (existingCode) {      
       conflicts.itemCode = "This item code is already registered in the system.";
     }
+    
   }
 
   if (serialNo) {
@@ -586,6 +642,7 @@ const validateItemIdentifiers = async (dbColumns, identifiers = {}) => {
       conflicts.serialNo = "This serial number is already registered in the system.";
     }
   }
+  
 
   if (serialNo2) {
     const existingSerial2 = await findExistingItemByIdentifierMatch(
@@ -599,6 +656,7 @@ const validateItemIdentifiers = async (dbColumns, identifiers = {}) => {
       conflicts.serialNo2 = "This serial number is already registered in the system.";
     }
   }
+
 
   return {
     valid: Object.keys(conflicts).length === 0,
@@ -614,6 +672,33 @@ const formatItemIdentifierValidationError = (conflicts = {}) => {
   }
 
   return messages.join(" ");
+};
+
+const searchItemNames = async (dbColumns, query = "", limit = 10) => {
+  const nameColumns = getAllDbColumnsForLogicalKey(dbColumns, "itemName");
+  const nameColumn = nameColumns[0];
+
+  if (!nameColumn) {
+    return [];
+  }
+
+  const trimmedQuery = String(query || "").trim();
+
+  if (!trimmedQuery) {
+    return [];
+  }
+
+  const safeLimit = Math.min(Math.max(Number(limit) || 10, 1), 25);
+  const [rows] = await pool.execute(
+    `SELECT DISTINCT TRIM(${nameColumn}) AS name
+     FROM ${DB_ITEMS_TABLE}
+     WHERE TRIM(${nameColumn}) <> '' AND LOWER(TRIM(${nameColumn})) LIKE LOWER(?)
+     ORDER BY name ASC
+     LIMIT ?`,
+    [`${trimmedQuery}%`, safeLimit]
+  );
+
+  return rows.map((row) => String(row.name || "").trim()).filter(Boolean);
 };
 
 let authSchema = null;
@@ -3767,7 +3852,7 @@ app.get(
       : 0;
 
     const pendingTasks = await getAdminPendingTasksCount(tableNames);
-    const recentActivities = await getRecentDashboardActivities(tableNames, 10);
+    const recentActivities = await getRecentDashboardActivities(tableNames, 5);
 
     const pendingRequests = tableNames.has("item_requests")
       ? await getCountValue(
@@ -4237,7 +4322,7 @@ app.post(
     await ensureInventoryItemsColumns();
 
     const payload = applyItemUploadPayload(req, { ...req.body });
-    const item = normalizeItemPayload(payload);
+    const item = enrichItemQrFields(normalizeItemPayload(payload));
 
     if (!String(item.ginfile || "").trim() && String(item.ginNo || "").trim()) {
       item.ginfile = await findExistingGinFileByGinNo(item.ginNo);
@@ -4300,7 +4385,7 @@ app.put(
     }
 
     const payload = applyItemUploadPayload(req, { ...req.body });
-    const item = normalizeItemPayload(payload);
+    const item = enrichItemQrFields(normalizeItemPayload(payload));
 
     if (!String(item.ginfile || "").trim() && String(item.ginNo || "").trim()) {
       item.ginfile = await findExistingGinFileByGinNo(item.ginNo);
@@ -4352,7 +4437,7 @@ app.post(
       return res.status(400).json({ success: false, error: "No items were provided" });
     }
 
-    const items = req.body.map(normalizeItemPayload);
+    const items = req.body.map((entry) => enrichItemQrFields(normalizeItemPayload(entry)));
     const invalidItem = items.find(validateRequiredFields);
 
     if (invalidItem) {
@@ -4415,7 +4500,7 @@ app.post(
       return res.status(400).json({ success: false, error: "No records found in CSV" });
     }
 
-    const items = records.map(normalizeItemPayload);
+    const items = records.map((entry) => enrichItemQrFields(normalizeItemPayload(entry)));
     const invalid = items.find(validateRequiredFields);
     if (invalid) {
       return res.status(400).json({ success: false, error: validateRequiredFields(invalid) });
@@ -4482,6 +4567,20 @@ app.get(
     );
 
     return res.json({ success: true, items: rows.map(normalizeItemRow) });
+  })
+);
+
+app.get(
+  "/api/items/names",
+  withDatabase(async (req, res) => {
+    const inventoryItemColumns = await ensureInventoryItemsColumns();
+    const names = await searchItemNames(
+      inventoryItemColumns,
+      req.query?.q ?? req.query?.search ?? "",
+      req.query?.limit
+    );
+
+    return res.json({ success: true, names });
   })
 );
 

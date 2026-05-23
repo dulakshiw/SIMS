@@ -6,25 +6,6 @@ import RegistrarDashboard from './RegistrarDashboard'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000'
 
-const getTimeOfDayGreeting = () => {
-  const hour = new Date().getHours();
-
-  if (hour < 12) {
-    return 'Good morning';
-  }
-
-  if (hour < 18) {
-    return 'Good afternoon';
-  }
-
-  return 'Good evening';
-};
-
-const getLastName = (fullName = 'User') => {
-  const nameParts = String(fullName).trim().split(/\s+/).filter(Boolean);
-  return nameParts[nameParts.length - 1] || 'User';
-};
-
 const formatActivityTime = (timestamp) => {
   if (!timestamp) return '';
 
@@ -59,7 +40,6 @@ const getActivityIcon = (category) => {
 
 const AdminDashboardContent = () => {
   const navigate = useNavigate();
-  const [lastName, setLastName] = useState('User');
   const [summary, setSummary] = useState({
     totalUsers: 0,
     activeUsers: 0,
@@ -72,9 +52,6 @@ const AdminDashboardContent = () => {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    const storedUsername = localStorage.getItem('username') || 'User';
-    setLastName(getLastName(storedUsername));
-
     let isMounted = true;
 
     const loadSummary = async () => {
@@ -90,7 +67,7 @@ const AdminDashboardContent = () => {
 
         if (isMounted) {
           setSummary(data.adminSummary || {});
-          setRecentActivities(data.recentActivities || []);
+          setRecentActivities((data.recentActivities || []).slice(0, 5));
         }
       } catch (fetchError) {
         console.error('Failed to load admin dashboard summary:', fetchError);

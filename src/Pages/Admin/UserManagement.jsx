@@ -680,24 +680,14 @@ const UserManagement = () => {
       <Button variant="secondary" onClick={closeUserDetails}>
         Close
       </Button>
-      {selectedUserDetails ? (
-        selectedUserIsInactive ? (
-          <Button
-            variant="primary"
-            icon="check_circle"
-            onClick={() => handleReactivateUser(selectedUserDetails)}
-          >
-            Reactivate
-          </Button>
-        ) : (
-          <Button
-            variant="danger"
-            icon="block"
-            onClick={() => handleDeactivateUser(selectedUserDetails)}
-          >
-            Deactivate
-          </Button>
-        )
+      {selectedUserDetails && selectedUserIsInactive ? (
+        <Button
+          variant="primary"
+          icon="check_circle"
+          onClick={() => handleReactivateUser(selectedUserDetails)}
+        >
+          Reactivate
+        </Button>
       ) : null}
     </div>
   );
@@ -706,7 +696,7 @@ const UserManagement = () => {
     <AdminLayout>
       <PageHeader
         title="User Management"
-        subtitle="Manage users, account approvals, deactivation, and password resets"
+        subtitle="Manage users, account approvals, and password resets"
         actions={
           <Button icon="add_circle" onClick={() => navigate('/admin/users/create')}>
             Create User
@@ -809,7 +799,7 @@ const UserManagement = () => {
               Click a user row to open details.
               {activeTab === "inactive-users"
                 ? " Use the detail view to reactivate accounts. Password reset is available after the user is active."
-                : " Deactivate accounts or reset passwords from the detail view."}
+                : " Reset passwords from the detail view."}
               {activeTab === "inactive-users"
                 ? " Users still in the signup approval workflow are hidden until HOD and admin approval is completed."
                 : ""}

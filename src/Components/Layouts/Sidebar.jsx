@@ -33,7 +33,7 @@ const buildStaffNavItems = (currentUser) => {
 
   const items = [
     { id: "staff-dashboard", type: "item", label: "Dashboard", path: "/staff/dashboard", icon: "dashboard" },
-    { id: "staff-item-requests", type: "section", label: "Item Requests" },
+    { id: "staff-item-requests", type: "section", label: "Item Requests", icon: "receipt_long" },
     { id: "staff-request-items", type: "item", label: "Request Items", path: "/inventory/requests/new/staff", icon: "add_circle", nested: true },
     { id: "staff-my-requests", type: "item", label: "My Requests", path: "/requests/my/staff", icon: "fact_check", nested: true },
     { id: "staff-my-issued-items", type: "item", label: "My Issued Items", path: "/inventory/list/staff", icon: "inventory_2", nested: true },
@@ -52,7 +52,7 @@ const buildStaffNavItems = (currentUser) => {
   }
 
   if (hasAssignedInventories || canCreateInventoryRequests) {
-    items.push({ id: "staff-inventories", type: "section", label: "Inventories" });
+    items.push({ id: "staff-inventories", type: "section", label: "Inventories", icon: "inventory_2" });
     items.push({
       id: "staff-my-inventories",
       type: "item",
@@ -168,6 +168,7 @@ const Sidebar = ({ variant = "inventory", onCollapseChange }) => {
         activeMenu = {
           id: item.id,
           label: item.label,
+          icon: item.icon,
           type: "menu",
           children: [],
         };
@@ -280,12 +281,15 @@ const Sidebar = ({ variant = "inventory", onCollapseChange }) => {
                   type="button"
                   onClick={() => toggleMenu(entry.id)}
                   className={`
-                    flex items-center justify-between w-full px-4 py-3 rounded-md transition-colors text-left
+                    flex items-center gap-3 w-full px-4 py-3 rounded-md transition-colors text-left
                     ${hasActiveChild ? "bg-primary-700 text-white" : "text-primary-100 hover:bg-primary-700"}
                   `}
                 >
-                  <span className="text-sm font-medium">{entry.label}</span>
-                  <span className="material-symbols-outlined text-base">
+                  {entry.icon && (
+                    <span className="material-symbols-outlined flex-shrink-0">{entry.icon}</span>
+                  )}
+                  <span className="text-sm font-medium flex-1">{entry.label}</span>
+                  <span className="material-symbols-outlined text-base flex-shrink-0">
                     {isOpen ? "expand_less" : "expand_more"}
                   </span>
                 </button>

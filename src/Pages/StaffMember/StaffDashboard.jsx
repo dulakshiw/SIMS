@@ -15,25 +15,6 @@ const getStoredUser = () => {
   }
 }
 
-const getTimeOfDayGreeting = () => {
-  const hour = new Date().getHours()
-
-  if (hour < 12) {
-    return 'Good morning'
-  }
-
-  if (hour < 18) {
-    return 'Good afternoon'
-  }
-
-  return 'Good evening'
-}
-
-const getLastName = (fullName = 'User') => {
-  const nameParts = String(fullName).trim().split(/\s+/).filter(Boolean)
-  return nameParts[nameParts.length - 1] || 'User'
-}
-
 const StaffDashboard = () => {
   const navigate = useNavigate()
   const location = useLocation()
@@ -41,7 +22,6 @@ const StaffDashboard = () => {
   const userRole = currentUser.role || (Number(currentUser.assignedInventoryCount ?? 0) > 0 ? 'inventory_incharge' : '') || localStorage.getItem('userRole') || 'staff'
   const isInventoryOfficer = userRole === 'inventory_incharge'
   const userDesignation = String(currentUser.designation || '').trim()
-  const greeting = `${getTimeOfDayGreeting()} ${getLastName(currentUser.name || localStorage.getItem('username') || 'User')}`
   const canRequestInventoryCreation = ['staff', 'inventory_incharge'].includes(userRole) && ALLOWED_INVENTORY_REQUEST_DESIGNATIONS.has(userDesignation)
   const [inventorySummary, setInventorySummary] = useState({
     totalAssets: 0,
@@ -109,11 +89,6 @@ const StaffDashboard = () => {
     myIssuedItems: 0,
   }
 
-  const mockRecent = [
-    { item: 'Projector Epson X200', action: 'Requested', date: '2024-01-20' },
-    { item: 'Whiteboard', action: 'Returned', date: '2024-01-18' },
-  ]
-
   useEffect(() => {
     if (!isInventoryOfficer) {
       return undefined
@@ -180,7 +155,7 @@ const StaffDashboard = () => {
   return (
     <MainLayout variant="staff">
       <PageHeader
-        title={greeting}
+        title="Dashboard"
         subtitle={isInventoryOfficer ? 'You can use your account for both staff requests and inventory management.' : 'Request items and view details of items issued to you'}
       />
 
@@ -220,17 +195,7 @@ const StaffDashboard = () => {
         </div>
 
         <Card title="Recent Activity" icon="history">
-          <div className="space-y-3">
-            {mockRecent.map((r, i) => (
-              <div key={i} className="flex items-center justify-between p-3 border-b border-border-lighter last:border-0">
-                <div>
-                  <p className="font-medium text-text-dark">{r.item}</p>
-                  <p className="text-sm text-text-light">{r.action}</p>
-                </div>
-                <span className="text-sm text-text-light">{r.date}</span>
-              </div>
-            ))}
-          </div>
+          <p className="text-sm text-text-light">No recent activity yet.</p>
         </Card>
       </div>
     </MainLayout>

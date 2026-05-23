@@ -286,7 +286,14 @@ const InventoryListView = () => {
         .toLowerCase()
         .includes(searchTerm.toLowerCase())
     )
-    .map((item, index) => ({ ...item, no: index + 1 }));
+    .sort(
+      (left, right) =>
+        Number(right.id ?? right.item_id ?? 0) - Number(left.id ?? left.item_id ?? 0)
+    )
+    .map((item, index, array) => ({
+      ...item,
+      no: array.length - index,
+    }));
 
   const handleItemRowClick = (row) => {
     navigate(`/inventory/item/${row.id}/${role || sidebarVariant}`);
@@ -649,7 +656,7 @@ const InventoryListView = () => {
                 </div>
               ))}
             </div>
-            <p className="text-sm text-text-light border-t border-border-lighter pt-4">
+            <p className="text-sm text-text-light border-t border-border-dark pt-4">
               {selectedPendingRequest.requestType === INVENTORY_REQUEST_TYPE.CHANGE_INCHARGE
                 ? "After HOD recommendation and administrator approval, this inventory will be assigned to the proposed officer and removed from your list."
                 : "This inventory will appear as an assigned inventory once the administrator completes activation."}
@@ -673,7 +680,7 @@ const InventoryListView = () => {
               onClick={submitAssignOfficerRequest}
               disabled={assignSubmitting || assignOptionsLoading || officerCandidates.length === 0}
             >
-              {assignSubmitting ? "Submitting..." : "Submit to HOD"}
+              {assignSubmitting ? "Submitting..." : "Submit Request"}
             </Button>
           </div>
         )}
@@ -738,7 +745,7 @@ const InventoryListView = () => {
               />
             </div>
 
-            <p className="text-sm text-text-light border-t border-border-lighter pt-3">
+            <p className="rounded bg-yellow-100 px-4 py-3 text-sm text-text-dark border border-red-200 text-justify">
               Your Head of Department will review and recommend this change. The administrator will then update the inventory officer. You will lose access to this inventory after approval.
             </p>
           </div>

@@ -1180,24 +1180,16 @@ const AdminPendingTasks = () => {
                 </Button>
               </>
             ) : null}
-            {detailsModalType === "user" && selectedDetails ? (
-              selectedDetails.status === "inactive" ? (
-                <Button
-                  variant="primary"
-                  icon="check_circle"
-                  onClick={() => openConfirm("activate", selectedDetails, "activate-user")}
-                >
-                  Activate
-                </Button>
-              ) : (
-                <Button
-                  variant="danger"
-                  icon="block"
-                  onClick={() => openConfirm("deactivate", selectedDetails, "deactivate-user")}
-                >
-                  Deactivate
-                </Button>
-              )
+            {detailsModalType === "user" &&
+            selectedDetails &&
+            selectedDetails.status === "inactive" ? (
+              <Button
+                variant="primary"
+                icon="check_circle"
+                onClick={() => openConfirm("activate", selectedDetails, "activate-user")}
+              >
+                Activate
+              </Button>
             ) : null}
             {detailsModalType === "inventory" && selectedDetails ? (
               <>
