@@ -1332,7 +1332,6 @@ const getPendingAccountStatusMessage = (approvalStatus, requestedRole) => {
   const statusMessages = {
     pending_dept_head: `Your ${normalizedRole.replace(/_/g, " ")} request is waiting for HOD approval.`,
     pending_dean: `Your ${normalizedRole.replace(/_/g, " ")} request is waiting for dean approval.`,
-    pending_admin: `Your ${normalizedRole.replace(/_/g, " ")} request is waiting for admin activation.`,
   };
 
   return statusMessages[normalizedStatus] || "Your account is not active yet. Please contact the administrator.";
@@ -2351,11 +2350,208 @@ app.get(
   })
 );
 
+const buildAccountRequestCompletionUpdates = ({
+  accountRequestColumns,
+  approverUserId,
+  approverRole,
+  resolvedUserId = null,
+}) => {
+  const updateAssignments = [];
+  const updateValues = [];
+
+  if (accountRequestColumns.has("approval_status")) {
+    updateAssignments.push("approval_status = ?");
+    updateValues.push("approved_by_admin");
+  }
+
+  if (approverRole === "head_of_department") {
+    if (accountRequestColumns.has("dept_head_approved_date")) {
+      updateAssignments.push("dept_head_approved_date = CURRENT_TIMESTAMP");
+    }
+
+    if (accountRequestColumns.has("dept_head_approved_by_id")) {
+      updateAssignments.push("dept_head_approved_by_id = ?");
+      updateValues.push(approverUserId > 0 ? approverUserId : null);
+    }
+  } else if (approverRole === "dean") {
+    if (accountRequestColumns.has("dean_approved_date")) {
+      updateAssignments.push("dean_approved_date = CURRENT_TIMESTAMP");
+    }
+
+    if (accountRequestColumns.has("dean_approved_by_id")) {
+      updateAssignments.push("dean_approved_by_id = ?");
+      updateValues.push(approverUserId > 0 ? approverUserId : null);
+    }
+  } else if (approverRole === "admin") {
+    if (accountRequestColumns.has("admin_approved_date")) {
+      updateAssignments.push("admin_approved_date = CURRENT_TIMESTAMP");
+    }
+
+    if (accountRequestColumns.has("admin_approved_by_id")) {
+      updateAssignments.push("admin_approved_by_id = ?");
+      updateValues.push(approverUserId > 0 ? approverUserId : null);
+    }
+  }
+
+  if (accountRequestColumns.has("user_id") && resolvedUserId) {
+    updateAssignments.push("user_id = ?");
+    updateValues.push(resolvedUserId);
+  }
+
+  return { updateAssignments, updateValues };
+};
+
+const finalizeAccountRequestApproval = async ({
+  request,
+  requestId,
+  requestType,
+  schema,
+  accountRequestColumns,
+  approverUserId,
+  approverRole,
+}) => {
+  const targetUserId = Number(request.user_id ?? 0);
+
+  if (requestType === "deactivation") {
+    const userToDeactivate = Number(request.user_id ?? 0);
+
+    if (!Number.isInteger(userToDeactivate) || userToDeactivate <= 0) {
+      return { status: 400, body: { success: false, message: "Deactivation request is missing the target user." } };
+    }
+
+    await updateStoredUserStatus(
+      schema,
+      userToDeactivate,
+      schema.hasUserRolesTable ? "Inactive" : "inactive"
+    );
+
+    const { updateAssignments, updateValues } = buildAccountRequestCompletionUpdates({
+      accountRequestColumns,
+      approverUserId,
+      approverRole,
+    });
+
+    updateValues.push(requestId);
+    await pool.execute(`UPDATE account_requests SET ${updateAssignments.join(", ")} WHERE id = ?`, updateValues);
+
+    return {
+      status: 200,
+      body: { success: true, message: "Deactivation approved and the user account has been deactivated." },
+    };
+  }
+
+  const finalRole = normalizeRoleForStorage(request.requested_role || "staff");
+  const appliedRole = ["head_of_department", "dean", "admin", "registrar"].includes(finalRole) ? finalRole : "staff";
+  let resolvedUserId = targetUserId > 0 ? targetUserId : null;
+
+  if (resolvedUserId) {
+    await updateStoredUserRole(schema, resolvedUserId, appliedRole);
+    await updateStoredUserStatus(schema, resolvedUserId, schema.hasUserRolesTable ? "Active" : "active");
+  } else {
+    const normalizedEmail = String(request.email || "").trim().toLowerCase();
+    const [existingUserRows] = await pool.execute(
+      "SELECT 1 FROM users WHERE LOWER(email) = ? LIMIT 1",
+      [normalizedEmail]
+    );
+
+    if (existingUserRows.length > 0) {
+      return { status: 409, body: { success: false, message: "A user account with this email already exists." } };
+    }
+
+    const userNameColumn = schema.userColumns.has("name") ? "name" : "full_name";
+    const insertColumns = [userNameColumn, "email", "password", "department_id", "status"];
+    const insertValues = [
+      String(request.requested_by_name || request.email || "").trim(),
+      normalizedEmail,
+      String(request.requested_password || ""),
+      request.requested_department_id ?? null,
+      schema.hasUserRolesTable ? "Active" : "active",
+    ];
+
+    if (schema.userColumns.has("role")) {
+      insertColumns.push("role");
+      insertValues.push(appliedRole);
+    } else if (schema.hasUserRolesTable) {
+      const roleId = await resolveRoleId(appliedRole);
+
+      if (!roleId) {
+        return { status: 400, body: { success: false, message: "Unable to resolve the approved role for this account." } };
+      }
+
+      insertColumns.push("role_id");
+      insertValues.push(roleId);
+    }
+
+    const requestedDesignation = String(request.requested_designation || "").trim();
+    const designationId = await resolveDesignationId(schema, requestedDesignation);
+    if (requestedDesignation && schema.userColumns.has("designation_id") && designationId) {
+      insertColumns.push("designation_id");
+      insertValues.push(designationId);
+    } else if (requestedDesignation && schema.userColumns.has("designation")) {
+      insertColumns.push("designation");
+      insertValues.push(requestedDesignation);
+    }
+
+    const mobileNo = Number(String(request.requested_mobile_no || "").trim());
+    if (schema.userColumns.has("mobile_no") && !Number.isNaN(mobileNo) && mobileNo > 0) {
+      insertColumns.push("mobile_no");
+      insertValues.push(mobileNo);
+    }
+
+    const officeExtNo = Number(String(request.requested_off_ext || "").trim());
+    if (schema.userColumns.has("off_ext") && !Number.isNaN(officeExtNo) && officeExtNo > 0) {
+      insertColumns.push("off_ext");
+      insertValues.push(officeExtNo);
+    }
+
+    const placeholders = insertColumns.map(() => "?").join(", ");
+    const [insertResult] = await pool.execute(
+      `INSERT INTO users (${insertColumns.join(", ")}) VALUES (${placeholders})`,
+      insertValues
+    );
+
+    resolvedUserId = Number(insertResult.insertId);
+  }
+
+  const { updateAssignments, updateValues } = buildAccountRequestCompletionUpdates({
+    accountRequestColumns,
+    approverUserId,
+    approverRole,
+    resolvedUserId,
+  });
+
+  updateValues.push(requestId);
+  await pool.execute(`UPDATE account_requests SET ${updateAssignments.join(", ")} WHERE id = ?`, updateValues);
+
+  const activatedEmail = String(request.email || "").trim().toLowerCase();
+  const activatedName = String(request.requested_by_name || request.email || "").trim();
+  await notifyAccountActivated({ email: activatedEmail, name: activatedName });
+
+  return {
+    status: 200,
+    body: {
+      success: true,
+      message: appliedRole === "staff"
+        ? "Account approved and activated with staff access."
+        : `Account approved and activated with ${appliedRole.replace(/_/g, " ")} access.`,
+      user: {
+        id: resolvedUserId,
+        name: activatedName,
+        email: activatedEmail,
+        role: appliedRole,
+        status: "active",
+        departmentId: request.requested_department_id ?? null,
+        designation: String(request.requested_designation || "").trim(),
+      },
+    },
+  };
+};
+
 app.post(
   "/api/account-requests/:id/approve",
   withDatabase(async (req, res) => {
     const requestId = Number(req.params.id);
-    const approverRole = normalizeRoleForStorage(req.body?.approverRole || "admin");
+    const approverRole = normalizeRoleForStorage(req.body?.approverRole || "head_of_department");
     const approverUserId = Number(req.body?.approverUserId ?? 0);
 
     if (!Number.isInteger(requestId) || requestId <= 0) {
@@ -2391,170 +2587,23 @@ app.post(
     }
 
     const currentStatus = String(request.approval_status || "pending_dept_head").toLowerCase();
-    const targetUserId = Number(request.user_id ?? 0);
 
     if (approverRole === "admin") {
       if (currentStatus !== "pending_admin") {
         return res.status(409).json({ success: false, message: "This account request is not ready for admin approval." });
       }
 
-      if (requestType === "deactivation") {
-        const userToDeactivate = Number(request.user_id ?? 0);
-
-        if (!Number.isInteger(userToDeactivate) || userToDeactivate <= 0) {
-          return res.status(400).json({ success: false, message: "Deactivation request is missing the target user." });
-        }
-
-        await updateStoredUserStatus(
-          schema,
-          userToDeactivate,
-          schema.hasUserRolesTable ? "Inactive" : "inactive"
-        );
-
-        const updateAssignments = [];
-        const updateValues = [];
-
-        if (accountRequestColumns.has("approval_status")) {
-          updateAssignments.push("approval_status = ?");
-          updateValues.push("approved_by_admin");
-        }
-
-        if (accountRequestColumns.has("admin_approved_date")) {
-          updateAssignments.push("admin_approved_date = CURRENT_TIMESTAMP");
-        }
-
-        if (accountRequestColumns.has("admin_approved_by_id")) {
-          updateAssignments.push("admin_approved_by_id = ?");
-          updateValues.push(approverUserId > 0 ? approverUserId : null);
-        }
-
-        updateValues.push(requestId);
-        await pool.execute(`UPDATE account_requests SET ${updateAssignments.join(", ")} WHERE id = ?`, updateValues);
-
-        return res.json({
-          success: true,
-          message: "Deactivation approved and the user account has been deactivated.",
-        });
-      }
-
-      const finalRole = normalizeRoleForStorage(request.requested_role || "staff");
-      const appliedRole = ["head_of_department", "dean", "admin", "registrar"].includes(finalRole) ? finalRole : "staff";
-
-      let resolvedUserId = targetUserId > 0 ? targetUserId : null;
-
-      if (resolvedUserId) {
-        await updateStoredUserRole(schema, resolvedUserId, appliedRole);
-        await updateStoredUserStatus(schema, resolvedUserId, schema.hasUserRolesTable ? "Active" : "active");
-      } else {
-        const normalizedEmail = String(request.email || "").trim().toLowerCase();
-        const [existingUserRows] = await pool.execute(
-          "SELECT 1 FROM users WHERE LOWER(email) = ? LIMIT 1",
-          [normalizedEmail]
-        );
-
-        if (existingUserRows.length > 0) {
-          return res.status(409).json({ success: false, message: "A user account with this email already exists." });
-        }
-
-        const userNameColumn = schema.userColumns.has("name") ? "name" : "full_name";
-        const insertColumns = [userNameColumn, "email", "password", "department_id", "status"];
-        const insertValues = [
-          String(request.requested_by_name || request.email || "").trim(),
-          normalizedEmail,
-          String(request.requested_password || ""),
-          request.requested_department_id ?? null,
-          schema.hasUserRolesTable ? "Active" : "active",
-        ];
-
-        if (schema.userColumns.has("role")) {
-          insertColumns.push("role");
-          insertValues.push(appliedRole);
-        } else if (schema.hasUserRolesTable) {
-          const roleId = await resolveRoleId(appliedRole);
-
-          if (!roleId) {
-            return res.status(400).json({ success: false, message: "Unable to resolve the approved role for this account." });
-          }
-
-          insertColumns.push("role_id");
-          insertValues.push(roleId);
-        }
-
-        const requestedDesignation = String(request.requested_designation || "").trim();
-        const designationId = await resolveDesignationId(schema, requestedDesignation);
-        if (requestedDesignation && schema.userColumns.has("designation_id") && designationId) {
-          insertColumns.push("designation_id");
-          insertValues.push(designationId);
-        } else if (requestedDesignation && schema.userColumns.has("designation")) {
-          insertColumns.push("designation");
-          insertValues.push(requestedDesignation);
-        }
-
-        const mobileNo = Number(String(request.requested_mobile_no || "").trim());
-        if (schema.userColumns.has("mobile_no") && !Number.isNaN(mobileNo) && mobileNo > 0) {
-          insertColumns.push("mobile_no");
-          insertValues.push(mobileNo);
-        }
-
-        const officeExtNo = Number(String(request.requested_off_ext || "").trim());
-        if (schema.userColumns.has("off_ext") && !Number.isNaN(officeExtNo) && officeExtNo > 0) {
-          insertColumns.push("off_ext");
-          insertValues.push(officeExtNo);
-        }
-
-        const placeholders = insertColumns.map(() => "?").join(", ");
-        const [insertResult] = await pool.execute(
-          `INSERT INTO users (${insertColumns.join(", ")}) VALUES (${placeholders})`,
-          insertValues
-        );
-
-        resolvedUserId = Number(insertResult.insertId);
-      }
-
-      const updateAssignments = [];
-      const updateValues = [];
-
-      if (accountRequestColumns.has("approval_status")) {
-        updateAssignments.push("approval_status = ?");
-        updateValues.push("approved_by_admin");
-      }
-
-      if (accountRequestColumns.has("admin_approved_date")) {
-        updateAssignments.push("admin_approved_date = CURRENT_TIMESTAMP");
-      }
-
-      if (accountRequestColumns.has("admin_approved_by_id")) {
-        updateAssignments.push("admin_approved_by_id = ?");
-        updateValues.push(approverUserId > 0 ? approverUserId : null);
-      }
-
-      if (accountRequestColumns.has("user_id")) {
-        updateAssignments.push("user_id = ?");
-        updateValues.push(resolvedUserId);
-      }
-
-      updateValues.push(requestId);
-      await pool.execute(`UPDATE account_requests SET ${updateAssignments.join(", ")} WHERE id = ?`, updateValues);
-
-      const activatedEmail = String(request.email || "").trim().toLowerCase();
-      const activatedName = String(request.requested_by_name || request.email || "").trim();
-      await notifyAccountActivated({ email: activatedEmail, name: activatedName });
-
-      return res.json({
-        success: true,
-        message: appliedRole === "staff"
-          ? "Account approved and activated with staff access."
-          : `Account approved and activated with ${appliedRole.replace(/_/g, " ")} access.`,
-        user: {
-          id: resolvedUserId,
-          name: activatedName,
-          email: activatedEmail,
-          role: appliedRole,
-          status: "active",
-          departmentId: request.requested_department_id ?? null,
-          designation: String(request.requested_designation || "").trim(),
-        },
+      const result = await finalizeAccountRequestApproval({
+        request,
+        requestId,
+        requestType,
+        schema,
+        accountRequestColumns,
+        approverUserId,
+        approverRole: "admin",
       });
+
+      return res.status(result.status).json(result.body);
     }
 
     if (approverRole === "dean") {
@@ -2562,60 +2611,34 @@ app.post(
         return res.status(409).json({ success: false, message: "This account request is not awaiting dean approval." });
       }
 
-      const updateAssignments = [];
-      const updateValues = [];
-
-      if (accountRequestColumns.has("approval_status")) {
-        updateAssignments.push("approval_status = ?");
-        updateValues.push("pending_admin");
-      }
-
-      if (accountRequestColumns.has("dean_approved_date")) {
-        updateAssignments.push("dean_approved_date = CURRENT_TIMESTAMP");
-      }
-
-      if (accountRequestColumns.has("dean_approved_by_id")) {
-        updateAssignments.push("dean_approved_by_id = ?");
-        updateValues.push(approverUserId > 0 ? approverUserId : null);
-      }
-
-      updateValues.push(requestId);
-      await pool.execute(`UPDATE account_requests SET ${updateAssignments.join(", ")} WHERE id = ?`, updateValues);
-
-      return res.json({
-        success: true,
-        message: "Account request approved by the dean and forwarded for admin activation.",
+      const result = await finalizeAccountRequestApproval({
+        request,
+        requestId,
+        requestType,
+        schema,
+        accountRequestColumns,
+        approverUserId,
+        approverRole: "dean",
       });
+
+      return res.status(result.status).json(result.body);
     }
 
     if (currentStatus !== "pending_dept_head") {
       return res.status(409).json({ success: false, message: "This account request is not awaiting department-level approval." });
     }
 
-    const updateAssignments = [];
-    const updateValues = [];
-
-    if (accountRequestColumns.has("approval_status")) {
-      updateAssignments.push("approval_status = ?");
-      updateValues.push("pending_admin");
-    }
-
-    if (accountRequestColumns.has("dept_head_approved_date")) {
-      updateAssignments.push("dept_head_approved_date = CURRENT_TIMESTAMP");
-    }
-
-    if (accountRequestColumns.has("dept_head_approved_by_id")) {
-      updateAssignments.push("dept_head_approved_by_id = ?");
-      updateValues.push(approverUserId > 0 ? approverUserId : null);
-    }
-
-    updateValues.push(requestId);
-    await pool.execute(`UPDATE account_requests SET ${updateAssignments.join(", ")} WHERE id = ?`, updateValues);
-
-    return res.json({
-      success: true,
-      message: "Account request approved by the HOD and forwarded for admin activation.",
+    const result = await finalizeAccountRequestApproval({
+      request,
+      requestId,
+      requestType,
+      schema,
+      accountRequestColumns,
+      approverUserId,
+      approverRole: "head_of_department",
     });
+
+    return res.status(result.status).json(result.body);
   })
 );
 
@@ -2744,7 +2767,6 @@ app.patch(
           const statusMessages = {
             pending_dept_head: "This account is still waiting for HOD approval and cannot be activated yet.",
             pending_dean: "This account is still waiting for dean approval and cannot be activated yet.",
-            pending_admin: "Use the account approval flow to activate this account after reviewing the request.",
             rejected: "This account request was rejected and cannot be activated.",
           };
 
@@ -3377,65 +3399,7 @@ app.put(
   })
 );
 
-const getAdminPendingTasksCount = async (tableNames) => {
-  if (!tableNames.has("users")) {
-    return 0;
-  }
-
-  const schema = await getAuthSchema();
-  const userIdColumn = getUserPrimaryKeyColumn(schema);
-  let pendingAccountApprovals = 0;
-  let pendingUserActivations = 0;
-  let pendingInventoryRequests = 0;
-
-  if (tableNames.has("account_requests")) {
-    const accountRequestColumns = await getTableColumns("account_requests");
-    const accountRequestTypeClause = accountRequestColumns.has("request_type")
-      ? "LOWER(COALESCE(request_type, 'account_creation')) IN ('account_creation', 'deactivation')"
-      : "1 = 1";
-    const joinedAccountRequestTypeClause = accountRequestColumns.has("request_type")
-      ? "LOWER(COALESCE(ar.request_type, 'account_creation')) IN ('account_creation', 'deactivation')"
-      : "1 = 1";
-
-    pendingAccountApprovals = await getCountValue(`
-      SELECT COUNT(*) AS count
-      FROM account_requests
-      WHERE ${accountRequestTypeClause}
-        AND LOWER(TRIM(COALESCE(approval_status, ''))) = 'pending_admin'
-    `);
-
-    if (accountRequestColumns.has("user_id")) {
-      pendingUserActivations = await getCountValue(`
-        SELECT COUNT(*) AS count
-        FROM users u
-        WHERE LOWER(COALESCE(u.status, '')) = 'inactive'
-          AND u.${userIdColumn} NOT IN (
-            SELECT ar.user_id
-            FROM account_requests ar
-            WHERE ar.user_id IS NOT NULL
-              AND ${joinedAccountRequestTypeClause}
-              AND LOWER(TRIM(COALESCE(ar.approval_status, ''))) != 'approved_by_admin'
-          )
-      `);
-    } else {
-      pendingUserActivations = await getCountValue(
-        "SELECT COUNT(*) AS count FROM users WHERE LOWER(COALESCE(status, '')) = 'inactive'"
-      );
-    }
-  } else {
-    pendingUserActivations = await getCountValue(
-      "SELECT COUNT(*) AS count FROM users WHERE LOWER(COALESCE(status, '')) = 'inactive'"
-    );
-  }
-
-  if (tableNames.has("inventory_creation_requests")) {
-    pendingInventoryRequests = await getCountValue(
-      "SELECT COUNT(*) AS count FROM inventory_creation_requests WHERE LOWER(TRIM(COALESCE(approval_status, ''))) = 'pending_admin'"
-    );
-  }
-
-  return pendingAccountApprovals + pendingUserActivations + pendingInventoryRequests;
-};
+const getAdminPendingTasksCount = async () => 0;
 
 const getRecentDashboardActivities = async (tableNames, limit = 10) => {
   const activities = [];
@@ -3469,21 +3433,13 @@ const getRecentDashboardActivities = async (tableNames, limit = 10) => {
     const normalizedStatus = String(approvalStatus || "").toLowerCase();
 
     if (normalizedStatus === "pending_admin") {
-      return { link: "/admin/pending-tasks", tab: "account-approvals" };
+      return { link: "/admin/users" };
     }
 
     return { link: "/admin/users" };
   };
 
-  const resolveInventoryRequestNavigation = (approvalStatus) => {
-    const normalizedStatus = String(approvalStatus || "").toLowerCase();
-
-    if (["pending_admin", "pending_registrar", "pending_hod"].includes(normalizedStatus)) {
-      return { link: "/admin/pending-tasks", tab: "inventory-requests" };
-    }
-
-    return { link: "/admin/inventory" };
-  };
+  const resolveInventoryRequestNavigation = () => ({ link: "/admin/inventory" });
 
   if (tableNames.has("audit_logs")) {
     const [auditRows] = await pool.query(
@@ -3623,8 +3579,7 @@ const getRecentDashboardActivities = async (tableNames, limit = 10) => {
           type: "user",
           category: "user",
           entityId: row.id,
-          link: status === "inactive" ? "/admin/pending-tasks" : "/admin/users",
-          tab: status === "inactive" ? "user-activation" : null,
+          link: "/admin/users",
         });
       });
     }
@@ -3675,7 +3630,7 @@ const getRecentDashboardActivities = async (tableNames, limit = 10) => {
         message = `Inventory request awaiting admin approval - ${inventoryName}`;
       }
 
-      const inventoryNavigation = resolveInventoryRequestNavigation(approvalStatus);
+      const inventoryNavigation = resolveInventoryRequestNavigation();
 
       pushActivity({
         id: `inventory-request-${row.id}`,
@@ -3851,7 +3806,7 @@ app.get(
         )
       : 0;
 
-    const pendingTasks = await getAdminPendingTasksCount(tableNames);
+    const pendingTasks = await getAdminPendingTasksCount();
     const recentActivities = await getRecentDashboardActivities(tableNames, 5);
 
     const pendingRequests = tableNames.has("item_requests")
@@ -4289,12 +4244,12 @@ app.post(
       return res.status(201).json({
         success: true,
         message: requestedRole === "admin"
-          ? "Admin account request submitted successfully. Your account will stay pending until dean and admin approval."
+          ? "Admin account request submitted successfully. Your account will stay pending until dean approval."
           : requiresDeanApproval
-            ? "Account request submitted successfully. Your account will stay pending until dean and admin approval."
+            ? "Account request submitted successfully. Your account will stay pending until dean approval."
             : isAdminManagedSignup
-              ? "Account request submitted for HOD review. It is listed under User Management → Pending Approvals; approve or reject will be available after the HOD approves."
-              : "Staff account request submitted successfully. Your account will stay pending until HOD review and admin activation.",
+              ? "Account request submitted for HOD review. It is listed under User Management → Pending Approvals."
+              : "Staff account request submitted successfully. Your account will stay pending until HOD approval.",
         request: {
           id: requestResult.insertId,
           name: fullName,
@@ -4923,6 +4878,181 @@ app.post(
   })
 );
 
+const finalizeInventoryCreationRequest = async ({
+  inv,
+  requestId,
+  requestType,
+  inventoryRequestColumns,
+  inventoryRequestIdColumn,
+  inventoryColumns,
+  approverUserId,
+  approverRole,
+}) => {
+  const inventoryNameColumn = getInventoryNameColumn(inventoryColumns);
+  const inventoryInchargeColumn = getInventoryInchargeColumn(inventoryColumns);
+  const inventoryHodColumn = getInventoryHodColumn(inventoryColumns);
+
+  if (!inventoryNameColumn || !inventoryInchargeColumn) {
+    return { status: 500, body: { success: false, message: "Inventory schema is missing required columns." } };
+  }
+
+  const name = String(inv.name ?? "").trim();
+  const location = String(inv.location ?? "").trim();
+  const departmentId = Number(inv.department_id ?? 0);
+  const inchargeId = Number(inv.incharge_user_id ?? 0);
+  const hodUserId = Number(inv.hod_user_id ?? 0);
+  const previousInchargeId = Number(inv.previous_incharge_user_id ?? 0);
+  const targetInventoryId = Number(inv.target_inventory_id ?? 0);
+  const inventoryIdColumn = getInventoryIdColumn(inventoryColumns);
+
+  if (!name || !location || !Number.isInteger(departmentId) || departmentId <= 0) {
+    return { status: 400, body: { success: false, message: "Request is missing required inventory details." } };
+  }
+
+  if (!Number.isInteger(inchargeId) || inchargeId <= 0) {
+    return { status: 400, body: { success: false, message: "Request is missing a valid in-charge person." } };
+  }
+
+  let resultingInventoryId = null;
+
+  if (requestType === "change_incharge") {
+    if (!inventoryIdColumn || !Number.isInteger(targetInventoryId) || targetInventoryId <= 0) {
+      return { status: 400, body: { success: false, message: "Request is missing a valid target inventory." } };
+    }
+
+    const [existingInventoryRows] = await pool.execute(
+      `SELECT ${inventoryInchargeColumn} AS incharge_id FROM inventories WHERE ${inventoryIdColumn} = ? LIMIT 1`,
+      [targetInventoryId]
+    );
+
+    if (existingInventoryRows.length === 0) {
+      return { status: 404, body: { success: false, message: "Target inventory was not found." } };
+    }
+
+    const currentInchargeOnRecord = Number(existingInventoryRows[0]?.incharge_id ?? 0);
+
+    if (previousInchargeId > 0 && currentInchargeOnRecord !== previousInchargeId) {
+      return {
+        status: 409,
+        body: {
+          success: false,
+          message: "This inventory already has a different officer assigned. The reassignment request is out of date.",
+        },
+      };
+    }
+
+    const updateAssignments = [`${inventoryInchargeColumn} = ?`];
+    const updateValues = [inchargeId];
+
+    if (inventoryHodColumn && Number.isInteger(hodUserId) && hodUserId > 0) {
+      updateAssignments.push(`${inventoryHodColumn} = ?`);
+      updateValues.push(hodUserId);
+    }
+
+    updateValues.push(targetInventoryId);
+
+    await pool.execute(
+      `UPDATE inventories SET ${updateAssignments.join(", ")} WHERE ${inventoryIdColumn} = ?`,
+      updateValues
+    );
+
+    const assignmentCounts = await getInventoryAssignmentCounts();
+    await syncInventoryInchargeRole(inchargeId, assignmentCounts);
+
+    const priorInchargeId = previousInchargeId > 0 ? previousInchargeId : currentInchargeOnRecord;
+
+    if (priorInchargeId > 0 && priorInchargeId !== inchargeId) {
+      await syncInventoryInchargeRole(priorInchargeId, assignmentCounts);
+    }
+
+    resultingInventoryId = targetInventoryId;
+  } else {
+    const insertColumns = [inventoryNameColumn, "department_id", inventoryInchargeColumn, "location"];
+    const insertValues = [name, departmentId, inchargeId, location];
+
+    if (inventoryHodColumn && Number.isInteger(hodUserId) && hodUserId > 0) {
+      insertColumns.push(inventoryHodColumn);
+      insertValues.push(hodUserId);
+    }
+
+    const placeholders = insertColumns.map(() => "?").join(", ");
+    const [inventoryResult] = await pool.execute(
+      `INSERT INTO inventories (${insertColumns.join(", ")}) VALUES (${placeholders})`,
+      insertValues
+    );
+
+    await syncInventoryInchargeRole(inchargeId);
+    resultingInventoryId = inventoryResult.insertId;
+  }
+
+  const updateParts = [];
+  const updateValues = [];
+
+  if (inventoryRequestColumns.has("approval_status")) {
+    updateParts.push("approval_status = ?");
+    updateValues.push(toDbInventoryApprovalStatus("approved_by_admin"));
+  }
+
+  if (approverRole === "head_of_department") {
+    if (inventoryRequestColumns.has("hod_approved_date")) {
+      updateParts.push("hod_approved_date = CURRENT_TIMESTAMP");
+    }
+
+    if (inventoryRequestColumns.has("hod_approved_by_id")) {
+      updateParts.push("hod_approved_by_id = ?");
+      updateValues.push(approverUserId);
+    }
+  } else if (approverRole === "registrar") {
+    if (inventoryRequestColumns.has("registrar_approved_date")) {
+      updateParts.push("registrar_approved_date = CURRENT_TIMESTAMP");
+    }
+
+    if (inventoryRequestColumns.has("registrar_approved_by_id") && Number.isInteger(approverUserId) && approverUserId > 0) {
+      updateParts.push("registrar_approved_by_id = ?");
+      updateValues.push(approverUserId);
+    }
+  } else if (approverRole === "admin") {
+    if (inventoryRequestColumns.has("admin_approved_date")) {
+      updateParts.push("admin_approved_date = CURRENT_TIMESTAMP");
+    }
+
+    if (inventoryRequestColumns.has("admin_approved_by_id") && Number.isInteger(approverUserId) && approverUserId > 0) {
+      updateParts.push("admin_approved_by_id = ?");
+      updateValues.push(approverUserId);
+    }
+  }
+
+  if (inventoryRequestColumns.has("created_inventory_id") && resultingInventoryId) {
+    updateParts.push("created_inventory_id = ?");
+    updateValues.push(resultingInventoryId);
+  }
+
+  if (updateParts.length === 0) {
+    return { status: 500, body: { success: false, message: "Unable to update approval status." } };
+  }
+
+  updateValues.push(requestId);
+  await pool.execute(
+    `UPDATE inventory_creation_requests SET ${updateParts.join(", ")} WHERE ${inventoryRequestIdColumn} = ?`,
+    updateValues
+  );
+
+  return {
+    status: 200,
+    body: {
+      success: true,
+      message:
+        requestType === "change_incharge"
+          ? "Inventory officer updated. The previous officer no longer has access; the new officer can manage this inventory."
+          : requestType === "add_inventory"
+            ? "Existing inventory activated in the system."
+            : "Inventory created and request approved.",
+      approvalStatus: "approved_by_admin",
+      inventoryId: resultingInventoryId,
+    },
+  };
+};
+
 app.post(
   "/api/inventory-creation-requests/:id/approve-hod",
   withDatabase(async (req, res) => {
@@ -4964,9 +5094,24 @@ app.post(
     }
 
     const requestType = String(inv.request_type || "new_inventory_creation").toLowerCase();
-    const nextStatus = requestType === "add_inventory" || requestType === "change_incharge"
-      ? "pending_admin"
-      : "pending_registrar";
+
+    if (requestType === "add_inventory" || requestType === "change_incharge") {
+      const inventoryColumns = await ensureInventoriesLocationColumn();
+      const result = await finalizeInventoryCreationRequest({
+        inv,
+        requestId,
+        requestType,
+        inventoryRequestColumns,
+        inventoryRequestIdColumn,
+        inventoryColumns,
+        approverUserId,
+        approverRole: "head_of_department",
+      });
+
+      return res.status(result.status).json(result.body);
+    }
+
+    const nextStatus = "pending_registrar";
 
     const updateParts = [];
     const updateValues = [];
@@ -4997,12 +5142,7 @@ app.post(
 
     return res.json({
       success: true,
-      message:
-        requestType === "change_incharge"
-          ? "Inventory officer change recommended by the Head of Department and forwarded to the administrator for approval."
-          : requestType === "add_inventory"
-            ? "Inventory addition approved by the Head of Department and forwarded to the administrator for activation."
-            : "Inventory creation request approved by the Head of Department and forwarded to the registrar.",
+      message: "Inventory creation request approved by the Head of Department and forwarded to the registrar.",
       approvalStatus: nextStatus,
     });
   })
@@ -5016,16 +5156,9 @@ app.post(
     const inventoryRequestColumns = await ensureInventoryCreationRequestsTable();
     const inventoryRequestIdColumn = getInventoryRequestPrimaryKeyColumn(inventoryRequestColumns);
     const inventoryColumns = await ensureInventoriesLocationColumn();
-    const inventoryNameColumn = getInventoryNameColumn(inventoryColumns);
-    const inventoryInchargeColumn = getInventoryInchargeColumn(inventoryColumns);
-    const inventoryHodColumn = getInventoryHodColumn(inventoryColumns);
 
     if (!Number.isInteger(requestId) || requestId <= 0) {
       return res.status(400).json({ success: false, message: "A valid inventory creation request id is required." });
-    }
-
-    if (!inventoryNameColumn || !inventoryInchargeColumn) {
-      return res.status(500).json({ success: false, message: "Inventory schema is missing required columns." });
     }
 
     const [rows] = await pool.execute(
@@ -5045,135 +5178,18 @@ app.post(
       return res.status(409).json({ success: false, message: "This request is not awaiting admin approval." });
     }
 
-    const name = String(inv.name ?? "").trim();
-    const location = String(inv.location ?? "").trim();
-    const departmentId = Number(inv.department_id ?? 0);
-    const inchargeId = Number(inv.incharge_user_id ?? 0);
-    const hodUserId = Number(inv.hod_user_id ?? 0);
-    const previousInchargeId = Number(inv.previous_incharge_user_id ?? 0);
-    const targetInventoryId = Number(inv.target_inventory_id ?? 0);
-    const inventoryIdColumn = getInventoryIdColumn(inventoryColumns);
-
-    if (!name || !location || !Number.isInteger(departmentId) || departmentId <= 0) {
-      return res.status(400).json({ success: false, message: "Request is missing required inventory details." });
-    }
-
-    if (!Number.isInteger(inchargeId) || inchargeId <= 0) {
-      return res.status(400).json({ success: false, message: "Request is missing a valid in-charge person." });
-    }
-
-    let resultingInventoryId = null;
-
-    if (requestType === "change_incharge") {
-      if (!inventoryIdColumn || !Number.isInteger(targetInventoryId) || targetInventoryId <= 0) {
-        return res.status(400).json({ success: false, message: "Request is missing a valid target inventory." });
-      }
-
-      const [existingInventoryRows] = await pool.execute(
-        `SELECT ${inventoryInchargeColumn} AS incharge_id FROM inventories WHERE ${inventoryIdColumn} = ? LIMIT 1`,
-        [targetInventoryId]
-      );
-
-      if (existingInventoryRows.length === 0) {
-        return res.status(404).json({ success: false, message: "Target inventory was not found." });
-      }
-
-      const currentInchargeOnRecord = Number(existingInventoryRows[0]?.incharge_id ?? 0);
-
-      if (previousInchargeId > 0 && currentInchargeOnRecord !== previousInchargeId) {
-        return res.status(409).json({
-          success: false,
-          message: "This inventory already has a different officer assigned. The reassignment request is out of date.",
-        });
-      }
-
-      const updateAssignments = [`${inventoryInchargeColumn} = ?`];
-      const updateValues = [inchargeId];
-
-      if (inventoryHodColumn && Number.isInteger(hodUserId) && hodUserId > 0) {
-        updateAssignments.push(`${inventoryHodColumn} = ?`);
-        updateValues.push(hodUserId);
-      }
-
-      updateValues.push(targetInventoryId);
-
-      await pool.execute(
-        `UPDATE inventories SET ${updateAssignments.join(", ")} WHERE ${inventoryIdColumn} = ?`,
-        updateValues
-      );
-
-      const assignmentCounts = await getInventoryAssignmentCounts();
-      await syncInventoryInchargeRole(inchargeId, assignmentCounts);
-
-      const priorInchargeId = previousInchargeId > 0 ? previousInchargeId : currentInchargeOnRecord;
-
-      if (priorInchargeId > 0 && priorInchargeId !== inchargeId) {
-        await syncInventoryInchargeRole(priorInchargeId, assignmentCounts);
-      }
-
-      resultingInventoryId = targetInventoryId;
-    } else {
-      const insertColumns = [inventoryNameColumn, "department_id", inventoryInchargeColumn, "location"];
-      const insertValues = [name, departmentId, inchargeId, location];
-
-      if (inventoryHodColumn && Number.isInteger(hodUserId) && hodUserId > 0) {
-        insertColumns.push(inventoryHodColumn);
-        insertValues.push(hodUserId);
-      }
-
-      const placeholders = insertColumns.map(() => "?").join(", ");
-      const [inventoryResult] = await pool.execute(
-        `INSERT INTO inventories (${insertColumns.join(", ")}) VALUES (${placeholders})`,
-        insertValues
-      );
-
-      await syncInventoryInchargeRole(inchargeId);
-      resultingInventoryId = inventoryResult.insertId;
-    }
-
-    const updateParts = [];
-    const updateValues = [];
-
-    if (inventoryRequestColumns.has("approval_status")) {
-      updateParts.push("approval_status = ?");
-      updateValues.push(toDbInventoryApprovalStatus("approved_by_admin"));
-    }
-
-    if (inventoryRequestColumns.has("admin_approved_date")) {
-      updateParts.push("admin_approved_date = CURRENT_TIMESTAMP");
-    }
-
-    if (inventoryRequestColumns.has("admin_approved_by_id") && Number.isInteger(approverUserId) && approverUserId > 0) {
-      updateParts.push("admin_approved_by_id = ?");
-      updateValues.push(approverUserId);
-    }
-
-    if (inventoryRequestColumns.has("created_inventory_id") && resultingInventoryId) {
-      updateParts.push("created_inventory_id = ?");
-      updateValues.push(resultingInventoryId);
-    }
-
-    if (updateParts.length === 0) {
-      return res.status(500).json({ success: false, message: "Unable to update approval status." });
-    }
-
-    updateValues.push(requestId);
-    await pool.execute(
-      `UPDATE inventory_creation_requests SET ${updateParts.join(", ")} WHERE ${inventoryRequestIdColumn} = ?`,
-      updateValues
-    );
-
-    return res.json({
-      success: true,
-      message:
-        requestType === "change_incharge"
-          ? "Inventory officer updated. The previous officer no longer has access; the new officer can manage this inventory."
-          : requestType === "add_inventory"
-            ? "Existing inventory activated in the system."
-            : "Inventory created and request approved.",
-      approvalStatus: "approved_by_admin",
-      inventoryId: resultingInventoryId,
+    const result = await finalizeInventoryCreationRequest({
+      inv,
+      requestId,
+      requestType,
+      inventoryRequestColumns,
+      inventoryRequestIdColumn,
+      inventoryColumns,
+      approverUserId,
+      approverRole: "admin",
     });
+
+    return res.status(result.status).json(result.body);
   })
 );
 
@@ -5213,38 +5229,19 @@ app.post(
       });
     }
 
-    const updateParts = [];
-    const updateValues = [];
-
-    if (inventoryRequestColumns.has("approval_status")) {
-      updateParts.push("approval_status = ?");
-      updateValues.push(toDbInventoryApprovalStatus("pending_admin"));
-    }
-
-    if (inventoryRequestColumns.has("registrar_approved_date")) {
-      updateParts.push("registrar_approved_date = CURRENT_TIMESTAMP");
-    }
-
-    if (inventoryRequestColumns.has("registrar_approved_by_id") && Number.isInteger(approverUserId) && approverUserId > 0) {
-      updateParts.push("registrar_approved_by_id = ?");
-      updateValues.push(approverUserId);
-    }
-
-    if (updateParts.length === 0) {
-      return res.status(500).json({ success: false, message: "Unable to update approval status." });
-    }
-
-    updateValues.push(requestId);
-    await pool.execute(
-      `UPDATE inventory_creation_requests SET ${updateParts.join(", ")} WHERE ${inventoryRequestIdColumn} = ?`,
-      updateValues
-    );
-
-    return res.json({
-      success: true,
-      message: "Inventory creation request approved by the registrar and forwarded to the administrator for activation.",
-      approvalStatus: "pending_admin",
+    const inventoryColumns = await ensureInventoriesLocationColumn();
+    const result = await finalizeInventoryCreationRequest({
+      inv,
+      requestId,
+      requestType,
+      inventoryRequestColumns,
+      inventoryRequestIdColumn,
+      inventoryColumns,
+      approverUserId,
+      approverRole: "registrar",
     });
+
+    return res.status(result.status).json(result.body);
   })
 );
 
@@ -5555,12 +5552,12 @@ app.post(
     return res.status(201).json({
       success: true,
       message: normalizedRequestType === "change_incharge"
-        ? "Inventory officer change request submitted to your Head of Department for recommendation. After HOD approval, the administrator will assign the new officer."
+        ? "Inventory officer change request submitted to your Head of Department for approval."
         : isAdminSubmitted
           ? "Inventory request submitted for HOD review. It is listed under Inventory Management → Creation Requests; approve or reject will be available after required approvals."
           : normalizedRequestType === "add_inventory"
-            ? "Inventory addition request submitted to your Head of Department for approval. After HOD approval, it will be forwarded to the administrator for activation."
-            : "New inventory creation request submitted for HOD review. After HOD approval, it will proceed to registrar and admin approval.",
+            ? "Inventory addition request submitted to your Head of Department for approval."
+            : "New inventory creation request submitted for HOD review. After HOD approval, it will proceed to registrar approval.",
       requestId: result.insertId,
       requestType: normalizedRequestType,
       approvalStatus: "pending_hod",

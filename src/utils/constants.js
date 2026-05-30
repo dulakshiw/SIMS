@@ -157,7 +157,7 @@ export const ACCOUNT_REQUEST_STATUS_META = {
   pending_dept_head: { label: "Pending HOD Approval", variant: "warning" },
   pending_dean: { label: "Pending Dean Approval", variant: "warning" },
   pending_admin: { label: "Pending Admin Approval", variant: "info" },
-  approved_by_dept_head: { label: "Pending Admin Approval", variant: "info" },
+  approved_by_dept_head: { label: "HOD Approved", variant: "info" },
   approved_by_admin: { label: "Approved", variant: "success" },
   rejected: { label: "Rejected", variant: "error" },
 };

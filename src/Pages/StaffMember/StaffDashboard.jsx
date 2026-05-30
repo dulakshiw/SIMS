@@ -84,7 +84,7 @@ const StaffDashboard = () => {
   }, [])
 
   const stats = {
-    myRequests: 2,
+    myRequests: 0,
     availableItems: 240,
     myIssuedItems: 0,
   }

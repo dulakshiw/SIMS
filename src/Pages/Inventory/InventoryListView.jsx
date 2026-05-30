@@ -184,7 +184,6 @@ const InventoryListView = () => {
   }, [isInchargeView, loadInchargeData, selectedInventoryId]);
 
   const itemColumns = [
-    { field: "no", label: "No", sortable: false },
     { field: "name", label: "Item Name", sortable: true },
     { field: "itemCode", label: "Item Code", sortable: true },
     { field: "location", label: "Location", sortable: true },
@@ -290,9 +289,8 @@ const InventoryListView = () => {
       (left, right) =>
         Number(right.id ?? right.item_id ?? 0) - Number(left.id ?? left.item_id ?? 0)
     )
-    .map((item, index, array) => ({
+    .map((item) => ({
       ...item,
-      no: array.length - index,
     }));
 
   const handleItemRowClick = (row) => {

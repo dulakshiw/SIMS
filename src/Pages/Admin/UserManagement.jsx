@@ -101,12 +101,6 @@ const UserManagement = () => {
   };
 
   const accountRequestColumns = [
-    {
-      field: "id",
-      label: "No",
-      sortable: false,
-      render: (_value, row) => filteredRequests.length - filteredRequests.findIndex((request) => request.id === row.id),
-    },
     { field: "name", label: "Name", sortable: true },
     { field: "email", label: "Email", sortable: true },
     {
@@ -610,14 +604,6 @@ const UserManagement = () => {
 
   const userColumns = useMemo(
     () => [
-      {
-        field: "id",
-        label: "No",
-        sortable: false,
-        render: (_value, row) =>
-          currentUserTableRows.length -
-          currentUserTableRows.findIndex((user) => user.id === row.id),
-      },
       { field: "name", label: "Name", sortable: true },
       { field: "department", label: "Department", sortable: true },
       { field: "designation", label: "Designation", sortable: true },
@@ -647,7 +633,7 @@ const UserManagement = () => {
         },
       },
     ],
-    [currentUserTableRows]
+    []
   );
 
   const selectedUserIsInactive =
@@ -828,16 +814,15 @@ const UserManagement = () => {
         ) : (
           <Card>
             <p className="mb-4 text-sm text-text-light bg-background-light p-3 rounded">
-              Includes admin-submitted user requests (from Create User) while they await HOD review, and all requests ready
-              for admin activation after HOD (and dean, when required) approval. Approve and reject are enabled only when
-              the request is awaiting admin activation.
+              Includes admin-submitted user requests (from Create User) while they await HOD or dean review.
+              Approve and reject are enabled only for legacy requests still awaiting administrator approval.
             </p>
             {accountRequestsLoading ? (
               <p className="text-sm text-text-light p-4">Loading account requests...</p>
             ) : filteredRequests.length === 0 ? (
               <div className="text-center py-10 text-text-light">
                 <span className="material-symbols-outlined text-5xl mb-2 block">check_circle</span>
-                No account requests awaiting admin activation
+                No pending account requests
               </div>
             ) : (
               <Table

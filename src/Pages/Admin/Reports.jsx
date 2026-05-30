@@ -1,18 +1,164 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import AdminLayout from "../../Components/Layouts/AdminLayout";
 import MainLayout from "../../Components/Layouts/MainLayout";
 import { Card, Button, Table, Badge, PageHeader } from "../../Components/UI";
+import { ROLE_HIERARCHY } from "../../utils/constants";
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
+
+const formatDateTime = (value) => {
+  if (!value) {
+    return "—";
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return String(value);
+  }
+
+  return parsed.toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
+
+const formatRoleLabel = (role) =>
+  ROLE_HIERARCHY[role]?.label || String(role || "Unknown").replace(/_/g, " ");
 
 const Reports = ({ layoutVariant = "admin", sidebarVariant }) => {
   const params = useParams();
   const resolvedSidebarVariant = sidebarVariant || params?.role || "staff";
   const Layout = layoutVariant === "admin" ? AdminLayout : MainLayout;
-  const [activeTab, setActiveTab] = useState("user-details"); // user-details, user-login, inventory-details
+  const [activeTab, setActiveTab] = useState("user-details");
   const [isExportDropdownOpen, setIsExportDropdownOpen] = useState(false);
   const exportDropdownRef = useRef(null);
+
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [summary, setSummary] = useState({
+    totalUsers: 0,
+    activeUsers: 0,
+    totalItems: 0,
+    inventories: 0,
+    pendingRequests: 0,
+  });
+  const [recentActivities, setRecentActivities] = useState([]);
+  const [userDetailsData, setUserDetailsData] = useState([]);
+  const [userLoginData, setUserLoginData] = useState([]);
+  const [inventoryDetailsData, setInventoryDetailsData] = useState([]);
+  const [departmentDetailsData, setDepartmentDetailsData] = useState([]);
+
+  const loadReports = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError("");
+
+      const [summaryRes, usersRes, inventoriesRes, departmentsRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/api/dashboard/summary`),
+        fetch(`${API_BASE_URL}/api/users`),
+        fetch(`${API_BASE_URL}/api/inventories`),
+        fetch(`${API_BASE_URL}/api/departments?includeInactive=true`),
+      ]);
+
+      const [summaryJson, usersJson, inventoriesJson, departmentsJson] = await Promise.all([
+        summaryRes.json().catch(() => ({})),
+        usersRes.json().catch(() => ({})),
+        inventoriesRes.json().catch(() => ({})),
+        departmentsRes.json().catch(() => ({})),
+      ]);
+
+      if (!summaryRes.ok || !summaryJson.success) {
+        throw new Error(summaryJson.error || summaryJson.message || "Failed to load dashboard summary.");
+      }
+      if (!usersRes.ok || !usersJson.success) {
+        throw new Error(usersJson.error || usersJson.message || "Failed to load users report.");
+      }
+      if (!inventoriesRes.ok || !inventoriesJson.success) {
+        throw new Error(inventoriesJson.error || inventoriesJson.message || "Failed to load inventories report.");
+      }
+      if (!departmentsRes.ok || !departmentsJson.success) {
+        throw new Error(departmentsJson.error || departmentsJson.message || "Failed to load departments report.");
+      }
+
+      const adminSummary = summaryJson.adminSummary || {};
+      const inventorySummary = summaryJson.inventorySummary || {};
+
+      setSummary({
+        totalUsers: adminSummary.totalUsers ?? 0,
+        activeUsers: adminSummary.activeUsers ?? 0,
+        totalItems: adminSummary.totalItems ?? 0,
+        inventories: adminSummary.inventories ?? 0,
+        pendingRequests: inventorySummary.pendingRequests ?? 0,
+      });
+      setRecentActivities(summaryJson.recentActivities || []);
+
+      const users = usersJson.users || [];
+      setUserDetailsData(
+        users.map((user) => ({
+          id: user.id,
+          name: user.name || "—",
+          email: user.email || "—",
+          role: formatRoleLabel(user.role),
+          department: user.department || "—",
+          designation: user.designation || "—",
+          status: String(user.status || "inactive").toLowerCase(),
+          joinDate: user.createdDate || "—",
+          lastActive: formatDateTime(user.lastLogin),
+        }))
+      );
+
+      setUserLoginData(
+        users.map((user) => ({
+          id: user.id,
+          name: user.name || "—",
+          email: user.email || "—",
+          lastLogin: formatDateTime(user.lastLogin),
+          loginDate: user.lastLogin ? new Date(user.lastLogin).toISOString().split("T")[0] : "—",
+          status: String(user.status || "inactive").toLowerCase(),
+        }))
+      );
+
+      setInventoryDetailsData(
+        (inventoriesJson.inventories || []).map((inventory) => ({
+          id: inventory.id,
+          name: inventory.name || "—",
+          department: inventory.department || "—",
+          incharge: inventory.incharge || "—",
+          itemCount: inventory.itemCount ?? 0,
+          createdDate: inventory.createdDate || "—",
+          lastUpdated: inventory.lastUpdated || "—",
+          status: String(inventory.status || "active").toLowerCase(),
+        }))
+      );
+
+      setDepartmentDetailsData(
+        (departmentsJson.departments || []).map((department) => ({
+          id: department.id,
+          name: department.name || "—",
+          code: department.code || "—",
+          head: department.head || "—",
+          userCount: department.userCount ?? 0,
+          inventoryCount: department.inventoryCount ?? 0,
+          status: String(department.status || "active").toLowerCase(),
+          createdDate: department.createdDate || "—",
+        }))
+      );
+    } catch (loadError) {
+      setError(loadError.message || "Unable to load report data.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadReports();
+  }, [loadReports]);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -28,213 +174,27 @@ const Reports = ({ layoutVariant = "admin", sidebarVariant }) => {
     };
   }, []);
 
-  const mockStats = [
-    { title: "Total Users", value: "25", icon: "people", color: "primary-800" },
-    { title: "Total Assets", value: "425", icon: "inventory_2", color: "info" },
-    { title: "Pending Requests", value: "12", icon: "request_quote", color: "warning" },
-    { title: "Inventories", value: "5", icon: "storehouse", color: "success" },
-  ];
+  const stats = useMemo(
+    () => [
+      { title: "Total Users", value: summary.totalUsers, icon: "people", color: "primary-800" },
+      { title: "Total Assets", value: summary.totalItems, icon: "inventory_2", color: "info" },
+      { title: "Pending Requests", value: summary.pendingRequests, icon: "request_quote", color: "warning" },
+      { title: "Inventories", value: summary.inventories, icon: "storehouse", color: "success" },
+    ],
+    [summary]
+  );
 
-  // User Details Report Data
-  const userDetailsData = [
-    {
-      id: 1,
-      name: "Alice Johnson",
-      email: "alice@example.com",
-      role: "Admin",
-      department: "IT",
-      designation: "Senior Lecturer",
-      status: "active",
-      joinDate: "2024-01-15",
-      lastActive: "2024-01-26 10:30 AM",
-    },
-    {
-      id: 2,
-      name: "Bob Smith",
-      email: "bob@example.com",
-      role: "Inventory Officer",
-      department: "Inventory",
-      designation: "Lecturer",
-      status: "active",
-      joinDate: "2024-01-20",
-      lastActive: "2024-01-26 09:15 AM",
-    },
-    {
-      id: 3,
-      name: "Carol White",
-      email: "carol@example.com",
-      role: "Admin",
-      department: "Operations",
-      designation: "Professor",
-      status: "inactive",
-      joinDate: "2024-01-22",
-      lastActive: "2024-01-24 03:45 PM",
-    },
-    {
-      id: 4,
-      name: "David Brown",
-      email: "david@example.com",
-      role: "Staff",
-      department: "Finance",
-      designation: "Assistant Lecturer",
-      status: "active",
-      joinDate: "2024-02-01",
-      lastActive: "2024-01-26 11:20 AM",
-    },
-    {
-      id: 5,
-      name: "Emma Davis",
-      email: "emma@example.com",
-      role: "Inventory Officer",
-      department: "Inventory",
-      designation: "Senior Lecturer",
-      status: "active",
-      joinDate: "2024-02-05",
-      lastActive: "2024-01-26 02:50 PM",
-    },
-  ];
+  const roleDistribution = useMemo(() => {
+    const counts = userDetailsData.reduce((accumulator, user) => {
+      const key = user.role || "Unknown";
+      accumulator[key] = (accumulator[key] || 0) + 1;
+      return accumulator;
+    }, {});
 
-  // User Login Details Report Data
-  const userLoginData = [
-    {
-      id: 1,
-      name: "Alice Johnson",
-      email: "alice@example.com",
-      loginCount: 142,
-      lastLogin: "2024-01-26 10:30 AM",
-      loginDate: "2024-01-26",
-      status: "active",
-      totalLoginHours: "256 hrs",
-    },
-    {
-      id: 2,
-      name: "Bob Smith",
-      email: "bob@example.com",
-      loginCount: 98,
-      lastLogin: "2024-01-26 09:15 AM",
-      loginDate: "2024-01-26",
-      status: "active",
-      totalLoginHours: "176 hrs",
-    },
-    {
-      id: 3,
-      name: "Carol White",
-      email: "carol@example.com",
-      loginCount: 45,
-      lastLogin: "2024-01-24 03:45 PM",
-      loginDate: "2024-01-24",
-      status: "inactive",
-      totalLoginHours: "82 hrs",
-    },
-    {
-      id: 4,
-      name: "David Brown",
-      email: "david@example.com",
-      loginCount: 67,
-      lastLogin: "2024-01-26 11:20 AM",
-      loginDate: "2024-01-26",
-      status: "active",
-      totalLoginHours: "121 hrs",
-    },
-    {
-      id: 5,
-      name: "Emma Davis",
-      email: "emma@example.com",
-      loginCount: 89,
-      lastLogin: "2024-01-26 02:50 PM",
-      loginDate: "2024-01-26",
-      status: "active",
-      totalLoginHours: "162 hrs",
-    },
-  ];
-
-  // Inventory Details Report Data
-  const inventoryDetailsData = [
-    {
-      id: 1,
-      name: "Server Room",
-      department: "Information Technology",
-      incharge: "Alice Johnson",
-      itemCount: 45,
-      createdDate: "2024-01-10",
-      lastUpdated: "2024-01-26 10:30 AM",
-      status: "active",
-    },
-    {
-      id: 2,
-      name: "IT Equipment",
-      department: "Information Technology",
-      incharge: "Bob Smith",
-      itemCount: 120,
-      createdDate: "2024-01-15",
-      lastUpdated: "2024-01-26 09:15 AM",
-      status: "active",
-    },
-    {
-      id: 3,
-      name: "Office Supplies",
-      department: "Operations",
-      incharge: "Carol White",
-      itemCount: 250,
-      createdDate: "2024-01-20",
-      lastUpdated: "2024-01-24 03:45 PM",
-      status: "inactive",
-    },
-    {
-      id: 4,
-      name: "Machinery",
-      department: "Operations",
-      incharge: "David Brown",
-      itemCount: 15,
-      createdDate: "2024-02-01",
-      lastUpdated: "2024-01-26 11:20 AM",
-      status: "active",
-    },
-    {
-      id: 5,
-      name: "HR Equipment",
-      department: "Human Resources",
-      incharge: "Emma Davis",
-      itemCount: 30,
-      createdDate: "2024-02-05",
-      lastUpdated: "2024-01-26 02:50 PM",
-      status: "active",
-    },
-  ];
-
-  // Department Details Report Data
-  const departmentDetailsData = [
-    {
-      id: 1,
-      name: "Information Technology",
-      code: "IT",
-      head: "CRJ Amalraj",
-      userCount: 12,
-      inventoryCount: 2,
-      status: "active",
-      createdDate: "2024-01-15",
-    },
-    {
-      id: 2,
-      name: "Dean's Office",
-      code: "DO",
-      head: "Assistant Registrar/FIT",
-      userCount: 8,
-      inventoryCount: 2,
-      status: "active",
-      createdDate: "2024-01-20",
-    },
-    {
-      id: 3,
-      name: "Computational Mathematics",
-      code: "CM",
-      head: "YTS Piyatilake",
-      userCount: 5,
-      inventoryCount: 1,
-      status: "inactive",
-      createdDate: "2024-02-01",
-    },
-  ];
+    return Object.entries(counts)
+      .map(([role, count]) => ({ role, count }))
+      .sort((left, right) => right.count - left.count);
+  }, [userDetailsData]);
 
   const userDetailsColumns = [
     { field: "name", label: "Name", sortable: true },
@@ -242,7 +202,7 @@ const Reports = ({ layoutVariant = "admin", sidebarVariant }) => {
     {
       field: "role",
       label: "Role",
-      render: (value) => <Badge label={value.toUpperCase()} variant="primary" size="sm" />,
+      render: (value) => <Badge label={value} variant="primary" size="sm" />,
     },
     { field: "department", label: "Department", sortable: true },
     { field: "designation", label: "Designation", sortable: true },
@@ -264,10 +224,8 @@ const Reports = ({ layoutVariant = "admin", sidebarVariant }) => {
   const userLoginColumns = [
     { field: "name", label: "Name", sortable: true },
     { field: "email", label: "Email", sortable: true },
-    { field: "loginCount", label: "Login Count", sortable: true },
     { field: "lastLogin", label: "Last Login" },
     { field: "loginDate", label: "Login Date", sortable: true },
-    { field: "totalLoginHours", label: "Total Hours" },
     {
       field: "status",
       label: "Status",
@@ -369,14 +327,12 @@ const Reports = ({ layoutVariant = "admin", sidebarVariant }) => {
       "user-login": {
         title: "User Login Details Report",
         fileName: "user-logins-report",
-        headers: ["Name", "Email", "Login Count", "Last Login", "Login Date", "Total Hours", "Status"],
+        headers: ["Name", "Email", "Last Login", "Login Date", "Status"],
         rows: userLoginData.map((userLogin) => [
           userLogin.name,
           userLogin.email,
-          userLogin.loginCount,
           userLogin.lastLogin,
           userLogin.loginDate,
-          userLogin.totalLoginHours,
           userLogin.status,
         ]),
       },
@@ -415,29 +371,39 @@ const Reports = ({ layoutVariant = "admin", sidebarVariant }) => {
       return;
     }
 
-    const doc = new jsPDF();
+    const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
     const generatedAt = new Date().toLocaleString();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const systemTitle = "Inventory Management System - Faculty of Information Technology";
 
     autoTable(doc, {
       head: [selectedReport.headers],
       body: selectedReport.rows,
-      startY: 34,
-      styles: { fontSize: 9 },
-      headStyles: { fillColor: [17, 76, 126] },
+      startY: 52,
+      styles: { fontSize: 11, cellPadding: 4 },
+      headStyles: { fillColor: [17, 76, 126], fontSize: 11, halign: "center" },
+      bodyStyles: { fontSize: 11 },
+      margin: { top: 52, bottom: 36, left: 28, right: 28 },
       didDrawPage: () => {
-        const pageHeight = doc.internal.pageSize.getHeight();
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(13);
+        doc.text(systemTitle, pageWidth / 2, 22, { align: "center" });
 
-        doc.setFontSize(12);
-        doc.text("Inventory Mangement System - Faculty of Information Technology", 14, 14);
-
-        doc.setFontSize(10);
-        doc.text(selectedReport.title, 14, 22);
-
-        doc.setFontSize(9);
-        doc.text(`Generated: ${generatedAt}`, 14, pageHeight - 10);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(11);
+        doc.text(selectedReport.title, pageWidth / 2, 38, { align: "center" });
       },
-      margin: { top: 30, bottom: 16 },
     });
+
+    const pageCount = doc.getNumberOfPages();
+    for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+      doc.setPage(pageNumber);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(11);
+      doc.text(`${pageNumber} of ${pageCount}`, pageWidth / 2, pageHeight - 16, { align: "center" });
+      doc.text(`Generated: ${generatedAt}`, 28, pageHeight - 16);
+    }
 
     doc.save(`${selectedReport.fileName}.pdf`);
   };
@@ -451,22 +417,21 @@ const Reports = ({ layoutVariant = "admin", sidebarVariant }) => {
     handleExportCsv(reportType);
   };
 
+  const maxRoleCount = roleDistribution[0]?.count || 1;
+
   return (
     <Layout {...(layoutVariant === "admin" ? {} : { variant: resolvedSidebarVariant })}>
       <PageHeader
         title="Reports & Analytics"
-        subtitle="System analytics and performance metrics"
+        subtitle="Live system analytics and performance metrics"
         actions={
           <div className="relative" ref={exportDropdownRef}>
             <Button
-              className="min-w-[180px] justify-between bg-white text-primary-800 hover:bg-primary-50"
+              icon="download"
               onClick={() => setIsExportDropdownOpen((prev) => !prev)}
+              disabled={loading || Boolean(error)}
             >
-              <span className="flex items-center gap-2">
-                <span className="material-symbols-outlined text-base">download</span>
-                Export Report
-              </span>
-              <span className="material-symbols-outlined text-base">expand_more</span>
+              Export Report
             </Button>
 
             {isExportDropdownOpen && (
@@ -498,116 +463,147 @@ const Reports = ({ layoutVariant = "admin", sidebarVariant }) => {
       />
 
       <div className="p-6 space-y-6">
-        {/* KPI Cards */}
+        {error ? (
+          <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+            {error}
+          </div>
+        ) : null}
+
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {mockStats.map((stat, index) => (
-            <Card key={index} icon={stat.icon}>
+          {stats.map((stat) => (
+            <Card key={stat.title} icon={stat.icon}>
               <p className="text-sm text-text-light">{stat.title}</p>
-              <p className={`text-3xl font-bold text-${stat.color} mt-2`}>{stat.value}</p>
+              <p className={`text-3xl font-bold text-${stat.color} mt-2`}>
+                {loading ? "..." : stat.value}
+              </p>
             </Card>
           ))}
         </div>
 
-        {/* Report Tabs */}
         <div className="border-b border-border-light">
-          <div className="flex gap-2">
-            <button
-              onClick={() => setActiveTab("user-details")}
-              className={`px-6 py-3 border-b-2 font-medium transition-colors ${
-                activeTab === "user-details"
-                  ? "border-primary-600 text-primary-600"
-                  : "border-transparent text-text-light hover:text-text-dark"
-              }`}
-            >
-              User Details
-            </button>
-            <button
-              onClick={() => setActiveTab("user-login")}
-              className={`px-6 py-3 border-b-2 font-medium transition-colors ${
-                activeTab === "user-login"
-                  ? "border-primary-600 text-primary-600"
-                  : "border-transparent text-text-light hover:text-text-dark"
-              }`}
-            >
-              User Login Details
-            </button>
-            <button
-              onClick={() => setActiveTab("inventory-details")}
-              className={`px-6 py-3 border-b-2 font-medium transition-colors ${
-                activeTab === "inventory-details"
-                  ? "border-primary-600 text-primary-600"
-                  : "border-transparent text-text-light hover:text-text-dark"
-              }`}
-            >
-              Inventory Details
-            </button>
-            <button
-              onClick={() => setActiveTab("department-details")}
-              className={`px-6 py-3 border-b-2 font-medium transition-colors ${
-                activeTab === "department-details"
-                  ? "border-primary-600 text-primary-600"
-                  : "border-transparent text-text-light hover:text-text-dark"
-              }`}
-            >
-              Department Details
-            </button>
+          <div className="flex gap-2 overflow-x-auto">
+            {[
+              { id: "user-details", label: "User Details" },
+              { id: "user-login", label: "User Login Details" },
+              { id: "inventory-details", label: "Inventory Details" },
+              { id: "department-details", label: "Department Details" },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={`px-6 py-3 border-b-2 font-medium transition-colors whitespace-nowrap ${
+                  activeTab === tab.id
+                    ? "border-primary-600 text-primary-600"
+                    : "border-transparent text-text-light hover:text-text-dark"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
           </div>
         </div>
 
-        {/* Report Content */}
         <div className="mt-6">
-          {activeTab === "user-details" && (
+          {loading ? (
+            <Card>
+              <p className="text-sm text-text-light p-6">Loading report data...</p>
+            </Card>
+          ) : null}
+
+          {!loading && activeTab === "user-details" ? (
             <Card title="User Details Report" icon="people">
-              <Table
-                columns={userDetailsColumns}
-                data={userDetailsData}
-                rowsPerPage={10}
-              />
+              {userDetailsData.length === 0 ? (
+                <p className="text-sm text-text-light p-4">No users found.</p>
+              ) : (
+                <Table columns={userDetailsColumns} data={userDetailsData} itemsPerPage={10} />
+              )}
             </Card>
-          )}
+          ) : null}
 
-          {activeTab === "user-login" && (
+          {!loading && activeTab === "user-login" ? (
             <Card title="User Login Details Report" icon="login">
-              <Table
-                columns={userLoginColumns}
-                data={userLoginData}
-                rowsPerPage={10}
-              />
+              <p className="mb-4 text-sm text-text-light bg-background-light p-3 rounded">
+                Shows the most recent login recorded for each user account.
+              </p>
+              {userLoginData.length === 0 ? (
+                <p className="text-sm text-text-light p-4">No login records found.</p>
+              ) : (
+                <Table columns={userLoginColumns} data={userLoginData} itemsPerPage={10} />
+              )}
             </Card>
-          )}
+          ) : null}
 
-          {activeTab === "inventory-details" && (
+          {!loading && activeTab === "inventory-details" ? (
             <Card title="Inventory Details Report" icon="inventory_2">
-              <Table
-                columns={inventoryDetailsColumns}
-                data={inventoryDetailsData}
-                rowsPerPage={10}
-              />
+              {inventoryDetailsData.length === 0 ? (
+                <p className="text-sm text-text-light p-4">No inventories found.</p>
+              ) : (
+                <Table columns={inventoryDetailsColumns} data={inventoryDetailsData} itemsPerPage={10} />
+              )}
             </Card>
-          )}
+          ) : null}
 
-          {activeTab === "department-details" && (
+          {!loading && activeTab === "department-details" ? (
             <Card title="Department Details Report" icon="business">
-              <Table
-                columns={departmentDetailsColumns}
-                data={departmentDetailsData}
-                rowsPerPage={10}
-              />
+              {departmentDetailsData.length === 0 ? (
+                <p className="text-sm text-text-light p-4">No departments found.</p>
+              ) : (
+                <Table columns={departmentDetailsColumns} data={departmentDetailsData} itemsPerPage={10} />
+              )}
             </Card>
-          )}
+          ) : null}
         </div>
 
-        {/* Analytics Charts */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <Card title="System Activity">
-            <div className="h-64 flex items-center justify-center bg-background-light rounded-lg">
-              <p className="text-text-light">System activity chart (Chart implementation can be added with Chart.js/Recharts)</p>
-            </div>
+          <Card title="Recent System Activity" icon="history">
+            {loading ? (
+              <p className="text-sm text-text-light">Loading activity...</p>
+            ) : recentActivities.length === 0 ? (
+              <p className="text-sm text-text-light">No recent activity recorded.</p>
+            ) : (
+              <div className="space-y-3 max-h-64 overflow-y-auto">
+                {recentActivities.slice(0, 8).map((activity) => (
+                  <div
+                    key={activity.id}
+                    className="rounded-lg border border-border-lighter px-3 py-2.5 text-sm"
+                  >
+                    <p className="font-medium text-text-dark">{activity.message}</p>
+                    {activity.timestamp ? (
+                      <p className="text-xs text-text-light mt-1">{formatDateTime(activity.timestamp)}</p>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            )}
           </Card>
-          <Card title="User Distribution">
-            <div className="h-64 flex items-center justify-center bg-background-light rounded-lg">
-              <p className="text-text-light">User distribution by role chart</p>
-            </div>
+
+          <Card title="User Distribution by Role" icon="groups">
+            {loading ? (
+              <p className="text-sm text-text-light">Loading distribution...</p>
+            ) : roleDistribution.length === 0 ? (
+              <p className="text-sm text-text-light">No user role data available.</p>
+            ) : (
+              <div className="space-y-4">
+                {roleDistribution.map((entry) => (
+                  <div key={entry.role}>
+                    <div className="mb-1 flex items-center justify-between text-sm">
+                      <span className="font-medium text-text-dark">{entry.role}</span>
+                      <span className="text-text-light">{entry.count}</span>
+                    </div>
+                    <div className="h-2 rounded-full bg-background-light overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-primary-600 transition-all"
+                        style={{ width: `${Math.max((entry.count / maxRoleCount) * 100, 4)}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+                <p className="text-xs text-text-light pt-2 border-t border-border-lighter">
+                  {summary.activeUsers} of {summary.totalUsers} users are currently active.
+                </p>
+              </div>
+            )}
           </Card>
         </div>
       </div>

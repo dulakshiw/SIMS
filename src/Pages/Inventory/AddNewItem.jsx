@@ -32,6 +32,7 @@ const COMMON_PLACE_OPTIONS = [
   { value: "Lecture Hall 2", label: "Lecture Hall 2" },
   { value: "Lecture Hall 3", label: "Lecture Hall 3" },
   { value: "Lecture Hall 4", label: "Lecture Hall 4" },
+  { value: "Lecture Hall 5", label: "Lecture Hall 5" },
 ];
 
 const LOCATION_OTHER_VALUE = "other";

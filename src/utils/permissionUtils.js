@@ -132,12 +132,12 @@ export const getNextAccountApprovalAuthority = (currentStatus) => {
     pending_dept_head: {
       authority: "Department Head",
       requiredRole: ROLES.HEAD_OF_DEPARTMENT,
-      nextStatus: "pending_admin",
+      nextStatus: "approved_by_admin",
     },
     pending_dean: {
       authority: "Dean",
       requiredRole: ROLES.DEAN,
-      nextStatus: "pending_admin",
+      nextStatus: "approved_by_admin",
     },
     pending_admin: {
       authority: "System Administrator",

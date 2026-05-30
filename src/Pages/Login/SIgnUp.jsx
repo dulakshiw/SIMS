@@ -163,7 +163,7 @@ const SignUp = () => {
             <div className="text-center space-y-2">
               <h1 className="text-3xl font-bold text-text-dark">Create Account</h1>
               <p className="text-text-light text-sm">
-                Create a staff member account request. Requests go to your Department Head for review and then to admin for activation.
+                Create a staff member account request. Requests go to your Department Head for review and activation.
               </p>
             </div>
 

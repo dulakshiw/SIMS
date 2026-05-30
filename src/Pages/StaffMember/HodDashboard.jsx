@@ -37,12 +37,10 @@ const getStoredUser = () => {
 
 const getDepartmentName = (user) => user.departmentName || user.department || 'Department';
 
-const mapPendingRows = (rows) => {
-  const sorted = [...rows].sort(
+const mapPendingRows = (rows) =>
+  [...rows].sort(
     (a, b) => String(b.requestedDate).localeCompare(String(a.requestedDate)) || a.queueKey.localeCompare(b.queueKey)
   );
-  return sorted.map((row, index) => ({ ...row, rowNo: index + 1 }));
-};
 
 const formatDetailValue = (value) => {
   if (value === 0) {
@@ -189,7 +187,7 @@ const HodDashboard = () => {
 
   const forwardedCount = useMemo(() => {
     const accounts = departmentAccountRequests.filter(
-      (r) => r.approvalStatus === ACCOUNT_REQUEST_STATUS.PENDING_ADMIN
+      (r) => r.approvalStatus === ACCOUNT_REQUEST_STATUS.APPROVED_BY_ADMIN
     ).length;
     const inventories = departmentInventoryRequests.filter((r) =>
       INVENTORY_DOWNSTREAM_STATUSES.has(String(r.approvalStatus || '').toLowerCase())
@@ -217,7 +215,6 @@ const HodDashboard = () => {
   };
 
   const accountColumns = [
-    { field: 'rowNo', label: 'No', sortable: false },
     {
       field: 'requestLabel',
       label: 'Request type',
@@ -235,7 +232,6 @@ const HodDashboard = () => {
   ];
 
   const inventoryColumns = [
-    { field: 'rowNo', label: 'No', sortable: false },
     {
       field: 'requestLabel',
       label: 'Request type',
@@ -276,8 +272,8 @@ const HodDashboard = () => {
       isApprove
         ? (
           isDeactivation
-            ? `Recommend approval of ${request.name}'s deactivation request and forward it to the administrator?`
-            : `Approve ${request.name}'s new account request and forward it to admin activation?`
+            ? `Approve deactivation of ${request.name}'s account? Their account will be set to inactive.`
+            : `Approve ${request.name}'s new account request and activate their account?`
         )
         : (
           isDeactivation
@@ -312,7 +308,7 @@ const HodDashboard = () => {
 
       updateAccountStatus(
         request.id,
-        isApprove ? ACCOUNT_REQUEST_STATUS.PENDING_ADMIN : ACCOUNT_REQUEST_STATUS.REJECTED
+        isApprove ? ACCOUNT_REQUEST_STATUS.APPROVED_BY_ADMIN : ACCOUNT_REQUEST_STATUS.REJECTED
       );
       setIsDetailModalOpen(false);
       setSelectedReviewRow(null);
@@ -327,12 +323,15 @@ const HodDashboard = () => {
     const isApprove = actionType === 'approve';
     const typeLabel = INVENTORY_REQUEST_TYPE_LABELS[request.requestType] || 'This inventory request';
     const isAddExisting = request.requestType === 'add_inventory';
+    const isChangeIncharge = request.requestType === 'change_incharge';
     const confirmed = window.confirm(
       isApprove
         ? (
-          isAddExisting
-            ? `Approve "${request.name}" (${typeLabel}) and forward it to the administrator for activation?`
-            : `Approve "${request.name}" (${typeLabel}) and send it to the registrar for the next step?`
+          isChangeIncharge
+            ? `Approve the officer change for "${request.name}" (${typeLabel}) and assign the new inventory officer?`
+            : isAddExisting
+              ? `Approve "${request.name}" (${typeLabel}) and activate it in the system?`
+              : `Approve "${request.name}" (${typeLabel}) and send it to the registrar for the next step?`
         )
         : `Reject the inventory request "${request.name}"?`
     );
@@ -489,7 +488,7 @@ const HodDashboard = () => {
 
   const stats = [
     {
-      title: 'With registrar / admin',
+      title: 'Approved / forwarded',
       value: forwardedCount,
       icon: 'forward',
     },

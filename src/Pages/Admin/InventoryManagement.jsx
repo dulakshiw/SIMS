@@ -250,12 +250,6 @@ const InventoryManagement = () => {
   }, [departmentHodLookup, formData.Hod, formData.department]);
 
   const columns = [
-    {
-      field: "id",
-      label: "No",
-      sortable: false,
-      render: (_value, row) => filteredInventories.length - filteredInventories.findIndex((inv) => inv.id === row.id),
-    },
     { field: "name", label: "Inventory Name", sortable: true },
     { field: "location", label: "Location", sortable: true },
     { field: "department", label: "Department", sortable: true },
@@ -276,12 +270,6 @@ const InventoryManagement = () => {
   ];
 
   const requestColumns = [
-    {
-      field: "id",
-      label: "No",
-      sortable: false,
-      render: (_value, row) => filteredRequests.length - filteredRequests.findIndex((request) => request.id === row.id),
-    },
     { field: "name", label: "Inventory Name", sortable: true },
     {
       field: "requestType",
@@ -772,8 +760,7 @@ const InventoryManagement = () => {
           <Card title="Inventory Creation Requests" icon="request_quote">
             <div className="space-y-4">
               <p className="text-sm text-text-light bg-background-light p-3 rounded">
-                Click a request row to open details. Approve and reject are available in the detail view when the
-                request is awaiting admin activation.
+                Click a request row to open details. Track admin-submitted inventory requests while they move through HOD and registrar approval.
               </p>
               {inventoryRequestsError ? (
                 <p className="text-sm text-error">{inventoryRequestsError}</p>
@@ -783,7 +770,7 @@ const InventoryManagement = () => {
               ) : filteredRequests.length === 0 ? (
                 <div className="text-center py-10 text-text-light">
                   <span className="material-symbols-outlined text-5xl mb-2 block">check_circle</span>
-                  No inventory requests awaiting admin activation
+                  No inventory requests in progress
                 </div>
               ) : (
                 <Table
@@ -811,7 +798,7 @@ const InventoryManagement = () => {
           <p className="border-t border-border-lighter pt-4 text-xs text-text-light">
             {canActOnSelectedRequest
               ? "Approve to create or activate this inventory in the system, or reject to decline the request."
-              : "This request is still awaiting HOD or registrar approval. Approve and reject will be available when it reaches admin activation."}
+              : "This request is still awaiting HOD or registrar approval."}
           </p>
         </EntityDetailsModal>
 

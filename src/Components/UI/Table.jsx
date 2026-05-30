@@ -1,6 +1,17 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import Badge from "./Badge";
 import Button from "./Button";
+
+const ROW_NUMBER_FIELD = "__rowNo";
+
+const hasRowNumberColumn = (columns) =>
+  columns.some(
+    (col) =>
+      col.field === ROW_NUMBER_FIELD ||
+      col.field === "rowNo" ||
+      col.field === "no" ||
+      col.label === "No"
+  );
 
 const Table = ({
   columns,
@@ -21,15 +32,27 @@ const Table = ({
   const [sortOrder, setSortOrder] = useState("asc");
   const [currentPage, setCurrentPage] = useState(1);
 
+  const resolvedColumns = useMemo(
+    () =>
+      hasRowNumberColumn(columns)
+        ? columns
+        : [{ field: ROW_NUMBER_FIELD, label: "No", sortable: false }, ...columns],
+    [columns]
+  );
+
   // Filter data
   let filteredData = data;
   if (searchable && searchTerm) {
     filteredData = data.filter((row) =>
-      columns.some((col) =>
-        String(row[col.field])
+      resolvedColumns.some((col) => {
+        if (col.field === ROW_NUMBER_FIELD) {
+          return false;
+        }
+
+        return String(row[col.field] ?? "")
           .toLowerCase()
-          .includes(searchTerm.toLowerCase())
-      )
+          .includes(searchTerm.toLowerCase());
+      })
     );
   }
 
@@ -104,7 +127,7 @@ const Table = ({
             <table className="w-full border-collapse">
               <thead className="bg-background-light border-b border-border-light">
                 <tr>
-                  {columns.map((col) => (
+                  {resolvedColumns.map((col) => (
                     <th
                       key={col.field}
                       className={`px-6 py-4 text-left text-sm font-semibold text-text-dark ${
@@ -126,15 +149,25 @@ const Table = ({
                 </tr>
               </thead>
               <tbody>
-                {displayedData.map((row, rowIndex) => (
+                {displayedData.map((row, rowIndex) => {
+                  const globalIndex = paginated
+                    ? (currentPage - 1) * itemsPerPage + rowIndex
+                    : rowIndex;
+                  const rowNumber = filteredData.length - globalIndex;
+
+                  return (
                   <tr
                     key={rowIndex}
                     className="border-b border-border-lighter hover:bg-background-light cursor-pointer transition-colors"
                     onClick={() => onRowClick && onRowClick(row)}
                   >
-                    {columns.map((col) => (
+                    {resolvedColumns.map((col) => (
                       <td key={col.field} className="px-6 py-4 text-sm text-text-dark">
-                        {col.render ? col.render(row[col.field], row) : row[col.field]}
+                        {col.field === ROW_NUMBER_FIELD
+                          ? rowNumber
+                          : col.render
+                            ? col.render(row[col.field], row)
+                            : row[col.field]}
                       </td>
                     ))}
                     {(actions || getRowActions) && (
@@ -164,7 +197,8 @@ const Table = ({
                       </td>
                     )}
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

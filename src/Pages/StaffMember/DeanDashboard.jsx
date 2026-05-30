@@ -89,7 +89,7 @@ const DeanDashboard = () => {
     const isApprove = actionType === 'approve';
     const confirmed = window.confirm(
       isApprove
-        ? `Approve ${request.name}'s ${ROLE_HIERARCHY[request.requestedRole]?.label || request.requestedRole} request and forward it to admin activation?`
+        ? `Approve ${request.name}'s ${ROLE_HIERARCHY[request.requestedRole]?.label || request.requestedRole} request and activate their account?`
         : `Reject ${request.name}'s account request?`
     );
 
@@ -119,7 +119,7 @@ const DeanDashboard = () => {
 
       updateRequestStatus(
         request.id,
-        isApprove ? ACCOUNT_REQUEST_STATUS.PENDING_ADMIN : ACCOUNT_REQUEST_STATUS.REJECTED
+        isApprove ? ACCOUNT_REQUEST_STATUS.APPROVED_BY_ADMIN : ACCOUNT_REQUEST_STATUS.REJECTED
       );
     } catch (actionError) {
       window.alert(actionError.message || `Failed to ${actionType} request.`);
@@ -163,7 +163,7 @@ const DeanDashboard = () => {
     <MainLayout variant="dean">
       <PageHeader
         title="Dashboard"
-        subtitle="Review HOD, registrar, and admin account requests before they move to admin activation."
+        subtitle="Review HOD, registrar, and admin account requests and activate approved accounts."
         actions={
           <Button variant="secondary" icon="refresh" onClick={loadRequests} disabled={loading || actionLoadingId !== null}>
             Refresh

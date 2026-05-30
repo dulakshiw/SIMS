@@ -196,12 +196,12 @@ const InventoryCreationRequest = () => {
     {
       value: INVENTORY_REQUEST_TYPE.ADD_EXISTING,
       label: 'Add existing inventory to system',
-      note: 'Add inventory that is already maintained by the faculty. This request is forwarded to the Head of Department for approval and then to admin for activation.',
+      note: 'Add inventory that is already maintained by the faculty. This request is forwarded to the Head of Department for approval.',
     },
     {
       value: INVENTORY_REQUEST_TYPE.CREATE_NEW,
       label: 'Create new Inventory',
-      note: 'Create a new inventory item that is not yet maintained by the faculty. This request is forwarded to the Head of Department for recommendation and then to Registrar for approval before admin activation.',
+      note: 'Create a new inventory item that is not yet maintained by the faculty. This request is forwarded to the Head of Department for recommendation and then to Registrar for approval.',
     },
   ]
 
@@ -278,8 +278,8 @@ const InventoryCreationRequest = () => {
       setRequestMessage(
         data.message ||
           (activeRequestType === INVENTORY_REQUEST_TYPE.ADD_EXISTING
-            ? 'Inventory addition request submitted to your Head of Department for approval and admin activation.'
-            : 'New inventory creation request submitted for HOD recommendation and registrar approval before admin activation.')
+            ? 'Inventory addition request submitted to your Head of Department for approval.'
+            : 'New inventory creation request submitted for HOD recommendation and registrar approval.')
       )
 
       // Reset form after successful submission
@@ -304,8 +304,8 @@ const InventoryCreationRequest = () => {
 
   const requestDescription =
     activeRequestType === INVENTORY_REQUEST_TYPE.ADD_EXISTING
-      ? 'This request is forwarded to the Head of Department for approval and then to admin for activation.'
-      : 'This request is forwarded to the Head of Department for recommendation and then to Registrar for approval before admin activation.'
+      ? 'This request is forwarded to the Head of Department for approval.'
+      : 'This request is forwarded to the Head of Department for recommendation and then to Registrar for approval.'
 
   return (
     <MainLayout variant={sidebarVariant}>

@@ -44,7 +44,6 @@ const AdminDashboardContent = () => {
     totalUsers: 0,
     activeUsers: 0,
     inventories: 0,
-    pendingTasks: 0,
     totalItems: 0,
   });
   const [recentActivities, setRecentActivities] = useState([]);
@@ -107,7 +106,7 @@ const AdminDashboardContent = () => {
       state: { hideSummaryCards: true },
     },
     { title: "Inventories", value: summary.inventories ?? 0, colorClass: "text-info", icon: "inventory_2", link: "/admin/inventory" },
-    { title: "Pending Tasks", value: summary.pendingTasks ?? 0, colorClass: "text-warning", icon: "task_alt", link: "/admin/pending-tasks" },
+    { title: "Total Items", value: summary.totalItems ?? 0, colorClass: "text-primary-600", icon: "category", link: "/admin/inventory" },
   ];
 
   return (
@@ -148,7 +147,6 @@ const AdminDashboardContent = () => {
               <p>• Total registered users: {loading ? '...' : summary.totalUsers ?? 0}</p>
               <p>• Active system inventories: {loading ? '...' : summary.inventories ?? 0}</p>
               <p>• Total items managed: {loading ? '...' : summary.totalItems ?? 0}</p>
-              <p>• Pending approvals: {loading ? '...' : summary.pendingTasks ?? 0}</p>
             </div>
           </Card>
 

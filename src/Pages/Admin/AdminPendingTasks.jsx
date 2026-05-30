@@ -1,10 +1,9 @@
 import React, { useState } from "react";
-import { useLocation } from "react-router-dom";
+import { Navigate, useLocation } from "react-router-dom";
 import AdminLayout from "../../Components/Layouts/AdminLayout";
 import { Card, Button, Table, Badge, Modal, SearchBox, PageHeader } from "../../Components/UI";
 import {
   ACCOUNT_REQUEST_STATUS,
-  ACCOUNT_REQUEST_STATUS_META,
   INVENTORY_REQUEST_STATUS_META,
   INVENTORY_REQUEST_TYPE,
   INVENTORY_REQUEST_TYPE_LABELS,
@@ -20,14 +19,18 @@ const getStoredUser = () => {
 };
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
+const DEFAULT_ADMIN_TAB = "inventory-requests";
 
 const AdminPendingTasks = () => {
   const location = useLocation();
   const userRole = localStorage.getItem("userRole") || "admin";
   const isRegistrar = userRole === "registrar";
   const initialTab = location.state?.activeTab;
+  const defaultAdminTab = DEFAULT_ADMIN_TAB;
+  const resolvedInitialTab =
+    initialTab === "account-approvals" ? defaultAdminTab : initialTab;
   const [activeTab, setActiveTab] = useState(
-    initialTab || (isRegistrar ? "inventory-requests" : "account-approvals")
+    resolvedInitialTab || (isRegistrar ? "inventory-requests" : defaultAdminTab)
   );
   const [searchTerm, setSearchTerm] = useState("");
 
@@ -70,7 +73,7 @@ const AdminPendingTasks = () => {
 
   const loadInventoryRequests = async () => {
     const approvalStatus = isRegistrar ? "pending_registrar" : "pending_admin";
-    const requestTypeQuery = isRegistrar ? "&requestType=new_inventory_creation" : "";
+    const requestTypeQuery = isRegistrar ? "&requestType=new_inventory_creation" : "&requestType=change_incharge";
 
     try {
       const response = await fetch(
@@ -184,7 +187,11 @@ const AdminPendingTasks = () => {
 
   React.useEffect(() => {
     if (location.state?.activeTab) {
-      setActiveTab(location.state.activeTab);
+      setActiveTab(
+        location.state.activeTab === "account-approvals"
+          ? defaultAdminTab
+          : location.state.activeTab
+      );
     }
   }, [location.state?.activeTab]);
 
@@ -224,79 +231,7 @@ const AdminPendingTasks = () => {
   const handleConfirm = () => {
     const { action, item, type } = confirmModal;
 
-    if (type === "approve-account") {
-      fetch(`${API_BASE_URL}/api/account-requests/${item.id}/approve`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ approverRole: "admin" }),
-      })
-        .then((response) => response.json().then((data) => ({ ok: response.ok, data })))
-        .then(({ ok, data }) => {
-          if (!ok || !data.success) {
-            throw new Error(data.message || data.error || "Failed to approve account.");
-          }
-
-          setAccountRequests((prev) =>
-            prev.map((r) =>
-              r.id === item.id ? { ...r, approvalStatus: ACCOUNT_REQUEST_STATUS.APPROVED_BY_ADMIN } : r
-            )
-          );
-
-          if (item.requestType === "deactivation" && item.userId) {
-            setUsers((prev) =>
-              prev.map((u) => (Number(u.id) === Number(item.userId) ? { ...u, status: "inactive" } : u))
-            );
-          }
-
-          if (data.user) {
-            setUsers((prev) => {
-              const existingIndex = prev.findIndex((user) => user.email === data.user.email);
-              const nextUser = {
-                ...(existingIndex >= 0 ? prev[existingIndex] : {}),
-                id: data.user.id,
-                name: data.user.name || item.name,
-                email: data.user.email || item.email,
-                role: data.user.role || (["head_of_department", "dean", "registrar", "admin"].includes(item.requestedRole)
-                  ? item.requestedRole
-                  : "staff"),
-                department: item.department,
-                designation: data.user.designation || item.designation || "",
-                status: "active",
-              };
-
-              if (existingIndex >= 0) {
-                return prev.map((user, index) => (index === existingIndex ? nextUser : user));
-              }
-
-              return [nextUser, ...prev];
-            });
-          }
-        })
-        .catch((error) => {
-          window.alert(error.message || "Failed to approve account.");
-        });
-    } else if (type === "reject-account") {
-      fetch(`${API_BASE_URL}/api/account-requests/${item.id}/reject`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason: "Rejected from admin pending tasks" }),
-      })
-        .then((response) => response.json().then((data) => ({ ok: response.ok, data })))
-        .then(({ ok, data }) => {
-          if (!ok || !data.success) {
-            throw new Error(data.message || data.error || "Failed to reject account.");
-          }
-
-          setAccountRequests((prev) =>
-            prev.map((r) =>
-              r.id === item.id ? { ...r, approvalStatus: ACCOUNT_REQUEST_STATUS.REJECTED } : r
-            )
-          );
-        })
-        .catch((error) => {
-          window.alert(error.message || "Failed to reject account.");
-        });
-    } else if (type === "activate-user") {
+    if (type === "activate-user") {
       fetch(`${API_BASE_URL}/api/users/${item.id}/status`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -471,45 +406,7 @@ const AdminPendingTasks = () => {
   };
 
   // ---- Column / Action definitions ----
-  const accountRequestColumns = [
-    {
-      field: "id",
-      label: "No",
-      sortable: false,
-      render: (_value, row) => filteredAccountRequests.length - filteredAccountRequests.findIndex((request) => request.id === row.id),
-    },
-    { field: "name", label: "Name", sortable: true },
-    { field: "email", label: "Email" },
-    {
-      field: "designation",
-      label: "Designation",
-      render: (value) => (
-        <Badge
-          label={value ? value : "N/A"}
-          variant="info"
-          size="sm"
-        />
-      ),
-    },
-    { field: "department", label: "Department", sortable: true },
-    { field: "requestedDate", label: "Date" },
-    {
-      field: "approvalStatus",
-      label: "Status",
-      render: (value) => {
-        const cfg = ACCOUNT_REQUEST_STATUS_META[value] || { label: value, variant: "secondary" };
-        return <Badge label={cfg.label} variant={cfg.variant} size="sm" />;
-      },
-    },
-  ];
-
   const userColumns = [
-    {
-      field: "id",
-      label: "No",
-      sortable: false,
-      render: (_value, row) => filteredUsers.length - filteredUsers.findIndex((user) => user.id === row.id),
-    },
     { field: "name", label: "Name", sortable: true },
     { field: "email", label: "Email" },
     {
@@ -535,14 +432,6 @@ const AdminPendingTasks = () => {
   ];
 
   const transferRequestColumns = [
-    {
-      field: "id",
-      label: "No",
-      sortable: false,
-      render: (_value, row) =>
-        filteredTransferRequests.length -
-        filteredTransferRequests.findIndex((request) => request.id === row.id),
-    },
     { field: "itemName", label: "Item", sortable: true },
     { field: "fromInventory", label: "From" },
     { field: "toInventory", label: "To" },
@@ -560,14 +449,6 @@ const AdminPendingTasks = () => {
   ];
 
   const disposalRequestColumns = [
-    {
-      field: "id",
-      label: "No",
-      sortable: false,
-      render: (_value, row) =>
-        filteredDisposalRequests.length -
-        filteredDisposalRequests.findIndex((request) => request.id === row.id),
-    },
     { field: "itemName", label: "Item", sortable: true },
     { field: "inventory", label: "Inventory" },
     { field: "reason", label: "Reason" },
@@ -585,12 +466,6 @@ const AdminPendingTasks = () => {
   ];
 
   const inventoryRequestColumns = [
-    {
-      field: "id",
-      label: "No",
-      sortable: false,
-      render: (_value, row) => filteredInventoryRequests.length - filteredInventoryRequests.findIndex((request) => request.id === row.id),
-    },
     { field: "name", label: "Inventory Name", sortable: true },
     {
       field: "requestType",
@@ -619,9 +494,6 @@ const AdminPendingTasks = () => {
   ];
 
   // ---- Filtered data ----
-  const pendingAccountRequests = accountRequests.filter(
-    (r) => r.approvalStatus === ACCOUNT_REQUEST_STATUS.PENDING_ADMIN
-  );
   const blockedAccountUserIds = new Set(
     accountRequests
       .filter((request) => request.approvalStatus !== ACCOUNT_REQUEST_STATUS.APPROVED_BY_ADMIN)
@@ -633,11 +505,6 @@ const AdminPendingTasks = () => {
     (u) => u.status === "inactive" && !blockedAccountUserIds.has(Number(u.id))
   );
 
-  const filteredAccountRequests = pendingAccountRequests.filter(
-    (r) =>
-      r.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      r.department.toLowerCase().includes(searchTerm.toLowerCase())
-  );
   const filteredUsers = inactiveUsers.filter(
     (u) =>
       u.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -669,41 +536,20 @@ const AdminPendingTasks = () => {
 
   const totalPending = isRegistrar
     ? pendingInventoryRequests.length + transferRequests.length + disposalRequests.length
-    : pendingAccountRequests.length + inactiveUsers.length + pendingInventoryRequests.length;
+    : inactiveUsers.length + pendingInventoryRequests.length;
 
   // ---- Confirm modal text ----
   const getConfirmText = () => {
     const { type, item } = confirmModal;
     if (!item) return {};
-    if (type === "approve-account") {
-      const isDeactivation = item.requestType === "deactivation";
-      return isDeactivation
-        ? {
-            title: "Approve Deactivation",
-            body: `Approve the deactivation request for ${item.name}? Their account will be set to inactive.`,
-          }
-        : {
-            title: "Approve Account",
-            body: `Approve and create account for ${item.name}? They will be granted "${ROLE_HIERARCHY[item.requestedRole]?.label || item.requestedRole}" access.`,
-          };
-    }
-    if (type === "reject-account") {
-      const isDeactivation = item.requestType === "deactivation";
-      return {
-        title: isDeactivation ? "Reject Deactivation Request" : "Reject Account Request",
-        body: isDeactivation
-          ? `Reject the deactivation request for ${item.name}?`
-          : `Reject account creation request for ${item.name}?`,
-      };
-    }
     if (type === "activate-user")
       return { title: "Activate User", body: `Activate ${item.name}'s account? They will be able to log in.` };
     if (type === "deactivate-user")
       return { title: "Deactivate User", body: `Deactivate ${item.name}'s account? They will lose system access.` };
     if (type === "approve-registrar-inventory") {
       return {
-        title: "Approve for Admin Activation",
-        body: `Approve "${item.name}" for ${item.department} and forward it to the administrator for activation?`,
+        title: "Approve Inventory Creation",
+        body: `Approve "${item.name}" for ${item.department} and create the inventory in the system?`,
       };
     }
     if (type === "approve-inventory") {
@@ -743,29 +589,6 @@ const AdminPendingTasks = () => {
 
   const { title: confirmTitle, body: confirmBody } = getConfirmText();
   const isDestructive = confirmModal.type?.startsWith("reject") || confirmModal.type === "deactivate-user";
-
-  const buildAccountDetailFields = (request) => {
-    const statusConfig = ACCOUNT_REQUEST_STATUS_META[request.approvalStatus] || {
-      label: request.approvalStatus,
-    };
-
-    return [
-      { label: "Name", value: request.name },
-      { label: "Email", value: request.email },
-      { label: "Department", value: request.department },
-      { label: "Designation", value: request.designation },
-      {
-        label: "Requested role",
-        value: ROLE_HIERARCHY[request.requestedRole]?.label || request.requestedRole,
-      },
-      {
-        label: "Request type",
-        value: request.requestType === "deactivation" ? "Deactivation" : "Account creation",
-      },
-      { label: "Requested date", value: request.requestedDate },
-      { label: "Status", value: statusConfig.label },
-    ];
-  };
 
   const buildUserDetailFields = (user) => [
     { label: "Name", value: user.name },
@@ -835,30 +658,26 @@ const AdminPendingTasks = () => {
   };
 
   const detailFields =
-    detailsModalType === "account" && selectedDetails
-      ? buildAccountDetailFields(selectedDetails)
-      : detailsModalType === "user" && selectedDetails
-        ? buildUserDetailFields(selectedDetails)
-        : detailsModalType === "inventory" && selectedDetails
-          ? buildInventoryDetailFields(selectedDetails)
-          : detailsModalType === "transfer" && selectedDetails
-            ? buildTransferDetailFields(selectedDetails)
-            : detailsModalType === "disposal" && selectedDetails
-              ? buildDisposalDetailFields(selectedDetails)
-              : [];
+    detailsModalType === "user" && selectedDetails
+      ? buildUserDetailFields(selectedDetails)
+      : detailsModalType === "inventory" && selectedDetails
+        ? buildInventoryDetailFields(selectedDetails)
+        : detailsModalType === "transfer" && selectedDetails
+          ? buildTransferDetailFields(selectedDetails)
+          : detailsModalType === "disposal" && selectedDetails
+            ? buildDisposalDetailFields(selectedDetails)
+            : [];
 
   const detailModalTitle =
-    detailsModalType === "account"
-      ? "Account request details"
-      : detailsModalType === "user"
-        ? "User details"
-        : detailsModalType === "inventory"
-          ? "Inventory creation details"
-          : detailsModalType === "transfer"
-            ? "Item transfer details"
-            : detailsModalType === "disposal"
-              ? "Item disposal details"
-              : "Details";
+    detailsModalType === "user"
+      ? "User details"
+      : detailsModalType === "inventory"
+        ? "Inventory creation details"
+        : detailsModalType === "transfer"
+          ? "Item transfer details"
+          : detailsModalType === "disposal"
+            ? "Item disposal details"
+            : "Details";
 
   const detailSelectedName =
     detailsModalType === "transfer" || detailsModalType === "disposal"
@@ -888,12 +707,6 @@ const AdminPendingTasks = () => {
       ]
     : [
         {
-          id: "account-approvals",
-          label: "Account Approvals",
-          icon: "how_to_reg",
-          count: pendingAccountRequests.length,
-        },
-        {
           id: "user-activation",
           label: "User Activation",
           icon: "manage_accounts",
@@ -907,6 +720,10 @@ const AdminPendingTasks = () => {
         },
       ];
 
+  if (!isRegistrar) {
+    return <Navigate to="/admin/dashboard" replace />;
+  }
+
   return (
     <AdminLayout>
       <PageHeader
@@ -914,7 +731,7 @@ const AdminPendingTasks = () => {
         subtitle={
           isRegistrar
             ? "Review and approve inventory creation, item transfers, and item disposals"
-            : "Actions requiring admin approval or intervention"
+            : "Review inventory officer changes and manually activate inactive users"
         }
         actions={
           totalPending > 0 ? (
@@ -1022,36 +839,12 @@ const AdminPendingTasks = () => {
         )}
 
         {/* Tab Content */}
-        {activeTab === "account-approvals" && (
-          <Card title="Pending Account Creation Requests" icon="how_to_reg">
-            <div className="space-y-4">
-              <p className="text-sm text-text-light bg-background-light p-3 rounded">
-                These account requests have been approved by the department head and are awaiting
-                your final approval to create and activate the user account.
-              </p>
-              {filteredAccountRequests.length === 0 ? (
-                <div className="text-center py-10 text-text-light">
-                  <span className="material-symbols-outlined text-5xl mb-2 block">check_circle</span>
-                  No pending account approvals
-                </div>
-              ) : (
-                <Table
-                  columns={accountRequestColumns}
-                  data={filteredAccountRequests}
-                  onRowClick={(row) => openDetails(row, "account")}
-                  searchable={false}
-                  itemsPerPage={10}
-                />
-              )}
-            </div>
-          </Card>
-        )}
-
         {activeTab === "user-activation" && (
           <Card title="Users Requiring Activation / Deactivation" icon="manage_accounts">
             <div className="space-y-4">
               <p className="text-sm text-text-light bg-background-light p-3 rounded">
-                Only inactive users outside the signup approval workflow are shown here. Newly signed-up users stay hidden until the HOD and admin approval chain is completed.
+                Only inactive users outside the signup approval workflow are shown here. Newly signed-up users
+                are activated when the HOD or dean approves their request.
               </p>
               {filteredUsers.length === 0 ? (
                 <div className="text-center py-10 text-text-light">
@@ -1129,8 +922,8 @@ const AdminPendingTasks = () => {
             <div className="space-y-4">
               <p className="text-sm text-text-light bg-background-light p-3 rounded">
                 {isRegistrar
-                  ? "New inventory creation requests approved by the HOD are listed here. Approve to forward them to the administrator for activation."
-                  : "New inventory creation and existing inventory addition requests approved by the HOD (or registrar) are listed here. Approve to create or activate the inventory in the system."}
+                  ? "New inventory creation requests approved by the HOD are listed here. Approve to create the inventory in the system."
+                  : "Inventory officer change requests awaiting administrator approval are listed here."}
               </p>
               {filteredInventoryRequests.length === 0 ? (
                 <div className="text-center py-10 text-text-light">
@@ -1162,24 +955,6 @@ const AdminPendingTasks = () => {
             <Button variant="secondary" onClick={closeDetails}>
               Close
             </Button>
-            {detailsModalType === "account" && selectedDetails ? (
-              <>
-                <Button
-                  variant="danger"
-                  icon="cancel"
-                  onClick={() => openConfirm("reject", selectedDetails, "reject-account")}
-                >
-                  Reject
-                </Button>
-                <Button
-                  variant="primary"
-                  icon="check_circle"
-                  onClick={() => openConfirm("approve", selectedDetails, "approve-account")}
-                >
-                  Approve
-                </Button>
-              </>
-            ) : null}
             {detailsModalType === "user" &&
             selectedDetails &&
             selectedDetails.status === "inactive" ? (
