@@ -40,11 +40,13 @@ import RequestList from './Pages/Inventory/Requests/RequestList'
 import CreateRequest from './Pages/Inventory/Requests/CreateRequest'
 import ItemRequest from './Pages/Requests/ItemRequest'
 import MyRequests from './Pages/Requests/MyRequests'
+import MyIssuedItems from './Pages/Requests/MyIssuedItems'
 import InventoryCreationRequest from './Pages/Requests/InventoryCreationRequest'
 
 // Staff Pages
 import StaffDashboard from './Pages/StaffMember/StaffDashboard'
 import HodDashboard from './Pages/StaffMember/HodDashboard'
+import HodPendingTasks from './Pages/StaffMember/HodPendingTasks'
 import DeanDashboard from './Pages/StaffMember/DeanDashboard'
 import DepartmentManagement from './Pages/Admin/DepartmentManagement'
 import InventoryManagement from './Pages/Admin/InventoryManagement'
@@ -144,6 +146,10 @@ const router = createBrowserRouter([
       {
         path: "list",
         element: <InventoryListView />
+      },
+      {
+        path: "list/staff",
+        element: <MyIssuedItems />
       },
       {
         path: "list/:role",
@@ -283,13 +289,12 @@ const router = createBrowserRouter([
 
   // ==================== HOD Routes ====================
   {
-    path: "/hod",
-    children: [
-      {
-        path: "dashboard",
-        element: <HodDashboard />
-      }
-    ]
+    path: "/hod/dashboard",
+    element: <HodDashboard />
+  },
+  {
+    path: "/hod/pending-tasks",
+    element: <HodPendingTasks />
   },
 
   // ==================== Dean Routes ====================

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import MainLayout from '../../Components/Layouts/MainLayout';
-import { Badge, Button, Card, PageHeader, Table } from '../../Components/UI';
+import { Badge, Button, Card, PageHeader, SummaryCard, SummaryCardsGrid, Table } from '../../Components/UI';
 import { ACCOUNT_REQUEST_STATUS, ACCOUNT_REQUEST_STATUS_META, ROLE_HIERARCHY } from '../../utils/constants';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
@@ -132,16 +132,19 @@ const DeanDashboard = () => {
     {
       title: 'Pending HOD Requests',
       value: pendingDeanRequests.filter((request) => request.requestedRole === 'head_of_department').length,
+      description: 'Head of Department account requests awaiting review.',
       icon: 'school',
     },
     {
       title: 'Pending Admin Requests',
       value: pendingDeanRequests.filter((request) => request.requestedRole === 'admin').length,
+      description: 'Admin account requests awaiting review.',
       icon: 'admin_panel_settings',
     },
     {
       title: 'Pending Registrar Requests',
       value: pendingDeanRequests.filter((request) => request.requestedRole === 'registrar').length,
+      description: 'Registrar account requests awaiting review.',
       icon: 'fact_check',
     },
   ];
@@ -172,14 +175,18 @@ const DeanDashboard = () => {
       />
 
       <div className="p-6 space-y-6">
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <SummaryCardsGrid showTitle={false} columns={3}>
           {stats.map((stat) => (
-            <Card key={stat.title} icon={stat.icon} hover={false}>
-              <p className="text-sm text-text-light">{stat.title}</p>
-              <p className="mt-2 text-3xl font-bold text-primary-800">{stat.value}</p>
-            </Card>
+            <SummaryCard
+              key={stat.title}
+              title={stat.title}
+              count={stat.value}
+              description={stat.description}
+              icon={stat.icon}
+              hover={false}
+            />
           ))}
-        </div>
+        </SummaryCardsGrid>
 
         <Card title="Pending Dean Approvals" subtitle="Requests shown here are blocked until the dean approves or rejects them.">
           {error ? <p className="text-sm text-error">{error}</p> : null}

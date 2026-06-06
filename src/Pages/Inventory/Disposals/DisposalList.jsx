@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useLocation, useParams } from "react-router-dom";
 import MainLayout from "../../../Components/Layouts/MainLayout";
-import { Card, Button, SearchBox, Table, Badge, PageHeader } from "../../../Components/UI";
+import { Card, Button, SearchBox, Table, Badge, PageHeader, SummaryCard, SummaryCardsGrid } from "../../../Components/UI";
 import { DISPOSAL_STATUS } from "../../../utils/constants";
 import { resolveSidebarVariant } from "../../../utils/helpers";
 
@@ -75,21 +75,12 @@ const DisposalList = () => {
 
       <div className="p-6 space-y-6">
 
-        {/* Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <Card title="Total Disposals" icon="delete_sweep">
-            <p className="text-3xl font-bold text-primary-800">15</p>
-          </Card>
-          <Card title="Pending" icon="schedule">
-            <p className="text-3xl font-bold text-warning">3</p>
-          </Card>
-          <Card title="Approved" icon="check_circle">
-            <p className="text-3xl font-bold text-success">8</p>
-          </Card>
-          <Card title="Completed" icon="done_all">
-            <p className="text-3xl font-bold text-info">4</p>
-          </Card>
-        </div>
+        <SummaryCardsGrid showTitle={false} columns="4-equal">
+          <SummaryCard title="Total Disposals" count={15} description="All disposal requests recorded." icon="delete_sweep" hover={false} />
+          <SummaryCard title="Pending" count={3} description="Disposals awaiting approval." icon="schedule" countClassName="text-warning" hover={false} />
+          <SummaryCard title="Approved" count={8} description="Disposals approved for processing." icon="check_circle" countClassName="text-success" hover={false} />
+          <SummaryCard title="Completed" count={4} description="Disposals fully processed." icon="done_all" countClassName="text-info" hover={false} />
+        </SummaryCardsGrid>
 
         {/* Search */}
         <SearchBox value={searchTerm} onChange={setSearchTerm} placeholder="Search disposals..." />

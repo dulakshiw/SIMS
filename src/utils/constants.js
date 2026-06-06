@@ -200,6 +200,38 @@ export const INVENTORY_REQUEST_TYPE_LABELS = {
   change_incharge: "Change inventory officer",
 };
 
+export const ITEM_REQUEST_STATUS = {
+  PENDING_REQUESTER_HOD: "pending_requester_hod",
+  PENDING_LAB_HOD: "pending_lab_hod",
+  APPROVED_TO_ISSUE: "approved_to_issue",
+  /** @deprecated use APPROVED_TO_ISSUE */
+  PENDING_ISSUE: "approved_to_issue",
+  APPROVED: "approved",
+  RETURNED: "returned",
+  PENDING_HOD: "pending_hod",
+  APPROVED_BY_HOD: "approved_by_hod",
+  REJECTED: "rejected",
+  CANCELLED: "cancelled",
+};
+
+export const ITEM_REQUEST_STATUS_META = {
+  pending_requester_hod: { label: "Pending HOD recommendation", variant: "warning" },
+  pending_hod: { label: "Pending HOD recommendation", variant: "warning" },
+  pending_lab_hod: { label: "With lab HOD", variant: "info" },
+  approved_to_issue: { label: "Approved to issue", variant: "info" },
+  pending_issue: { label: "Approved to issue", variant: "info" },
+  approved: { label: "Issued", variant: "success" },
+  returned: { label: "Returned", variant: "secondary" },
+  approved_by_hod: { label: "Approved", variant: "success" },
+  rejected: { label: "Rejected", variant: "error" },
+  cancelled: { label: "Cancelled", variant: "secondary" },
+};
+
+export const ITEM_REQUEST_PENDING_REQUESTER_STATUSES = new Set([
+  ITEM_REQUEST_STATUS.PENDING_REQUESTER_HOD,
+  ITEM_REQUEST_STATUS.PENDING_HOD,
+]);
+
 // Item Transfer/Disposal Status
 export const ITEM_REMARK_TYPE = {
   TRANSFERRED: "transferred",
@@ -212,6 +244,8 @@ export const ITEM_REMARK_TYPE = {
 export const ITEM_STATUS = [
   { value: "available", label: "Available", color: "success" },
   { value: "in-use", label: "In Use", color: "info" },
+  { value: "returned", label: "Returned", color: "secondary" },
+  { value: "Returned", label: "Returned", color: "secondary" },
   { value: "maintenance", label: "Maintenance", color: "warning" },
   { value: "damaged", label: "Damaged", color: "error" },
   { value: "disposed", label: "Disposed", color: "text-light" },
@@ -320,12 +354,28 @@ export const STAFF_INCHARGE_NAV_ITEMS = [
 
 export const HOD_NAV_ITEMS = [
   { id: 1, label: "Dashboard", path: "/hod/dashboard", icon: "dashboard" },
-  { id: 2, label: "Request Items", path: "/inventory/requests/new/hod", icon: "add_circle" },
-  { id: 3, label: "My Requests", path: "/requests/my/hod", icon: "fact_check" },
-  { id: 4, label: "Requests by Staff", path: "/inventory/requests/list/hod", icon: "rule" },
-  { id: 5, label: "Inventories", path: "/inventory/list/hod", icon: "inventory_2" },
-  { id: 6, label: "Reports", path: "/reports/hod", icon: "assessment" },
-  { id: 7, label: "Profile", path: "/profile/hod", icon: "person" },
+  { id: 2, label: "Pending Tasks", path: "/hod/pending-tasks", icon: "pending_actions" },
+  { id: "hod-my-requests-menu", type: "section", label: "My Requests", icon: "fact_check" },
+  {
+    id: "hod-request-items",
+    type: "item",
+    label: "Request Items",
+    path: "/inventory/requests/new/hod",
+    icon: "add_circle",
+    nested: true,
+  },
+  {
+    id: "hod-my-requests-track",
+    type: "item",
+    label: "My Requests",
+    path: "/requests/my/hod",
+    icon: "receipt_long",
+    nested: true,
+  },
+  { id: 5, label: "Requests by Staff", path: "/inventory/requests/list/hod", icon: "rule" },
+  { id: 6, label: "Inventories", path: "/inventory/list/hod", icon: "inventory_2" },
+  { id: 7, label: "Reports", path: "/reports/hod", icon: "assessment" },
+  { id: 8, label: "Profile", path: "/profile/hod", icon: "person" },
 ];
 
 export const DEAN_NAV_ITEMS = [

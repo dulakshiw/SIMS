@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useLocation, useParams } from "react-router-dom";
 import MainLayout from "../../../Components/Layouts/MainLayout";
-import { Card, Button, SearchBox, Table, Badge, PageHeader } from "../../../Components/UI";
+import { Card, Button, SearchBox, Table, Badge, PageHeader, SummaryCard, SummaryCardsGrid } from "../../../Components/UI";
 import { resolveSidebarVariant } from "../../../utils/helpers";
 import { TRANSFER_STATUS } from "../../../utils/constants";
 
@@ -76,21 +76,12 @@ const TransferList = () => {
 
       <div className="p-6 space-y-6">
 
-        {/* Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <Card title="Total Transfers" icon="compare_arrows">
-            <p className="text-3xl font-bold text-primary-800">45</p>
-          </Card>
-          <Card title="Pending" icon="schedule">
-            <p className="text-3xl font-bold text-warning">5</p>
-          </Card>
-          <Card title="In Transit" icon="local_shipping">
-            <p className="text-3xl font-bold text-info">8</p>
-          </Card>
-          <Card title="Completed" icon="done_all">
-            <p className="text-3xl font-bold text-success">32</p>
-          </Card>
-        </div>
+        <SummaryCardsGrid showTitle={false} columns="4-equal">
+          <SummaryCard title="Total Transfers" count={45} description="All transfer requests recorded." icon="compare_arrows" hover={false} />
+          <SummaryCard title="Pending" count={5} description="Transfers awaiting approval." icon="schedule" countClassName="text-warning" hover={false} />
+          <SummaryCard title="In Transit" count={8} description="Transfers currently in progress." icon="local_shipping" countClassName="text-info" hover={false} />
+          <SummaryCard title="Completed" count={32} description="Transfers successfully completed." icon="done_all" countClassName="text-success" hover={false} />
+        </SummaryCardsGrid>
 
         {/* Search */}
         <SearchBox value={searchTerm} onChange={setSearchTerm} placeholder="Search transfers..." />

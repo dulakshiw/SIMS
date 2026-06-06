@@ -4,7 +4,7 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import AdminLayout from "../../Components/Layouts/AdminLayout";
 import MainLayout from "../../Components/Layouts/MainLayout";
-import { Card, Button, Table, Badge, PageHeader } from "../../Components/UI";
+import { Card, Button, Table, Badge, PageHeader, SummaryCard, SummaryCardsGrid } from "../../Components/UI";
 import { ROLE_HIERARCHY } from "../../utils/constants";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
@@ -176,10 +176,10 @@ const Reports = ({ layoutVariant = "admin", sidebarVariant }) => {
 
   const stats = useMemo(
     () => [
-      { title: "Total Users", value: summary.totalUsers, icon: "people", color: "primary-800" },
-      { title: "Total Assets", value: summary.totalItems, icon: "inventory_2", color: "info" },
-      { title: "Pending Requests", value: summary.pendingRequests, icon: "request_quote", color: "warning" },
-      { title: "Inventories", value: summary.inventories, icon: "storehouse", color: "success" },
+      { title: "Total Users", count: summary.totalUsers, description: "Registered user accounts.", icon: "people" },
+      { title: "Total Assets", count: summary.totalItems, description: "Items tracked in inventories.", icon: "inventory_2", countClassName: "text-info" },
+      { title: "Pending Requests", count: summary.pendingRequests, description: "Open requests awaiting action.", icon: "request_quote", countClassName: "text-warning" },
+      { title: "Inventories", count: summary.inventories, description: "Active inventory locations.", icon: "storehouse", countClassName: "text-success" },
     ],
     [summary]
   );
@@ -469,16 +469,20 @@ const Reports = ({ layoutVariant = "admin", sidebarVariant }) => {
           </div>
         ) : null}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <SummaryCardsGrid showTitle={false} columns="4-lg">
           {stats.map((stat) => (
-            <Card key={stat.title} icon={stat.icon}>
-              <p className="text-sm text-text-light">{stat.title}</p>
-              <p className={`text-3xl font-bold text-${stat.color} mt-2`}>
-                {loading ? "..." : stat.value}
-              </p>
-            </Card>
+            <SummaryCard
+              key={stat.title}
+              title={stat.title}
+              count={stat.count}
+              description={stat.description}
+              icon={stat.icon}
+              loading={loading}
+              countClassName={stat.countClassName}
+              hover={false}
+            />
           ))}
-        </div>
+        </SummaryCardsGrid>
 
         <div className="border-b border-border-light">
           <div className="flex gap-2 overflow-x-auto">

@@ -1,7 +1,7 @@
 import React from "react";
 import { useLocation, useParams } from "react-router-dom";
 import MainLayout from "../../../Components/Layouts/MainLayout";
-import { Card, Button, PageHeader } from "../../../Components/UI";
+import { Card, Button, PageHeader, SummaryCard, SummaryCardsGrid } from "../../../Components/UI";
 import { resolveSidebarVariant } from "../../../utils/helpers";
 
 const DisposalReports = () => {
@@ -9,10 +9,10 @@ const DisposalReports = () => {
   const { role } = useParams();
   const sidebarVariant = resolveSidebarVariant(location.pathname, role);
   const mockStats = [
-    { title: "Total Disposals", value: "45", icon: "delete_sweep", color: "primary-800" },
-    { title: "Total Value", value: "$15,200", icon: "paid", color: "success" },
-    { title: "Pending", value: "8", icon: "schedule", color: "warning" },
-    { title: "Completed", value: "32", icon: "done_all", color: "info" },
+    { title: "Total Disposals", count: "45", description: "All disposal records.", icon: "delete_sweep" },
+    { title: "Total Value", count: "$15,200", description: "Combined value of disposals.", icon: "paid", countClassName: "text-success" },
+    { title: "Pending", count: "8", description: "Disposals awaiting completion.", icon: "schedule", countClassName: "text-warning" },
+    { title: "Completed", count: "32", description: "Disposals fully processed.", icon: "done_all", countClassName: "text-info" },
   ];
 
   return (
@@ -29,15 +29,19 @@ const DisposalReports = () => {
 
       <div className="p-6 space-y-6">
 
-        {/* Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {mockStats.map((stat, index) => (
-            <Card key={index} icon={stat.icon}>
-              <p className="text-sm text-text-light">{stat.title}</p>
-              <p className={`text-3xl font-bold text-${stat.color} mt-2`}>{stat.value}</p>
-            </Card>
+        <SummaryCardsGrid showTitle={false} columns="4-lg">
+          {mockStats.map((stat) => (
+            <SummaryCard
+              key={stat.title}
+              title={stat.title}
+              count={stat.count}
+              description={stat.description}
+              icon={stat.icon}
+              countClassName={stat.countClassName}
+              hover={false}
+            />
           ))}
-        </div>
+        </SummaryCardsGrid>
 
         {/* Charts Placeholder */}
         <Card title="Disposal Trends">

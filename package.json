@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "dev:server": "node server/index.js",
+    "dev:all": "npm run dev:server & npm run dev",
     "start:server": "node server/index.js",
     "start:server:sqlite": "node server/sqlite-server.js"
   },

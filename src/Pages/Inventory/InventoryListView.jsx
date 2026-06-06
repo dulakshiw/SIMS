@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import MainLayout from "../../Components/Layouts/MainLayout";
-import { Card, Button, SearchBox, Table, Badge, PageHeader, Modal } from "../../Components/UI";
+import { Card, Button, SearchBox, Table, Badge, PageHeader, Modal, SummaryCard, SummaryCardsGrid } from "../../Components/UI";
 import {
   ITEM_STATUS,
   INVENTORY_REQUEST_STATUS_META,
@@ -571,32 +571,41 @@ const InventoryListView = () => {
         </div>
 
         {isInchargeView && !viewingInventoryItems ? (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Card title="Pending activation" icon="hourglass_top">
-              <p className="text-3xl font-bold text-warning">{loading ? '...' : stats.pending}</p>
-            </Card>
-            <Card title="Assigned inventories" icon="inventory_2">
-              <p className="text-3xl font-bold text-primary-800">{loading ? '...' : stats.assigned}</p>
-            </Card>
-            <Card title="Total items (assigned)" icon="category">
-              <p className="text-3xl font-bold text-info">{loading ? '...' : stats.items}</p>
-            </Card>
-          </div>
+          <SummaryCardsGrid showTitle={false} columns={3}>
+            <SummaryCard
+              title="Pending activation"
+              count={stats.pending}
+              description="Inventories awaiting activation."
+              icon="hourglass_top"
+              loading={loading}
+              countClassName="text-warning"
+              hover={false}
+            />
+            <SummaryCard
+              title="Assigned inventories"
+              count={stats.assigned}
+              description="Inventories assigned to you."
+              icon="inventory_2"
+              loading={loading}
+              hover={false}
+            />
+            <SummaryCard
+              title="Total items (assigned)"
+              count={stats.items}
+              description="Items across your assigned inventories."
+              icon="category"
+              loading={loading}
+              countClassName="text-info"
+              hover={false}
+            />
+          </SummaryCardsGrid>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <Card title="Total Items" icon="inventory_2">
-              <p className="text-3xl font-bold text-primary-800">{loading ? '...' : stats.items}</p>
-            </Card>
-            <Card title="Available" icon="check_circle">
-              <p className="text-3xl font-bold text-success">{loading ? '...' : stats.available}</p>
-            </Card>
-            <Card title="In Use" icon="assignment">
-              <p className="text-3xl font-bold text-info">{loading ? '...' : stats.inUse}</p>
-            </Card>
-            <Card title="Maintenance" icon="build">
-              <p className="text-3xl font-bold text-warning">{loading ? '...' : stats.maintenance}</p>
-            </Card>
-          </div>
+          <SummaryCardsGrid showTitle={false} columns="4-lg">
+            <SummaryCard title="Total Items" count={stats.items} description="All items in this inventory." icon="inventory_2" loading={loading} hover={false} />
+            <SummaryCard title="Available" count={stats.available} description="Items ready for use." icon="check_circle" loading={loading} countClassName="text-success" hover={false} />
+            <SummaryCard title="In Use" count={stats.inUse} description="Items currently allocated." icon="assignment" loading={loading} countClassName="text-info" hover={false} />
+            <SummaryCard title="Maintenance" count={stats.maintenance} description="Items under maintenance." icon="build" loading={loading} countClassName="text-warning" hover={false} />
+          </SummaryCardsGrid>
         )}
 
         <Card>

@@ -12,3 +12,4 @@ export { default as Select } from "./Select";
 export { default as SearchBox } from "./SearchBox";
 export { default as Tabs } from "./Tabs";
 export { default as PageHeader } from "./PageHeader";
+export { default as SummaryCard, SummaryCardsGrid } from "./SummaryCard";

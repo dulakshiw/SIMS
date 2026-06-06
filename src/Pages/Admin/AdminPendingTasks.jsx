@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import AdminLayout from "../../Components/Layouts/AdminLayout";
-import { Card, Button, Table, Badge, Modal, SearchBox, PageHeader } from "../../Components/UI";
+import { Card, Button, Table, Badge, Modal, SearchBox, PageHeader, SummaryCard, SummaryCardsGrid } from "../../Components/UI";
 import {
   ACCOUNT_REQUEST_STATUS,
   INVENTORY_REQUEST_STATUS_META,
@@ -689,18 +689,21 @@ const AdminPendingTasks = () => {
         {
           id: "inventory-requests",
           label: "Inventory Creation",
+          description: "New inventory locations awaiting registrar approval.",
           icon: "inventory_2",
           count: pendingInventoryRequests.length,
         },
         {
           id: "transfer-requests",
           label: "Item Transfers",
+          description: "Item transfer requests awaiting approval.",
           icon: "compare_arrows",
           count: transferRequests.length,
         },
         {
           id: "disposal-requests",
           label: "Item Disposals",
+          description: "Item disposal requests awaiting approval.",
           icon: "delete_sweep",
           count: disposalRequests.length,
         },
@@ -709,12 +712,14 @@ const AdminPendingTasks = () => {
         {
           id: "user-activation",
           label: "User Activation",
+          description: "Inactive users awaiting manual activation.",
           icon: "manage_accounts",
           count: inactiveUsers.length,
         },
         {
           id: "inventory-requests",
           label: "Inventory Requests",
+          description: "Inventory officer changes awaiting review.",
           icon: "inventory_2",
           count: pendingInventoryRequests.length,
         },
@@ -744,40 +749,19 @@ const AdminPendingTasks = () => {
       />
 
       <div className="p-6 space-y-6">
-        {/* Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <SummaryCardsGrid showTitle={false} columns={3}>
           {tabs.map((tab) => (
-            <button
+            <SummaryCard
               key={tab.id}
+              title={tab.label}
+              count={tab.count}
+              description={tab.description}
+              icon={tab.icon}
+              active={activeTab === tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`text-left p-5 rounded-lg border transition-all ${
-                activeTab === tab.id
-                  ? "border-primary-600 bg-primary-50 shadow-sm"
-                  : "border-border-lighter bg-white hover:border-primary-300 hover:shadow-sm"
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                <span
-                  className={`material-symbols-outlined text-2xl ${
-                    activeTab === tab.id ? "text-primary-600" : "text-text-light"
-                  }`}
-                >
-                  {tab.icon}
-                </span>
-                <div>
-                  <p className="text-sm text-text-light">{tab.label}</p>
-                  <p
-                    className={`text-2xl font-bold mt-0.5 ${
-                      tab.count > 0 ? "text-warning" : "text-success"
-                    }`}
-                  >
-                    {tab.count}
-                  </p>
-                </div>
-              </div>
-            </button>
+            />
           ))}
-        </div>
+        </SummaryCardsGrid>
 
         {/* Tabs */}
         <div className="border-b border-border-light">

@@ -459,6 +459,30 @@ const ensureInventoryItemsColumns = async () => {
     }
   }
 
+  if (inventoryItemColumns.has("status")) {
+    const [statusColumnRows] = await pool.query(
+      `SHOW COLUMNS FROM ${DB_ITEMS_TABLE} WHERE Field = 'status'`
+    );
+    const statusType = String(statusColumnRows[0]?.Type || "").toLowerCase();
+
+    if (statusType.startsWith("enum")) {
+      await pool.query(`
+        UPDATE ${DB_ITEMS_TABLE}
+        SET status = 'in-use'
+        WHERE LOWER(COALESCE(status, '')) = 'issued'
+      `);
+      await pool.query(
+        `ALTER TABLE ${DB_ITEMS_TABLE} MODIFY COLUMN status VARCHAR(50) DEFAULT 'available'`
+      );
+      console.log(`Migrated ${DB_ITEMS_TABLE}.status from ENUM to VARCHAR(50)`);
+    }
+  } else {
+    await pool.query(
+      `ALTER TABLE ${DB_ITEMS_TABLE} ADD COLUMN status VARCHAR(50) DEFAULT 'available'`
+    );
+    inventoryItemColumns.add("status");
+  }
+
   return inventoryItemColumns;
 };
 
@@ -545,6 +569,44 @@ const createInventoryCreationRequestsTable = async () => {
     console.log("inventory_creation_requests table ensured");
   } catch (error) {
     console.error("Error creating inventory_creation_requests table:", error.message);
+  }
+};
+
+const createItemRequestsTable = async () => {
+  try {
+    await pool.query(
+      `
+        CREATE TABLE IF NOT EXISTS item_requests (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          item_name VARCHAR(255) NOT NULL,
+          quantity INT NOT NULL DEFAULT 1,
+          priority VARCHAR(50) DEFAULT 'normal',
+          specification TEXT NULL,
+          reason TEXT NULL,
+          requested_by_id INT NOT NULL,
+          requested_inventory_id INT NULL,
+          inventory_location VARCHAR(255) NULL,
+          department_id INT NULL,
+          inventory_department_id INT NULL,
+          hod_user_id INT NULL,
+          lab_hod_user_id INT NULL,
+          approval_status VARCHAR(50) DEFAULT 'pending_requester_hod',
+          requested_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          required_by_date DATE NULL,
+          requester_hod_recommended_date TIMESTAMP NULL,
+          requester_hod_recommended_by_id INT NULL,
+          lab_hod_approved_date TIMESTAMP NULL,
+          lab_hod_approved_by_id INT NULL,
+          hod_approved_date TIMESTAMP NULL,
+          hod_approved_by_id INT NULL,
+          rejection_reason VARCHAR(500) NULL,
+          rejection_date TIMESTAMP NULL
+        )
+      `
+    );
+    console.log("item_requests table ensured");
+  } catch (error) {
+    console.error("Error creating item_requests table:", error.message);
   }
 };
 
@@ -672,6 +734,51 @@ const formatItemIdentifierValidationError = (conflicts = {}) => {
   }
 
   return messages.join(" ");
+};
+
+const buildItemNameKeywordFilter = (dbColumns, searchText = "") => {
+  const trimmedSearch = String(searchText || "").trim();
+
+  if (!trimmedSearch) {
+    return { clause: "", params: [] };
+  }
+
+  const nameColumns = getAllDbColumnsForLogicalKey(dbColumns, "itemName");
+
+  if (nameColumns.length === 0) {
+    return { clause: "", params: [] };
+  }
+
+  const keywordSet = new Set();
+  trimmedSearch
+    .split(/\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .forEach((keyword) => {
+      keywordSet.add(keyword);
+      if (keyword.length > 3 && keyword.endsWith("s")) {
+        keywordSet.add(keyword.slice(0, -1));
+      } else if (keyword.length > 2) {
+        keywordSet.add(`${keyword}s`);
+      }
+    });
+
+  const matchClauses = [];
+  const params = [];
+
+  const appendNameMatch = (needle) => {
+    const columnMatches = nameColumns.map((column) => `LOWER(COALESCE(${column}, '')) LIKE LOWER(?)`);
+    matchClauses.push(`(${columnMatches.join(" OR ")})`);
+    nameColumns.forEach(() => params.push(`%${needle}%`));
+  };
+
+  appendNameMatch(trimmedSearch);
+  keywordSet.forEach((keyword) => appendNameMatch(keyword));
+
+  return {
+    clause: `(${matchClauses.join(" OR ")})`,
+    params,
+  };
 };
 
 const searchItemNames = async (dbColumns, query = "", limit = 10) => {
@@ -1574,6 +1681,352 @@ const ensureInventoryCreationRequestsTable = async () => {
 
   return inventoryRequestColumns;
 };
+
+const addWorkflowColumnIfMissing = async (tableName, columns, columnName, definition) => {
+  if (columns.has(columnName)) {
+    return;
+  }
+
+  await pool.query(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
+  columns.add(columnName);
+};
+
+const formatIssueDateLabel = (value) => {
+  if (!value) {
+    return new Date().toISOString().split("T")[0];
+  }
+
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return String(value).split("T")[0];
+  }
+
+  return date.toISOString().split("T")[0];
+};
+
+const buildIssueRemark = (requestId, issuedDate) =>
+  `Item request ID: REQ-${requestId} | Issued date: ${formatIssueDateLabel(issuedDate)}`;
+
+const applyIssuedItemSideEffects = async ({
+  requestId,
+  inventoryItemId,
+  requesterName,
+  issuedDate,
+  inventoryItem = null,
+}) => {
+  const inventoryItemColumns = await ensureInventoryItemsColumns();
+  const itemIdColumn = getItemIdColumn(inventoryItemColumns);
+
+  if (!Number.isInteger(inventoryItemId) || inventoryItemId <= 0) {
+    return false;
+  }
+
+  let itemRow = inventoryItem;
+  if (!itemRow) {
+    const [itemRows] = await pool.execute(
+      `SELECT * FROM ${DB_ITEMS_TABLE} WHERE ${itemIdColumn} = ? LIMIT 1`,
+      [inventoryItemId]
+    );
+
+    if (itemRows.length === 0) {
+      return false;
+    }
+
+    itemRow = itemRows[0];
+  }
+
+  const itemUpdateParts = [];
+  const itemUpdateValues = [];
+  const trimmedRequesterName = String(requesterName || "").trim();
+
+  if (inventoryItemColumns.has("status")) {
+    itemUpdateParts.push("status = ?");
+    itemUpdateValues.push("in-use");
+  }
+
+  if (inventoryItemColumns.has("location") && trimmedRequesterName) {
+    itemUpdateParts.push("location = ?");
+    itemUpdateValues.push(trimmedRequesterName);
+  }
+
+  if (inventoryItemColumns.has("remarks")) {
+    const issueRemark = buildIssueRemark(requestId, issuedDate);
+    const existingRemarks = String(itemRow.remarks || "").trim();
+    const reqTag = `REQ-${requestId}`;
+    const updatedRemarks = existingRemarks.includes(reqTag)
+      ? existingRemarks
+      : existingRemarks
+        ? `${existingRemarks}\n${issueRemark}`
+        : issueRemark;
+    itemUpdateParts.push("remarks = ?");
+    itemUpdateValues.push(updatedRemarks);
+  }
+
+  if (itemUpdateParts.length === 0) {
+    return false;
+  }
+
+  itemUpdateValues.push(inventoryItemId);
+  await pool.execute(
+    `UPDATE ${DB_ITEMS_TABLE} SET ${itemUpdateParts.join(", ")} WHERE ${itemIdColumn} = ?`,
+    itemUpdateValues
+  );
+  return true;
+};
+
+const backfillIssuedInventoryItemDetails = async (itemRequestColumns) => {
+  if (
+    !itemRequestColumns.has("approval_status")
+    || !itemRequestColumns.has("allocated_inventory_item_id")
+    || !itemRequestColumns.has("requested_by_id")
+  ) {
+    return;
+  }
+
+  const schema = await getAuthSchema();
+  const userIdColumn = getUserPrimaryKeyColumn(schema);
+  const userNameColumn = getUserNameColumn(schema);
+
+  if (!userNameColumn) {
+    return;
+  }
+
+  const returnedFilter = itemRequestColumns.has("returned_date")
+    ? "AND ir.returned_date IS NULL"
+    : "";
+
+  const [issuedRows] = await pool.query(`
+    SELECT
+      ir.id,
+      ir.issued_date,
+      ir.allocated_inventory_item_id,
+      u.${userNameColumn} AS requester_name
+    FROM item_requests ir
+    INNER JOIN users u ON u.${userIdColumn} = ir.requested_by_id
+    WHERE LOWER(COALESCE(ir.approval_status, '')) = 'approved'
+      AND ir.allocated_inventory_item_id IS NOT NULL
+      ${returnedFilter}
+  `);
+
+  for (const row of issuedRows) {
+    const inventoryItemId = Number(row.allocated_inventory_item_id ?? 0);
+    const requesterName = String(row.requester_name || "").trim();
+
+    if (!Number.isInteger(inventoryItemId) || inventoryItemId <= 0 || !requesterName) {
+      continue;
+    }
+
+    await applyIssuedItemSideEffects({
+      requestId: row.id,
+      inventoryItemId,
+      requesterName,
+      issuedDate: row.issued_date,
+    });
+  }
+};
+
+const ensureItemRequestsTable = async () => {
+  await createItemRequestsTable();
+  const itemRequestColumns = await getTableColumns("item_requests");
+
+  const columnDefinitions = [
+    ["item_name", "VARCHAR(255) NOT NULL"],
+    ["quantity", "INT NOT NULL DEFAULT 1"],
+    ["priority", "VARCHAR(50) DEFAULT 'normal'"],
+    ["specification", "TEXT NULL"],
+    ["reason", "TEXT NULL"],
+    ["requested_by_id", "INT NOT NULL"],
+    ["requested_inventory_id", "INT NULL"],
+    ["inventory_location", "VARCHAR(255) NULL"],
+    ["department_id", "INT NULL"],
+    ["inventory_department_id", "INT NULL"],
+    ["hod_user_id", "INT NULL"],
+    ["lab_hod_user_id", "INT NULL"],
+    ["approval_status", "VARCHAR(50) DEFAULT 'pending_requester_hod'"],
+    ["requested_date", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"],
+    ["required_by_date", "DATE NULL"],
+    ["requester_hod_recommended_date", "TIMESTAMP NULL"],
+    ["requester_hod_recommended_by_id", "INT NULL"],
+    ["lab_hod_approved_date", "TIMESTAMP NULL"],
+    ["lab_hod_approved_by_id", "INT NULL"],
+    ["hod_approved_date", "TIMESTAMP NULL"],
+    ["hod_approved_by_id", "INT NULL"],
+    ["rejection_reason", "VARCHAR(500) NULL"],
+    ["rejection_date", "TIMESTAMP NULL"],
+    ["inventory_officer_user_id", "INT NULL"],
+    ["issued_date", "TIMESTAMP NULL"],
+    ["issued_by_id", "INT NULL"],
+    ["allocated_inventory_id", "INT NULL"],
+    ["allocated_quantity", "INT NULL"],
+    ["allocated_date", "TIMESTAMP NULL"],
+    ["allocated_inventory_item_id", "INT NULL"],
+    ["returned_date", "TIMESTAMP NULL"],
+    ["returned_by_id", "INT NULL"],
+  ];
+
+  for (const [columnName, definition] of columnDefinitions) {
+    await addWorkflowColumnIfMissing("item_requests", itemRequestColumns, columnName, definition);
+  }
+
+  if (itemRequestColumns.has("approval_status")) {
+    const [approvalStatusColumnRows] = await pool.query(
+      "SHOW COLUMNS FROM item_requests WHERE Field = 'approval_status'"
+    );
+    const approvalStatusType = String(approvalStatusColumnRows[0]?.Type || "").toLowerCase();
+
+    if (approvalStatusType.startsWith("enum")) {
+      await pool.query(
+        "ALTER TABLE item_requests MODIFY COLUMN approval_status VARCHAR(50) NOT NULL DEFAULT 'pending_requester_hod'"
+      );
+      console.log("Migrated item_requests.approval_status from ENUM to VARCHAR(50)");
+    }
+
+    await pool.query(`
+      UPDATE item_requests
+      SET approval_status = 'pending_requester_hod'
+      WHERE LOWER(COALESCE(approval_status, '')) = 'pending_hod'
+    `);
+
+    await pool.query(`
+      UPDATE item_requests
+      SET approval_status = 'approved_to_issue'
+      WHERE LOWER(COALESCE(approval_status, '')) = 'pending_issue'
+    `);
+  }
+
+  if (
+    itemRequestColumns.has("requested_inventory_id") &&
+    itemRequestColumns.has("inventory_officer_user_id") &&
+    itemRequestColumns.has("approval_status")
+  ) {
+    const inventoryColumns = await ensureInventoriesLocationColumn();
+    const inventoryIdColumn = getInventoryIdColumn(inventoryColumns);
+    const inventoryInchargeColumn = getInventoryInchargeColumn(inventoryColumns);
+
+    if (inventoryIdColumn && inventoryInchargeColumn) {
+      const notIssuedParts = [];
+      if (itemRequestColumns.has("issued_date")) {
+        notIssuedParts.push("ir.issued_date IS NULL");
+      }
+      if (itemRequestColumns.has("allocated_inventory_item_id")) {
+        notIssuedParts.push("ir.allocated_inventory_item_id IS NULL");
+      }
+      const notIssuedClause = notIssuedParts.length > 0
+        ? `AND (${notIssuedParts.join(" AND ")})`
+        : "";
+
+      await pool.query(`
+        UPDATE item_requests ir
+        INNER JOIN inventories i ON i.${inventoryIdColumn} = ir.requested_inventory_id
+        SET ir.approval_status = 'approved_to_issue',
+            ir.inventory_officer_user_id = i.${inventoryInchargeColumn}
+        WHERE LOWER(COALESCE(ir.approval_status, '')) = 'approved'
+          AND (ir.inventory_officer_user_id IS NULL OR ir.inventory_officer_user_id = 0)
+          AND i.${inventoryInchargeColumn} IS NOT NULL
+          ${notIssuedClause}
+      `);
+    }
+  }
+
+  if (
+    itemRequestColumns.has("requested_inventory_id") &&
+    itemRequestColumns.has("inventory_department_id") &&
+    itemRequestColumns.has("lab_hod_user_id")
+  ) {
+    const inventoryColumns = await ensureInventoriesLocationColumn();
+    const inventoryIdColumn = getInventoryIdColumn(inventoryColumns);
+
+    if (inventoryIdColumn && inventoryColumns.has("department_id")) {
+      await pool.query(`
+        UPDATE item_requests ir
+        INNER JOIN inventories i ON i.${inventoryIdColumn} = ir.requested_inventory_id
+        SET ir.inventory_department_id = i.department_id
+        WHERE ir.inventory_department_id IS NULL
+          AND i.department_id IS NOT NULL
+      `);
+    }
+
+    const schema = await getAuthSchema();
+    const [rowsMissingLabHod] = await pool.query(`
+      SELECT id, inventory_department_id
+      FROM item_requests
+      WHERE lab_hod_user_id IS NULL
+        AND inventory_department_id IS NOT NULL
+    `);
+
+    for (const row of rowsMissingLabHod) {
+      const labHodUserId = await resolveDepartmentHeadUserId(schema, Number(row.inventory_department_id ?? 0));
+      if (labHodUserId) {
+        await pool.execute("UPDATE item_requests SET lab_hod_user_id = ? WHERE id = ?", [labHodUserId, row.id]);
+      }
+    }
+  }
+
+  await backfillIssuedInventoryItemDetails(itemRequestColumns);
+
+  return itemRequestColumns;
+};
+
+const formatItemRequestDate = (value) => {
+  if (!value) {
+    return "";
+  }
+
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+
+  return date.toISOString().split("T")[0];
+};
+
+const mapItemRequestRow = (row, extras = {}) => ({
+  id: row.id,
+  itemName: row.item_name ?? row.itemName ?? "",
+  quantity: Number(row.quantity ?? 0),
+  priority: String(row.priority || "normal").toLowerCase(),
+  specification: row.specification || "",
+  reason: row.reason || "",
+  requestedInventoryId: row.requested_inventory_id ?? row.requested_from_inventory_id ?? null,
+  inventoryLocation: row.inventory_location || extras.inventoryLocation || "",
+  inventoryName: extras.inventoryName || row.inventory_name || "",
+  departmentId: row.department_id ?? null,
+  departmentName: extras.departmentName || row.department_name || "",
+  inventoryDepartmentId: row.inventory_department_id ?? null,
+  inventoryDepartmentName: extras.inventoryDepartmentName || row.inventory_department_name || "",
+  requestedById: row.requested_by_id ?? null,
+  requestedByName: extras.requestedByName || row.requested_by_name || "",
+  hodUserId: row.hod_user_id ?? null,
+  labHodUserId: row.lab_hod_user_id ?? null,
+  inventoryOfficerUserId: row.inventory_officer_user_id ?? null,
+  approvalStatus: String(row.approval_status || "pending_requester_hod").trim().toLowerCase(),
+  requestedDate: formatItemRequestDate(row.requested_date),
+  requiredByDate: formatItemRequestDate(row.required_by_date),
+  requesterHodRecommendedDate: formatItemRequestDate(row.requester_hod_recommended_date),
+  labHodApprovedDate: formatItemRequestDate(row.lab_hod_approved_date),
+  hodApprovedDate: formatItemRequestDate(row.lab_hod_approved_date || row.hod_approved_date),
+  issuedDate: formatItemRequestDate(row.issued_date),
+  allocatedDate: formatItemRequestDate(row.allocated_date),
+  allocatedQuantity: Number(row.allocated_quantity ?? 0) || null,
+  allocatedInventoryId: row.allocated_inventory_id ?? null,
+  allocatedInventoryItemId: row.allocated_inventory_item_id ?? null,
+  returnedDate: formatItemRequestDate(row.returned_date),
+  rejectionDate: formatItemRequestDate(row.rejection_date),
+  rejectionReason: row.rejection_reason || "",
+  allocatedItem: row.allocated_item_record_name || row.allocated_item_name
+    ? {
+      id: row.allocated_inventory_item_id ?? null,
+      itemName: row.allocated_item_record_name ?? row.allocated_item_name ?? "",
+      itemCode: row.allocated_item_code ?? "",
+      serialNo: row.allocated_item_serial_no ?? "",
+      model: row.allocated_item_model ?? "",
+      ginNo: row.allocated_item_gin_no ?? "",
+      status: row.allocated_item_status ?? "",
+      location: row.allocated_item_location ?? "",
+      remarks: row.allocated_item_remarks ?? "",
+    }
+    : null,
+});
 
 const getOutstandingReturnSummary = async (userId) => {
   if (!Number.isInteger(userId) || userId <= 0) {
@@ -4497,6 +4950,7 @@ app.get(
     const inventoryItemColumns = await ensureInventoryItemsColumns();
       const inventoryId = Number(req.query?.inventoryId ?? 0);
     const ginNo = String(req.query?.ginNo ?? "").trim();
+    const searchText = String(req.query?.search ?? req.query?.q ?? "").trim();
     const hasInventoryId = inventoryItemColumns.has("inventory_id");
 
     const whereClauses = [];
@@ -4511,6 +4965,12 @@ app.get(
     if (Number.isInteger(inventoryId) && inventoryId > 0 && hasInventoryId) {
       whereClauses.push("inventory_id = ?");
       params.push(inventoryId);
+    }
+
+    const nameKeywordFilter = buildItemNameKeywordFilter(inventoryItemColumns, searchText);
+    if (nameKeywordFilter.clause) {
+      whereClauses.push(nameKeywordFilter.clause);
+      params.push(...nameKeywordFilter.params);
     }
 
     const whereClause = whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : "";
@@ -5566,15 +6026,6 @@ app.post(
   })
 );
 
-const addWorkflowColumnIfMissing = async (tableName, columns, columnName, definition) => {
-  if (columns.has(columnName)) {
-    return;
-  }
-
-  await pool.query(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
-  columns.add(columnName);
-};
-
 const ensureItemTransfersWorkflow = async () => {
   try {
     const [tables] = await pool.query("SHOW TABLES LIKE 'item_transfers'");
@@ -5668,6 +6119,1030 @@ const buildProcessedAtExpression = (tableAlias, columns, preferredDateColumns = 
 
   return `COALESCE(${parts.join(", ")})`;
 };
+
+app.get(
+  "/api/item-requests",
+  withDatabase(async (req, res) => {
+    const itemRequestColumns = await ensureItemRequestsTable();
+    const schema = await getAuthSchema();
+    const requestedById = Number(req.query?.requestedById ?? req.query?.requested_by_id ?? 0);
+    const hodUserId = Number(req.query?.hodUserId ?? req.query?.hod_user_id ?? 0);
+    const requesterHodUserId = Number(
+      req.query?.requesterHodUserId ?? req.query?.requester_hod_user_id ?? 0
+    );
+    const labHodUserId = Number(req.query?.labHodUserId ?? 0);
+    const inventoryOfficerUserId = Number(
+      req.query?.inventoryOfficerUserId ?? req.query?.inventory_officer_user_id ?? 0
+    );
+    const requesterScope = String(req.query?.requesterScope ?? "all").trim().toLowerCase();
+    const approvalStatus = String(req.query?.approvalStatus ?? req.query?.approval_status ?? "").trim().toLowerCase();
+    const departmentIdFilter = Number(req.query?.departmentId ?? 0);
+
+    const hasRequestedByFilter =
+      Number.isInteger(requestedById) && requestedById > 0 && itemRequestColumns.has("requested_by_id");
+    const hasHodFilter =
+      Number.isInteger(hodUserId) && hodUserId > 0 && itemRequestColumns.has("hod_user_id");
+    const hasRequesterHodFilter =
+      Number.isInteger(requesterHodUserId) && requesterHodUserId > 0 && itemRequestColumns.has("hod_user_id");
+    const hasLabHodFilter =
+      Number.isInteger(labHodUserId) && labHodUserId > 0 && itemRequestColumns.has("lab_hod_user_id");
+    const hasInventoryOfficerFilter =
+      Number.isInteger(inventoryOfficerUserId)
+      && inventoryOfficerUserId > 0
+      && itemRequestColumns.has("inventory_officer_user_id");
+    const inventoryOfficerScope = String(
+      req.query?.inventoryOfficerScope ?? req.query?.scope ?? "pending_issue"
+    ).trim().toLowerCase();
+
+    if (
+      !hasRequestedByFilter &&
+      !hasHodFilter &&
+      !hasRequesterHodFilter &&
+      !hasLabHodFilter &&
+      !hasInventoryOfficerFilter &&
+      !approvalStatus &&
+      !departmentIdFilter
+    ) {
+      return res.json({ success: true, requests: [] });
+    }
+
+    const userIdColumn = getUserPrimaryKeyColumn(schema);
+    const userNameColumn = getUserNameColumn(schema);
+    const departmentJoinIdColumn = schema.departmentColumns.has("id") ? "id" : "department_id";
+    const departmentNameColumn = schema.departmentColumns.has("name")
+      ? "d.name"
+      : schema.departmentColumns.has("department_name")
+        ? "d.department_name"
+        : "NULL";
+    const inventoryColumns = await ensureInventoriesLocationColumn();
+    const inventoryIdColumn = getInventoryIdColumn(inventoryColumns);
+    const inventoryNameColumn = getInventoryNameColumn(inventoryColumns);
+    const inventoryJoin = inventoryIdColumn
+      ? `LEFT JOIN inventories inv ON inv.${inventoryIdColumn} = ir.requested_inventory_id`
+      : "";
+    const inventoryNameSelect = inventoryNameColumn ? `inv.${inventoryNameColumn} AS inventory_name` : "NULL AS inventory_name";
+    const inventoryLocationSelect = inventoryColumns.has("location")
+      ? "COALESCE(ir.inventory_location, inv.location) AS inventory_location"
+      : "ir.inventory_location AS inventory_location";
+    const departmentJoin = schema.hasDepartmentsTable && itemRequestColumns.has("department_id")
+      ? `LEFT JOIN departments d ON d.${departmentJoinIdColumn} = ir.department_id`
+      : "";
+    const inventoryDepartmentJoin = schema.hasDepartmentsTable && itemRequestColumns.has("inventory_department_id")
+      ? `LEFT JOIN departments inv_d ON inv_d.${departmentJoinIdColumn} = ir.inventory_department_id`
+      : "";
+    const inventoryDepartmentNameSelect = schema.hasDepartmentsTable && itemRequestColumns.has("inventory_department_id")
+      ? (
+        schema.departmentColumns.has("name")
+          ? "inv_d.name AS inventory_department_name"
+          : schema.departmentColumns.has("department_name")
+            ? "inv_d.department_name AS inventory_department_name"
+            : "NULL AS inventory_department_name"
+      )
+      : "NULL AS inventory_department_name";
+    const requesterJoin = itemRequestColumns.has("requested_by_id")
+      ? `LEFT JOIN users rb ON rb.${userIdColumn} = ir.requested_by_id`
+      : "";
+
+    const whereParts = [];
+    const params = [];
+
+    if (hasRequestedByFilter) {
+      whereParts.push("ir.requested_by_id = ?");
+      params.push(requestedById);
+
+      if (requesterScope === "issued") {
+        if (itemRequestColumns.has("approval_status")) {
+          whereParts.push(`LOWER(COALESCE(ir.approval_status, '')) IN ('approved', 'returned')`);
+        }
+        if (itemRequestColumns.has("allocated_inventory_item_id")) {
+          whereParts.push("ir.allocated_inventory_item_id IS NOT NULL");
+        }
+      }
+    }
+
+    if (hasHodFilter) {
+      whereParts.push("ir.hod_user_id = ?");
+      params.push(hodUserId);
+    }
+
+    if (hasRequesterHodFilter) {
+      whereParts.push("ir.hod_user_id = ?");
+      params.push(requesterHodUserId);
+      if (itemRequestColumns.has("approval_status")) {
+        whereParts.push("LOWER(COALESCE(ir.approval_status, '')) IN ('pending_requester_hod', 'pending_hod')");
+      }
+    }
+
+    if (hasLabHodFilter) {
+      whereParts.push("ir.lab_hod_user_id = ?");
+      params.push(labHodUserId);
+      if (itemRequestColumns.has("approval_status")) {
+        whereParts.push("LOWER(COALESCE(ir.approval_status, '')) = 'pending_lab_hod'");
+      }
+    }
+
+    if (hasInventoryOfficerFilter) {
+      const inventoryColumns = await ensureInventoriesLocationColumn();
+      const inventoryIdColumn = getInventoryIdColumn(inventoryColumns);
+      const inventoryInchargeColumn = getInventoryInchargeColumn(inventoryColumns);
+
+      if (
+        inventoryIdColumn
+        && inventoryInchargeColumn
+        && itemRequestColumns.has("requested_inventory_id")
+      ) {
+        whereParts.push(`(
+          ir.inventory_officer_user_id = ?
+          OR ir.requested_inventory_id IN (
+            SELECT inv.${inventoryIdColumn}
+            FROM inventories inv
+            WHERE inv.${inventoryInchargeColumn} = ?
+          )
+        )`);
+        params.push(inventoryOfficerUserId, inventoryOfficerUserId);
+      } else {
+        whereParts.push("ir.inventory_officer_user_id = ?");
+        params.push(inventoryOfficerUserId);
+      }
+
+      if (inventoryOfficerScope === "issued") {
+        if (itemRequestColumns.has("approval_status")) {
+          whereParts.push(`LOWER(COALESCE(ir.approval_status, '')) NOT IN ('approved_to_issue', 'pending_issue')`);
+        }
+      } else {
+        if (itemRequestColumns.has("approval_status")) {
+          whereParts.push(`LOWER(COALESCE(ir.approval_status, '')) IN ('approved_to_issue', 'pending_issue')`);
+        }
+
+        if (itemRequestColumns.has("issued_date")) {
+          whereParts.push("ir.issued_date IS NULL");
+        } else if (itemRequestColumns.has("allocated_inventory_item_id")) {
+          whereParts.push("ir.allocated_inventory_item_id IS NULL");
+        }
+      }
+    }
+
+    if (approvalStatus && itemRequestColumns.has("approval_status") && !hasRequesterHodFilter && !hasLabHodFilter && !hasInventoryOfficerFilter) {
+      whereParts.push("LOWER(COALESCE(ir.approval_status, '')) = ?");
+      params.push(approvalStatus);
+    }
+
+    if (Number.isInteger(departmentIdFilter) && departmentIdFilter > 0 && itemRequestColumns.has("department_id")) {
+      whereParts.push("ir.department_id = ?");
+      params.push(departmentIdFilter);
+    }
+
+    const whereClause = whereParts.length > 0 ? `WHERE ${whereParts.join(" AND ")}` : "";
+    const requestedDateCol = itemRequestColumns.has("requested_date") ? "ir.requested_date" : "ir.id";
+    const includeAllocatedItemJoin =
+      hasRequestedByFilter
+      && itemRequestColumns.has("allocated_inventory_item_id");
+    const inventoryItemColumns = includeAllocatedItemJoin
+      ? await ensureInventoryItemsColumns()
+      : null;
+    const allocatedItemIdColumn = inventoryItemColumns
+      ? getItemIdColumn(inventoryItemColumns)
+      : null;
+    const allocatedItemNameColumn = inventoryItemColumns
+      ? resolveDbColumn(inventoryItemColumns, ["item_name", "itemName"])
+      : null;
+    const allocatedItemCodeColumn = inventoryItemColumns
+      ? resolveDbColumn(inventoryItemColumns, ["item_code", "itemCode"])
+      : null;
+    const allocatedItemSerialColumn = inventoryItemColumns
+      ? resolveDbColumn(inventoryItemColumns, ["serial_no", "serialNo"])
+      : null;
+    const allocatedItemJoin = includeAllocatedItemJoin && allocatedItemIdColumn
+      ? `LEFT JOIN ${DB_ITEMS_TABLE} ai ON ai.${allocatedItemIdColumn} = ir.allocated_inventory_item_id`
+      : "";
+    const allocatedItemSelect = includeAllocatedItemJoin && allocatedItemNameColumn
+      ? `,
+          ai.${allocatedItemNameColumn} AS allocated_item_record_name,
+          ${allocatedItemCodeColumn ? `ai.${allocatedItemCodeColumn} AS allocated_item_code` : "NULL AS allocated_item_code"},
+          ${allocatedItemSerialColumn ? `ai.${allocatedItemSerialColumn} AS allocated_item_serial_no` : "NULL AS allocated_item_serial_no"},
+          ${inventoryItemColumns.has("model") ? "ai.model AS allocated_item_model" : "NULL AS allocated_item_model"},
+          ${resolveDbColumn(inventoryItemColumns, ["gin_no", "ginNo"]) ? `ai.${resolveDbColumn(inventoryItemColumns, ["gin_no", "ginNo"])} AS allocated_item_gin_no` : "NULL AS allocated_item_gin_no"},
+          ${inventoryItemColumns.has("status") ? "ai.status AS allocated_item_status" : "NULL AS allocated_item_status"},
+          ${inventoryItemColumns.has("location") ? "ai.location AS allocated_item_location" : "NULL AS allocated_item_location"},
+          ${inventoryItemColumns.has("remarks") ? "ai.remarks AS allocated_item_remarks" : "NULL AS allocated_item_remarks"}`
+      : "";
+
+    const [rows] = await pool.execute(
+      `
+        SELECT
+          ir.*,
+          ${inventoryLocationSelect},
+          ${inventoryNameSelect},
+          ${departmentJoin ? `${departmentNameColumn} AS department_name` : "NULL AS department_name"},
+          ${inventoryDepartmentNameSelect},
+          ${requesterJoin ? `rb.${userNameColumn} AS requested_by_name` : "NULL AS requested_by_name"}
+          ${allocatedItemSelect}
+        FROM item_requests ir
+        ${inventoryJoin}
+        ${departmentJoin}
+        ${inventoryDepartmentJoin}
+        ${requesterJoin}
+        ${allocatedItemJoin}
+        ${whereClause}
+        ORDER BY ${requestedDateCol} DESC, ir.id DESC
+      `,
+      params
+    );
+
+    return res.json({
+      success: true,
+      requests: rows.map((row) => mapItemRequestRow(row)),
+    });
+  })
+);
+
+app.post(
+  "/api/item-requests",
+  withDatabase(async (req, res) => {
+    const itemRequestColumns = await ensureItemRequestsTable();
+    const schema = await getAuthSchema();
+    const requestedById = Number(req.body?.requestedById ?? req.body?.requested_by_id ?? 0);
+    const requestedInventoryId = Number(
+      req.body?.requestedInventoryId ?? req.body?.requested_from_inventory_id ?? 0
+    );
+    const itemName = String(req.body?.itemName ?? req.body?.item_name ?? "").trim();
+    const quantity = Number(req.body?.quantity ?? 0);
+    const priority = String(req.body?.priority ?? "normal").trim().toLowerCase() || "normal";
+    const specification = String(req.body?.specification ?? "").trim();
+    const reason = String(req.body?.reason ?? req.body?.justification ?? "").trim();
+    const requiredByDate = String(req.body?.requiredByDate ?? req.body?.required_by_date ?? "").trim();
+
+    if (!Number.isInteger(requestedById) || requestedById <= 0) {
+      return res.status(400).json({ success: false, message: "A valid requesting user is required." });
+    }
+
+    if (!Number.isInteger(requestedInventoryId) || requestedInventoryId <= 0) {
+      return res.status(400).json({ success: false, message: "Please select an inventory location." });
+    }
+
+    if (!itemName) {
+      return res.status(400).json({ success: false, message: "Item name is required." });
+    }
+
+    if (!Number.isInteger(quantity) || quantity <= 0) {
+      return res.status(400).json({ success: false, message: "Quantity must be greater than zero." });
+    }
+
+    if (!reason) {
+      return res.status(400).json({ success: false, message: "Justification is required." });
+    }
+
+    const userIdColumn = schema.userColumns.has("id") ? "id" : "user_id";
+    const [userRows] = await pool.execute(
+      `SELECT ${userIdColumn} AS id, department_id FROM users WHERE ${userIdColumn} = ? LIMIT 1`,
+      [requestedById]
+    );
+
+    if (userRows.length === 0) {
+      return res.status(404).json({ success: false, message: "Requesting user was not found." });
+    }
+
+    const departmentId = Number(userRows[0]?.department_id ?? 0) || null;
+
+    if (!departmentId) {
+      return res.status(400).json({ success: false, message: "Your profile must have a department assigned before submitting requests." });
+    }
+
+    const inventoryColumns = await ensureInventoriesLocationColumn();
+    const inventoryIdColumn = getInventoryIdColumn(inventoryColumns);
+    const inventoryNameColumn = getInventoryNameColumn(inventoryColumns);
+
+    if (!inventoryIdColumn) {
+      return res.status(500).json({ success: false, message: "Inventory schema is missing a primary key column." });
+    }
+
+    const [inventoryRows] = await pool.execute(
+      `
+        SELECT
+          i.${inventoryIdColumn} AS inventory_id,
+          ${inventoryNameColumn ? `i.${inventoryNameColumn} AS inventory_name` : "NULL AS inventory_name"},
+          ${inventoryColumns.has("location") ? "i.location" : "NULL AS location"},
+          ${inventoryColumns.has("department_id") ? "i.department_id" : "NULL AS department_id"}
+        FROM inventories i
+        WHERE i.${inventoryIdColumn} = ?
+        LIMIT 1
+      `,
+      [requestedInventoryId]
+    );
+
+    if (inventoryRows.length === 0) {
+      return res.status(404).json({ success: false, message: "Selected inventory was not found." });
+    }
+
+    const inventoryRow = inventoryRows[0];
+    const inventoryLocation = String(inventoryRow.location ?? "").trim();
+
+    if (!inventoryLocation) {
+      return res.status(400).json({ success: false, message: "Selected inventory does not have a location name." });
+    }
+
+    const hodUserId = await resolveDepartmentHeadUserId(schema, departmentId);
+
+    if (!hodUserId) {
+      return res.status(400).json({ success: false, message: "No active Head of Department is assigned to your department." });
+    }
+
+    const inventoryDepartmentId = Number(inventoryRow.department_id ?? 0) || null;
+
+    if (!inventoryDepartmentId) {
+      return res.status(400).json({ success: false, message: "Selected inventory is not linked to a department." });
+    }
+
+    const labHodUserId = await resolveDepartmentHeadUserId(schema, inventoryDepartmentId);
+
+    if (!labHodUserId) {
+      return res.status(400).json({
+        success: false,
+        message: "No active Head of Department is assigned to the selected lab's department.",
+      });
+    }
+
+    const insertColumns = ["item_name", "quantity", "requested_by_id", "requested_inventory_id", "approval_status"];
+    const insertValues = [itemName, quantity, requestedById, requestedInventoryId, "pending_requester_hod"];
+
+    if (itemRequestColumns.has("priority")) {
+      insertColumns.push("priority");
+      insertValues.push(priority);
+    }
+
+    if (itemRequestColumns.has("specification")) {
+      insertColumns.push("specification");
+      insertValues.push(specification || null);
+    }
+
+    if (itemRequestColumns.has("reason")) {
+      insertColumns.push("reason");
+      insertValues.push(reason);
+    }
+
+    if (itemRequestColumns.has("inventory_location")) {
+      insertColumns.push("inventory_location");
+      insertValues.push(inventoryLocation);
+    }
+
+    if (itemRequestColumns.has("department_id")) {
+      insertColumns.push("department_id");
+      insertValues.push(departmentId);
+    }
+
+    if (itemRequestColumns.has("inventory_department_id")) {
+      insertColumns.push("inventory_department_id");
+      insertValues.push(inventoryDepartmentId);
+    }
+
+    if (itemRequestColumns.has("hod_user_id")) {
+      insertColumns.push("hod_user_id");
+      insertValues.push(hodUserId);
+    }
+
+    if (itemRequestColumns.has("lab_hod_user_id")) {
+      insertColumns.push("lab_hod_user_id");
+      insertValues.push(labHodUserId);
+    }
+
+    if (itemRequestColumns.has("required_by_date") && requiredByDate) {
+      insertColumns.push("required_by_date");
+      insertValues.push(requiredByDate);
+    }
+
+    const placeholders = insertColumns.map(() => "?").join(", ");
+    const [insertResult] = await pool.execute(
+      `INSERT INTO item_requests (${insertColumns.join(", ")}) VALUES (${placeholders})`,
+      insertValues
+    );
+
+    return res.status(201).json({
+      success: true,
+      message: "Item request submitted and forwarded to your Head of Department for recommendation.",
+      requestId: insertResult.insertId,
+      approvalStatus: "pending_requester_hod",
+      inventoryLocation,
+      inventoryName: inventoryRow.inventory_name || "",
+    });
+  })
+);
+
+app.post(
+  "/api/item-requests/:id/approve-dept-head",
+  withDatabase(async (req, res) => {
+    const requestId = Number(req.params.id);
+    const approverUserId = Number(req.body?.approverUserId ?? req.body?.approver_user_id ?? 0);
+    const itemRequestColumns = await ensureItemRequestsTable();
+
+    if (!Number.isInteger(requestId) || requestId <= 0) {
+      return res.status(400).json({ success: false, message: "A valid item request id is required." });
+    }
+
+    if (!Number.isInteger(approverUserId) || approverUserId <= 0) {
+      return res.status(400).json({ success: false, message: "A valid approver user id is required." });
+    }
+
+    const [rows] = await pool.execute("SELECT * FROM item_requests WHERE id = ? LIMIT 1", [requestId]);
+
+    if (rows.length === 0) {
+      return res.status(404).json({ success: false, message: "Item request not found." });
+    }
+
+    const itemRequest = rows[0];
+    const assignedHod = itemRequestColumns.has("hod_user_id") ? Number(itemRequest.hod_user_id ?? 0) : 0;
+
+    if (itemRequestColumns.has("hod_user_id") && assignedHod !== approverUserId) {
+      return res.status(403).json({
+        success: false,
+        message: "Only the requester's Head of Department can recommend this request.",
+      });
+    }
+
+    const currentStatus = String(itemRequest.approval_status || "pending_requester_hod").trim().toLowerCase();
+    const recommendableStatuses = new Set(["pending_requester_hod", "pending_hod"]);
+
+    if (!recommendableStatuses.has(currentStatus)) {
+      return res.status(409).json({ success: false, message: "This request is not awaiting HOD recommendation." });
+    }
+
+    const labHodUserId = itemRequestColumns.has("lab_hod_user_id")
+      ? Number(itemRequest.lab_hod_user_id ?? 0)
+      : 0;
+
+    if (!labHodUserId) {
+      return res.status(409).json({
+        success: false,
+        message: "This request is missing the assigned lab Head of Department.",
+      });
+    }
+
+    const updateParts = [];
+    const updateValues = [];
+
+    if (itemRequestColumns.has("approval_status")) {
+      updateParts.push("approval_status = ?");
+      updateValues.push("pending_lab_hod");
+    }
+
+    if (itemRequestColumns.has("requester_hod_recommended_date")) {
+      updateParts.push("requester_hod_recommended_date = CURRENT_TIMESTAMP");
+    } else if (itemRequestColumns.has("hod_approved_date")) {
+      updateParts.push("hod_approved_date = CURRENT_TIMESTAMP");
+    }
+
+    if (itemRequestColumns.has("requester_hod_recommended_by_id")) {
+      updateParts.push("requester_hod_recommended_by_id = ?");
+      updateValues.push(approverUserId);
+    } else if (itemRequestColumns.has("hod_approved_by_id")) {
+      updateParts.push("hod_approved_by_id = ?");
+      updateValues.push(approverUserId);
+    }
+
+    if (updateParts.length === 0) {
+      return res.status(500).json({ success: false, message: "Unable to update recommendation status." });
+    }
+
+    updateValues.push(requestId);
+    await pool.execute(`UPDATE item_requests SET ${updateParts.join(", ")} WHERE id = ?`, updateValues);
+
+    return res.json({
+      success: true,
+      message: "Item request recommended and forwarded to the lab Head of Department.",
+      approvalStatus: "pending_lab_hod",
+    });
+  })
+);
+
+app.post(
+  "/api/item-requests/:id/approve-lab-hod",
+  withDatabase(async (req, res) => {
+    const requestId = Number(req.params.id);
+    const approverUserId = Number(req.body?.approverUserId ?? req.body?.approver_user_id ?? 0);
+    const itemRequestColumns = await ensureItemRequestsTable();
+
+    if (!Number.isInteger(requestId) || requestId <= 0) {
+      return res.status(400).json({ success: false, message: "A valid item request id is required." });
+    }
+
+    if (!Number.isInteger(approverUserId) || approverUserId <= 0) {
+      return res.status(400).json({ success: false, message: "A valid approver user id is required." });
+    }
+
+    const [rows] = await pool.execute("SELECT * FROM item_requests WHERE id = ? LIMIT 1", [requestId]);
+
+    if (rows.length === 0) {
+      return res.status(404).json({ success: false, message: "Item request not found." });
+    }
+
+    const itemRequest = rows[0];
+    const assignedLabHod = itemRequestColumns.has("lab_hod_user_id")
+      ? Number(itemRequest.lab_hod_user_id ?? 0)
+      : 0;
+
+    if (itemRequestColumns.has("lab_hod_user_id") && assignedLabHod !== approverUserId) {
+      return res.status(403).json({
+        success: false,
+        message: "Only the lab Head of Department can approve this request.",
+      });
+    }
+
+    const currentStatus = String(itemRequest.approval_status || "").trim().toLowerCase();
+
+    if (currentStatus !== "pending_lab_hod") {
+      return res.status(409).json({ success: false, message: "This request is not awaiting lab HOD approval." });
+    }
+
+    const requestedInventoryId = Number(itemRequest.requested_inventory_id ?? 0);
+    const inventoryColumns = await ensureInventoriesLocationColumn();
+    const inventoryIdColumn = getInventoryIdColumn(inventoryColumns);
+    const inventoryInchargeColumn = getInventoryInchargeColumn(inventoryColumns);
+    let inventoryOfficerUserId = 0;
+
+    if (
+      inventoryIdColumn
+      && inventoryInchargeColumn
+      && Number.isInteger(requestedInventoryId)
+      && requestedInventoryId > 0
+    ) {
+      const [inventoryRows] = await pool.execute(
+        `SELECT ${inventoryInchargeColumn} AS incharge_id FROM inventories WHERE ${inventoryIdColumn} = ? LIMIT 1`,
+        [requestedInventoryId]
+      );
+      inventoryOfficerUserId = Number(inventoryRows[0]?.incharge_id ?? 0);
+    }
+
+    if (!inventoryOfficerUserId) {
+      return res.status(409).json({
+        success: false,
+        message: "The selected lab inventory has no assigned inventory officer. Assign an officer before approving.",
+      });
+    }
+
+    const updateParts = [];
+    const updateValues = [];
+
+    if (itemRequestColumns.has("approval_status")) {
+      updateParts.push("approval_status = ?");
+      updateValues.push("approved_to_issue");
+    }
+
+    if (itemRequestColumns.has("inventory_officer_user_id")) {
+      updateParts.push("inventory_officer_user_id = ?");
+      updateValues.push(inventoryOfficerUserId);
+    }
+
+    if (itemRequestColumns.has("lab_hod_approved_date")) {
+      updateParts.push("lab_hod_approved_date = CURRENT_TIMESTAMP");
+    } else if (itemRequestColumns.has("hod_approved_date")) {
+      updateParts.push("hod_approved_date = CURRENT_TIMESTAMP");
+    }
+
+    if (itemRequestColumns.has("lab_hod_approved_by_id")) {
+      updateParts.push("lab_hod_approved_by_id = ?");
+      updateValues.push(approverUserId);
+    } else if (itemRequestColumns.has("hod_approved_by_id")) {
+      updateParts.push("hod_approved_by_id = ?");
+      updateValues.push(approverUserId);
+    }
+
+    if (updateParts.length === 0) {
+      return res.status(500).json({ success: false, message: "Unable to update approval status." });
+    }
+
+    updateValues.push(requestId);
+    await pool.execute(`UPDATE item_requests SET ${updateParts.join(", ")} WHERE id = ?`, updateValues);
+
+    return res.json({
+      success: true,
+      message: "Item request approved and forwarded to the lab inventory officer for issuing.",
+      approvalStatus: "approved_to_issue",
+      inventoryOfficerUserId,
+    });
+  })
+);
+
+app.post(
+  "/api/item-requests/:id/issue",
+  withDatabase(async (req, res) => {
+    const requestId = Number(req.params.id);
+    const issuerUserId = Number(req.body?.issuerUserId ?? req.body?.issuer_user_id ?? 0);
+    const inventoryItemId = Number(req.body?.inventoryItemId ?? req.body?.inventory_item_id ?? 0);
+    const itemRequestColumns = await ensureItemRequestsTable();
+
+    if (!Number.isInteger(requestId) || requestId <= 0) {
+      return res.status(400).json({ success: false, message: "A valid item request id is required." });
+    }
+
+    if (!Number.isInteger(issuerUserId) || issuerUserId <= 0) {
+      return res.status(400).json({ success: false, message: "A valid inventory officer user id is required." });
+    }
+
+    if (!Number.isInteger(inventoryItemId) || inventoryItemId <= 0) {
+      return res.status(400).json({ success: false, message: "Select an inventory item to issue." });
+    }
+
+    const [rows] = await pool.execute("SELECT * FROM item_requests WHERE id = ? LIMIT 1", [requestId]);
+
+    if (rows.length === 0) {
+      return res.status(404).json({ success: false, message: "Item request not found." });
+    }
+
+    const itemRequest = rows[0];
+    const assignedOfficer = itemRequestColumns.has("inventory_officer_user_id")
+      ? Number(itemRequest.inventory_officer_user_id ?? 0)
+      : 0;
+    const currentStatus = String(itemRequest.approval_status || "").trim().toLowerCase();
+    const issueableStatuses = new Set(["approved_to_issue", "pending_issue"]);
+
+    if (!issueableStatuses.has(currentStatus)) {
+      return res.status(409).json({ success: false, message: "This request is not approved to issue." });
+    }
+
+    if (itemRequestColumns.has("inventory_officer_user_id") && assignedOfficer !== issuerUserId) {
+      return res.status(403).json({
+        success: false,
+        message: "Only the assigned lab inventory officer can issue this request.",
+      });
+    }
+
+    const requestedInventoryId = Number(itemRequest.requested_inventory_id ?? 0);
+    const requestedQuantity = Number(itemRequest.quantity ?? 0);
+    const inventoryItemColumns = await ensureInventoryItemsColumns();
+    const itemIdColumn = getItemIdColumn(inventoryItemColumns);
+    const [inventoryItemRows] = await pool.execute(
+      `SELECT * FROM ${DB_ITEMS_TABLE} WHERE ${itemIdColumn} = ? LIMIT 1`,
+      [inventoryItemId]
+    );
+
+    if (inventoryItemRows.length === 0) {
+      return res.status(404).json({ success: false, message: "Selected inventory item was not found." });
+    }
+
+    const inventoryItem = inventoryItemRows[0];
+    const itemInventoryId = Number(inventoryItem.inventory_id ?? 0);
+
+    if (
+      Number.isInteger(requestedInventoryId)
+      && requestedInventoryId > 0
+      && itemInventoryId !== requestedInventoryId
+    ) {
+      return res.status(409).json({
+        success: false,
+        message: "Selected item does not belong to the requested lab inventory.",
+      });
+    }
+
+    const updateParts = [];
+    const updateValues = [];
+
+    if (itemRequestColumns.has("approval_status")) {
+      updateParts.push("approval_status = ?");
+      updateValues.push("approved");
+    }
+
+    if (itemRequestColumns.has("issued_date")) {
+      updateParts.push("issued_date = CURRENT_TIMESTAMP");
+    }
+
+    if (itemRequestColumns.has("issued_by_id")) {
+      updateParts.push("issued_by_id = ?");
+      updateValues.push(issuerUserId);
+    }
+
+    if (itemRequestColumns.has("allocated_inventory_id") && itemInventoryId > 0) {
+      updateParts.push("allocated_inventory_id = ?");
+      updateValues.push(itemInventoryId);
+    } else if (
+      itemRequestColumns.has("allocated_inventory_id")
+      && Number.isInteger(requestedInventoryId)
+      && requestedInventoryId > 0
+    ) {
+      updateParts.push("allocated_inventory_id = ?");
+      updateValues.push(requestedInventoryId);
+    }
+
+    if (itemRequestColumns.has("allocated_inventory_item_id")) {
+      updateParts.push("allocated_inventory_item_id = ?");
+      updateValues.push(inventoryItemId);
+    }
+
+    if (itemRequestColumns.has("allocated_quantity") && Number.isInteger(requestedQuantity) && requestedQuantity > 0) {
+      updateParts.push("allocated_quantity = ?");
+      updateValues.push(requestedQuantity);
+    }
+
+    if (itemRequestColumns.has("allocated_date")) {
+      updateParts.push("allocated_date = CURRENT_TIMESTAMP");
+    }
+
+    if (updateParts.length === 0) {
+      return res.status(500).json({ success: false, message: "Unable to update issue status." });
+    }
+
+    updateValues.push(requestId);
+    await pool.execute(`UPDATE item_requests SET ${updateParts.join(", ")} WHERE id = ?`, updateValues);
+
+    const schema = await getAuthSchema();
+    const userIdColumn = getUserPrimaryKeyColumn(schema);
+    const userNameColumn = getUserNameColumn(schema);
+    const requestedById = Number(itemRequest.requested_by_id ?? 0);
+    let requesterName = "";
+
+    if (Number.isInteger(requestedById) && requestedById > 0 && userNameColumn) {
+      const [userRows] = await pool.execute(
+        `SELECT ${userNameColumn} AS name FROM users WHERE ${userIdColumn} = ? LIMIT 1`,
+        [requestedById]
+      );
+      requesterName = String(userRows[0]?.name || "").trim();
+    }
+
+    await applyIssuedItemSideEffects({
+      requestId,
+      inventoryItemId,
+      requesterName,
+      issuedDate: itemRequest.issued_date || new Date(),
+      inventoryItem,
+    });
+
+    return res.json({
+      success: true,
+      message: requesterName
+        ? `Item issued to ${requesterName}. Location updated to the staff member name.`
+        : "Item issued to the requester.",
+      approvalStatus: "approved",
+      inventoryItemId,
+      location: requesterName || null,
+    });
+  })
+);
+
+app.post(
+  "/api/item-requests/:id/return",
+  withDatabase(async (req, res) => {
+    const requestId = Number(req.params.id);
+    const returnerUserId = Number(req.body?.returnerUserId ?? req.body?.returner_user_id ?? 0);
+    const itemRequestColumns = await ensureItemRequestsTable();
+
+    if (!Number.isInteger(requestId) || requestId <= 0) {
+      return res.status(400).json({ success: false, message: "A valid item request id is required." });
+    }
+
+    if (!Number.isInteger(returnerUserId) || returnerUserId <= 0) {
+      return res.status(400).json({ success: false, message: "A valid inventory officer user id is required." });
+    }
+
+    const [rows] = await pool.execute("SELECT * FROM item_requests WHERE id = ? LIMIT 1", [requestId]);
+
+    if (rows.length === 0) {
+      return res.status(404).json({ success: false, message: "Item request not found." });
+    }
+
+    const itemRequest = rows[0];
+    const assignedOfficer = itemRequestColumns.has("inventory_officer_user_id")
+      ? Number(itemRequest.inventory_officer_user_id ?? 0)
+      : 0;
+    const currentStatus = String(itemRequest.approval_status || "").trim().toLowerCase();
+    const inventoryItemId = Number(itemRequest.allocated_inventory_item_id ?? 0);
+
+    if (currentStatus !== "approved") {
+      return res.status(409).json({ success: false, message: "Only issued item requests can be returned." });
+    }
+
+    if (itemRequestColumns.has("returned_date") && itemRequest.returned_date) {
+      return res.status(409).json({ success: false, message: "This item has already been returned." });
+    }
+
+    if (itemRequestColumns.has("inventory_officer_user_id") && assignedOfficer !== returnerUserId) {
+      return res.status(403).json({
+        success: false,
+        message: "Only the assigned lab inventory officer can return this item.",
+      });
+    }
+
+    if (!Number.isInteger(inventoryItemId) || inventoryItemId <= 0) {
+      return res.status(409).json({ success: false, message: "This request has no linked inventory item to return." });
+    }
+
+    const inventoryItemColumns = await ensureInventoryItemsColumns();
+    const itemIdColumn = getItemIdColumn(inventoryItemColumns);
+    const [inventoryItemRows] = await pool.execute(
+      `SELECT * FROM ${DB_ITEMS_TABLE} WHERE ${itemIdColumn} = ? LIMIT 1`,
+      [inventoryItemId]
+    );
+
+    if (inventoryItemRows.length === 0) {
+      return res.status(404).json({ success: false, message: "Linked inventory item was not found." });
+    }
+
+    const inventoryItem = inventoryItemRows[0];
+    const requestUpdateParts = [];
+    const requestUpdateValues = [];
+
+    if (itemRequestColumns.has("approval_status")) {
+      requestUpdateParts.push("approval_status = ?");
+      requestUpdateValues.push("returned");
+    }
+
+    if (itemRequestColumns.has("returned_date")) {
+      requestUpdateParts.push("returned_date = CURRENT_TIMESTAMP");
+    }
+
+    if (itemRequestColumns.has("returned_by_id")) {
+      requestUpdateParts.push("returned_by_id = ?");
+      requestUpdateValues.push(returnerUserId);
+    }
+
+    if (requestUpdateParts.length === 0) {
+      return res.status(500).json({ success: false, message: "Unable to update return status." });
+    }
+
+    requestUpdateValues.push(requestId);
+    await pool.execute(
+      `UPDATE item_requests SET ${requestUpdateParts.join(", ")} WHERE id = ?`,
+      requestUpdateValues
+    );
+
+    const itemUpdateParts = [];
+    const itemUpdateValues = [];
+
+    if (inventoryItemColumns.has("location")) {
+      itemUpdateParts.push("location = ?");
+      itemUpdateValues.push("Stores");
+    }
+
+    if (inventoryItemColumns.has("status")) {
+      itemUpdateParts.push("status = ?");
+      itemUpdateValues.push("Returned");
+    }
+
+    if (inventoryItemColumns.has("remarks")) {
+      const returnedDateLabel = new Date().toISOString().split("T")[0];
+      const returnRemark = `Returned on ${returnedDateLabel} | Item request ID: REQ-${requestId}`;
+      const existingRemarks = String(inventoryItem.remarks || "").trim();
+      const updatedRemarks = existingRemarks ? `${existingRemarks}\n${returnRemark}` : returnRemark;
+      itemUpdateParts.push("remarks = ?");
+      itemUpdateValues.push(updatedRemarks);
+    }
+
+    if (itemUpdateParts.length > 0) {
+      itemUpdateValues.push(inventoryItemId);
+      await pool.execute(
+        `UPDATE ${DB_ITEMS_TABLE} SET ${itemUpdateParts.join(", ")} WHERE ${itemIdColumn} = ?`,
+        itemUpdateValues
+      );
+    }
+
+    return res.json({
+      success: true,
+      message: "Item returned to Stores.",
+      approvalStatus: "returned",
+      inventoryItemId,
+    });
+  })
+);
+
+app.post(
+  "/api/item-requests/:id/reject",
+  withDatabase(async (req, res) => {
+    const requestId = Number(req.params.id);
+    const approverUserId = Number(req.body?.approverUserId ?? req.body?.approver_user_id ?? 0);
+    const reason = String(req.body?.reason ?? "Rejected by Head of Department").trim();
+    const itemRequestColumns = await ensureItemRequestsTable();
+
+    if (!Number.isInteger(requestId) || requestId <= 0) {
+      return res.status(400).json({ success: false, message: "A valid item request id is required." });
+    }
+
+    if (!Number.isInteger(approverUserId) || approverUserId <= 0) {
+      return res.status(400).json({ success: false, message: "A valid approver user id is required." });
+    }
+
+    const [rows] = await pool.execute("SELECT * FROM item_requests WHERE id = ? LIMIT 1", [requestId]);
+
+    if (rows.length === 0) {
+      return res.status(404).json({ success: false, message: "Item request not found." });
+    }
+
+    const itemRequest = rows[0];
+    const assignedRequesterHod = itemRequestColumns.has("hod_user_id") ? Number(itemRequest.hod_user_id ?? 0) : 0;
+    const assignedLabHod = itemRequestColumns.has("lab_hod_user_id") ? Number(itemRequest.lab_hod_user_id ?? 0) : 0;
+    const currentStatus = String(itemRequest.approval_status || "pending_requester_hod").trim().toLowerCase();
+    const recommendableStatuses = new Set(["pending_requester_hod", "pending_hod"]);
+
+    if (recommendableStatuses.has(currentStatus)) {
+      if (itemRequestColumns.has("hod_user_id") && assignedRequesterHod !== approverUserId) {
+        return res.status(403).json({
+          success: false,
+          message: "Only the requester's Head of Department can reject this request.",
+        });
+      }
+    } else if (currentStatus === "pending_lab_hod") {
+      if (itemRequestColumns.has("lab_hod_user_id") && assignedLabHod !== approverUserId) {
+        return res.status(403).json({
+          success: false,
+          message: "Only the lab Head of Department can reject this request.",
+        });
+      }
+    } else {
+      return res.status(409).json({ success: false, message: "This request is no longer awaiting HOD action." });
+    }
+
+    const updateParts = [];
+    const updateValues = [];
+
+    if (itemRequestColumns.has("approval_status")) {
+      updateParts.push("approval_status = ?");
+      updateValues.push("rejected");
+    }
+
+    if (itemRequestColumns.has("rejection_reason")) {
+      updateParts.push("rejection_reason = ?");
+      updateValues.push(reason);
+    }
+
+    if (itemRequestColumns.has("rejection_date")) {
+      updateParts.push("rejection_date = CURRENT_TIMESTAMP");
+    }
+
+    if (updateParts.length === 0) {
+      return res.status(500).json({ success: false, message: "Unable to update rejection status." });
+    }
+
+    updateValues.push(requestId);
+    await pool.execute(`UPDATE item_requests SET ${updateParts.join(", ")} WHERE id = ?`, updateValues);
+
+    return res.json({
+      success: true,
+      message: "Item request rejected.",
+      approvalStatus: "rejected",
+    });
+  })
+);
+
+app.post(
+  "/api/item-requests/:id/cancel",
+  withDatabase(async (req, res) => {
+    const requestId = Number(req.params.id);
+    const requestedById = Number(req.body?.requestedById ?? req.body?.requested_by_id ?? 0);
+    const itemRequestColumns = await ensureItemRequestsTable();
+
+    if (!Number.isInteger(requestId) || requestId <= 0) {
+      return res.status(400).json({ success: false, message: "A valid item request id is required." });
+    }
+
+    if (!Number.isInteger(requestedById) || requestedById <= 0) {
+      return res.status(400).json({ success: false, message: "A valid requesting user id is required." });
+    }
+
+    const [rows] = await pool.execute("SELECT * FROM item_requests WHERE id = ? LIMIT 1", [requestId]);
+
+    if (rows.length === 0) {
+      return res.status(404).json({ success: false, message: "Item request not found." });
+    }
+
+    const itemRequest = rows[0];
+    const requesterId = Number(itemRequest.requested_by_id ?? 0);
+
+    if (requesterId !== requestedById) {
+      return res.status(403).json({ success: false, message: "Only the requester can cancel this item request." });
+    }
+
+    const currentStatus = String(itemRequest.approval_status || "pending_requester_hod").trim().toLowerCase();
+    const cancellableStatuses = new Set(["pending_requester_hod", "pending_hod"]);
+
+    if (!cancellableStatuses.has(currentStatus)) {
+      return res.status(409).json({
+        success: false,
+        message: "Only requests awaiting HOD recommendation can be cancelled.",
+      });
+    }
+
+    const updateParts = [];
+    const updateValues = [];
+
+    if (itemRequestColumns.has("approval_status")) {
+      updateParts.push("approval_status = ?");
+      updateValues.push("cancelled");
+    }
+
+    if (itemRequestColumns.has("rejection_date")) {
+      updateParts.push("rejection_date = CURRENT_TIMESTAMP");
+    }
+
+    if (updateParts.length === 0) {
+      return res.status(500).json({ success: false, message: "Unable to cancel this request." });
+    }
+
+    updateValues.push(requestId);
+    await pool.execute(`UPDATE item_requests SET ${updateParts.join(", ")} WHERE id = ?`, updateValues);
+
+    return res.json({
+      success: true,
+      message: "Item request cancelled.",
+      approvalStatus: "cancelled",
+    });
+  })
+);
 
 app.get(
   "/api/item-transfers",
@@ -6482,8 +7957,10 @@ const startServer = async () => {
     if (AUTO_CREATE_TABLES) {
       await createAccountRequestsTable();
       await createInventoryCreationRequestsTable();
+      await createItemRequestsTable();
       await createInventoryItemsTable();
     }
+    await ensureItemRequestsTable();
     await ensureItemTransfersWorkflow();
     await ensureItemDisposalsWorkflow();
     dbReady = true;
@@ -6499,6 +7976,7 @@ const startServer = async () => {
 
   app.listen(PORT, () => {
     console.log(`API server listening on http://localhost:${PORT}`);
+    console.log("Item request routes: GET/POST /api/item-requests, POST .../issue, POST .../cancel");
   });
 };
 

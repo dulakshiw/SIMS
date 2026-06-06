@@ -4,16 +4,32 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import MainLayout from "../../Components/Layouts/MainLayout";
 import { Card, SearchBox, Table, Badge, EntityDetailsModal, Button, PageHeader } from "../../Components/UI";
+import { ITEM_REQUEST_STATUS, ITEM_REQUEST_STATUS_META, ITEM_REQUEST_PENDING_REQUESTER_STATUSES } from "../../utils/constants";
 import { resolveSidebarVariant } from "../../utils/helpers";
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
+
+const getStoredUser = () => {
+  try {
+    return JSON.parse(localStorage.getItem("currentUser") || "{}");
+  } catch {
+    return {};
+  }
+};
 
 const MyRequests = () => {
   const location = useLocation();
   const { role } = useParams();
   const sidebarVariant = resolveSidebarVariant(location.pathname, role);
   const [searchTerm, setSearchTerm] = useState("");
+  const [myRequests, setMyRequests] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [isRequestDetailsModalOpen, setIsRequestDetailsModalOpen] = useState(false);
   const [selectedRequestDetails, setSelectedRequestDetails] = useState(null);
   const [isExportDropdownOpen, setIsExportDropdownOpen] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState("");
   const exportDropdownRef = useRef(null);
 
   useEffect(() => {
@@ -30,63 +46,105 @@ const MyRequests = () => {
     };
   }, []);
 
-  // Mock data for current user's requests
-  const myRequests = [
-    {
-      id: "REQ-1001",
-      item: "Projector",
-      inventory: "PROJ-2024-001",
-      priority: "urgent",
-      status: "pending",
-      date: "2026-01-20",
-      quantity: 1,
-      reason: "Classroom presentation equipment",
-      headRecommendedDate: "2026-01-22",
-      headApprovedDate: null,
-      issuedDate: null,
-      rejectedReason: null,
-    },
-    {
-      id: "REQ-1002",
-      item: "Whiteboard",
-      inventory: "WB-2024-005",
-      priority: "normal",
-      status: "approved",
-      date: "2026-01-18",
-      quantity: 2,
-      reason: "Classroom setup",
-      headRecommendedDate: "2026-01-19",
-      headApprovedDate: "2026-01-21",
-      issuedDate: null,
-      rejectedReason: null,
-    },
-    {
-      id: "REQ-1003",
-      item: "HDMI Cables",
-      inventory: "HDMI-2024-015",
-      priority: "low",
-      status: "completed",
-      date: "2026-01-10",
-      quantity: 5,
-      reason: "Lab equipment connectivity",
-      headRecommendedDate: "2026-01-11",
-      headApprovedDate: "2026-01-12",
-      issuedDate: "2026-01-15",
-      rejectedReason: null,
-    },
-  ];
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadRequests = async () => {
+      const currentUser = getStoredUser();
+      const requestedById = Number(currentUser.id ?? 0);
+
+      if (!Number.isInteger(requestedById) || requestedById <= 0) {
+        if (isMounted) {
+          setMyRequests([]);
+          setLoadError("Your session is missing a user id. Please sign in again.");
+          setLoading(false);
+        }
+        return;
+      }
+
+      try {
+        setLoading(true);
+        setLoadError("");
+
+        const response = await fetch(`${API_BASE_URL}/api/item-requests?requestedById=${requestedById}`);
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok || !data.success) {
+          throw new Error(data.message || data.error || "Failed to load your requests.");
+        }
+
+        if (isMounted) {
+          setMyRequests(
+            (data.requests || []).map((request) => ({
+              id: `REQ-${request.id}`,
+              rawId: request.id,
+              item: request.itemName,
+              inventory: request.inventoryLocation || request.inventoryName || "—",
+              priority: request.priority || "normal",
+              status: request.approvalStatus || "pending_hod",
+              date: request.requestedDate || "",
+              quantity: request.quantity,
+              reason: request.reason || "",
+              specification: request.specification || "",
+              headApprovedDate: request.issuedDate || request.labHodApprovedDate || request.hodApprovedDate || null,
+              issuedDate: request.issuedDate || null,
+              returnedDate: request.returnedDate || null,
+              allocatedItemName: request.allocatedItem?.itemName || null,
+              allocatedItemCode: request.allocatedItem?.itemCode || null,
+              allocatedItemLocation: request.allocatedItem?.location || null,
+              allocatedItemStatus: request.allocatedItem?.status || null,
+              allocatedItemRemarks: request.allocatedItem?.remarks || null,
+              recommendedDate: request.requesterHodRecommendedDate || null,
+              rejectedReason: request.rejectionReason || null,
+              requiredByDate: request.requiredByDate || "",
+            }))
+          );
+        }
+      } catch (error) {
+        if (isMounted) {
+          setMyRequests([]);
+          setLoadError(error.message || "Failed to load your requests.");
+        }
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    loadRequests();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const statusBadge = (statusKey) => {
+    const config = ITEM_REQUEST_STATUS_META[statusKey] || {
+      label: statusKey,
+      variant: "secondary",
+    };
+
+    return (
+      <Badge
+        label={config.label}
+        variant={config.variant}
+        size="sm"
+      />
+    );
+  };
 
   const columns = [
     { field: "id", label: "Request ID", sortable: true },
     { field: "item", label: "Item Requested", sortable: true },
-    { field: "inventory", label: "Inventory ID", sortable: true },
+    { field: "inventory", label: "Inventory Location", sortable: true },
     { field: "quantity", label: "Quantity", sortable: true },
     { field: "date", label: "Requested Date", sortable: true },
     {
       field: "headApprovedDate",
-      label: "Approved Date",
+      label: "Issued / Approved Date",
       sortable: true,
-      render: (value) => value || "-",
+      render: (value, row) => row.issuedDate || value || "-",
     },
     {
       field: "priority",
@@ -102,30 +160,94 @@ const MyRequests = () => {
     {
       field: "status",
       label: "Status",
-      render: (value) => (
-        <Badge
-          label={value.charAt(0).toUpperCase() + value.slice(1)}
-          variant={value === "approved" ? "success" : value === "pending" ? "warning" : "info"}
-          size="sm"
-        />
-      ),
+      render: (value) => statusBadge(value),
     },
   ];
 
   const handleViewRequestDetails = (request) => {
+    setCancelError("");
     setSelectedRequestDetails(request);
     setIsRequestDetailsModalOpen(true);
   };
 
+  const handleCloseRequestDetails = () => {
+    if (isCancelling) {
+      return;
+    }
+    setCancelError("");
+    setIsRequestDetailsModalOpen(false);
+    setSelectedRequestDetails(null);
+  };
+
+  const handleCancelRequest = async () => {
+    if (!selectedRequestDetails || !ITEM_REQUEST_PENDING_REQUESTER_STATUSES.has(selectedRequestDetails.status)) {
+      return;
+    }
+
+    const currentUser = getStoredUser();
+    const requestedById = Number(currentUser.id ?? 0);
+
+    if (!Number.isInteger(requestedById) || requestedById <= 0) {
+      setCancelError("Your session is missing a user id. Please sign in again.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Cancel request ${selectedRequestDetails.id} for "${selectedRequestDetails.item}"? This cannot be undone.`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setIsCancelling(true);
+      setCancelError("");
+
+      const response = await fetch(
+        `${API_BASE_URL}/api/item-requests/${selectedRequestDetails.rawId}/cancel`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ requestedById }),
+        }
+      );
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || data.error || "Failed to cancel request.");
+      }
+
+      setMyRequests((prev) =>
+        prev.map((request) =>
+          request.rawId === selectedRequestDetails.rawId
+            ? { ...request, status: ITEM_REQUEST_STATUS.CANCELLED }
+            : request
+        )
+      );
+      setSelectedRequestDetails((prev) =>
+        prev ? { ...prev, status: ITEM_REQUEST_STATUS.CANCELLED } : prev
+      );
+    } catch (error) {
+      setCancelError(error.message || "Failed to cancel request.");
+    } finally {
+      setIsCancelling(false);
+    }
+  };
+
+  const canCancelSelectedRequest = selectedRequestDetails
+    ? ITEM_REQUEST_PENDING_REQUESTER_STATUSES.has(selectedRequestDetails.status)
+    : false;
+
   const filtered = myRequests.filter((r) =>
-    `${r.id} ${r.item} ${r.status}`.toLowerCase().includes(searchTerm.toLowerCase())
+    `${r.id} ${r.item} ${r.inventory} ${r.status}`.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const handleExportCsv = () => {
     const headers = [
       "Req ID",
       "Item Requested",
-      "Requested Inventory",
+      "Inventory Location",
       "Quantity",
       "Reason",
       "Requested Date",
@@ -141,7 +263,7 @@ const MyRequests = () => {
       req.reason,
       req.date,
       req.headApprovedDate,
-      req.status,
+      ITEM_REQUEST_STATUS_META[req.status]?.label || req.status,
       req.rejectedReason,
     ]);
 
@@ -167,7 +289,7 @@ const MyRequests = () => {
     const headers = [
       "Req ID",
       "Item Requested",
-      "Requested Inventory",
+      "Inventory Location",
       "Quantity",
       "Reason",
       "Requested Date",
@@ -183,7 +305,7 @@ const MyRequests = () => {
       req.reason,
       req.date,
       req.headApprovedDate || "-",
-      req.status,
+      ITEM_REQUEST_STATUS_META[req.status]?.label || req.status,
       req.rejectedReason || "-",
     ]);
 
@@ -219,11 +341,12 @@ const MyRequests = () => {
       />
 
       <div className="p-6 space-y-6">
+        {loadError ? <p className="text-sm text-error">{loadError}</p> : null}
 
         <Card>
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
             <SearchBox
-              placeholder="Search by ID, item, or status"
+              placeholder="Search by ID, item, location, or status"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
@@ -272,16 +395,35 @@ const MyRequests = () => {
             columns={columns}
             data={filtered}
             onRowClick={handleViewRequestDetails}
+            loading={loading}
           />
         </Card>
       </div>
 
       <EntityDetailsModal
         isOpen={isRequestDetailsModalOpen}
-        onClose={() => setIsRequestDetailsModalOpen(false)}
+        onClose={handleCloseRequestDetails}
         title="Request Details"
         selectedLabel="Request ID"
         selectedName={selectedRequestDetails?.id}
+        footer={(
+          <div className="flex flex-wrap justify-end gap-3">
+            {canCancelSelectedRequest ? (
+              <Button
+                variant="danger"
+                icon="cancel"
+                onClick={handleCancelRequest}
+                disabled={isCancelling}
+                loading={isCancelling}
+              >
+                Cancel Request
+              </Button>
+            ) : null}
+            <Button variant="secondary" onClick={handleCloseRequestDetails} disabled={isCancelling}>
+              Close
+            </Button>
+          </div>
+        )}
         details={
           selectedRequestDetails
             ? [
@@ -290,7 +432,7 @@ const MyRequests = () => {
                   value: selectedRequestDetails.item,
                 },
                 {
-                  label: "Inventory ID",
+                  label: "Inventory Location",
                   value: selectedRequestDetails.inventory,
                 },
                 {
@@ -303,38 +445,71 @@ const MyRequests = () => {
                   fullWidth: true,
                 },
                 {
+                  label: "Specifications",
+                  value: selectedRequestDetails.specification || "—",
+                  fullWidth: true,
+                },
+                {
                   label: "Priority",
                   value: selectedRequestDetails.priority.charAt(0).toUpperCase() + selectedRequestDetails.priority.slice(1),
                 },
                 {
                   label: "Status",
-                  value: selectedRequestDetails.status.charAt(0).toUpperCase() + selectedRequestDetails.status.slice(1),
+                  value: ITEM_REQUEST_STATUS_META[selectedRequestDetails.status]?.label || selectedRequestDetails.status,
                 },
                 {
                   label: "Requested Date",
                   value: selectedRequestDetails.date,
                 },
                 {
-                  label: "Head Recommended Date",
-                  value: selectedRequestDetails.headRecommendedDate,
+                  label: "Required By Date",
+                  value: selectedRequestDetails.requiredByDate || "—",
                 },
                 {
-                  label: "Head Approved Date",
-                  value: selectedRequestDetails.headApprovedDate,
+                  label: "Recommended Date",
+                  value: selectedRequestDetails.recommendedDate || "—",
                 },
                 {
                   label: "Issued Date",
-                  value: selectedRequestDetails.issuedDate,
+                  value: selectedRequestDetails.issuedDate || "—",
                 },
                 {
+                  label: "Returned Date",
+                  value: selectedRequestDetails.returnedDate || "—",
+                },
+                {
+                  label: "Approved Date",
+                  value: selectedRequestDetails.headApprovedDate || "—",
+                },
+                ...(selectedRequestDetails.allocatedItemName
+                  ? [
+                    { label: "Issued Item", value: selectedRequestDetails.allocatedItemName },
+                    { label: "Issued Item Code", value: selectedRequestDetails.allocatedItemCode || "—" },
+                    { label: "Item Location", value: selectedRequestDetails.allocatedItemLocation || "—" },
+                    { label: "Item Status", value: selectedRequestDetails.allocatedItemStatus || "—" },
+                    {
+                      label: "Item Remarks",
+                      value: selectedRequestDetails.allocatedItemRemarks || "—",
+                      fullWidth: true,
+                    },
+                  ]
+                  : []),
+                {
                   label: "Reason if Rejected",
-                  value: selectedRequestDetails.rejectedReason,
+                  value: selectedRequestDetails.rejectedReason || "—",
                   fullWidth: true,
                 },
               ]
             : []
         }
-      />
+      >
+        {cancelError ? <p className="text-sm text-error">{cancelError}</p> : null}
+        {canCancelSelectedRequest ? (
+          <p className="text-xs text-text-light">
+            You can cancel this request while it is still awaiting your Head of Department's recommendation.
+          </p>
+        ) : null}
+      </EntityDetailsModal>
     </MainLayout>
   );
 };

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import MainLayout from '../../Components/Layouts/MainLayout'
-import { Card, Button, PageHeader } from '../../Components/UI'
+import { Card, Button, PageHeader, SummaryCard, SummaryCardsGrid } from '../../Components/UI'
 import { canRequestItems } from '../../utils/permissionUtils'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000'
@@ -83,11 +83,63 @@ const StaffDashboard = () => {
     }
   }, [])
 
-  const stats = {
-    myRequests: 0,
-    availableItems: 240,
-    myIssuedItems: 0,
-  }
+  const [requestStats, setRequestStats] = useState({ myRequests: 0, myIssuedItems: 0 })
+  const [requestStatsLoading, setRequestStatsLoading] = useState(true)
+
+  useEffect(() => {
+    let isMounted = true
+    const userId = Number(currentUser.id ?? 0)
+
+    if (!Number.isInteger(userId) || userId <= 0) {
+      setRequestStats({ myRequests: 0, myIssuedItems: 0 })
+      setRequestStatsLoading(false)
+      return undefined
+    }
+
+    const loadRequestStats = async () => {
+      try {
+        setRequestStatsLoading(true)
+
+        const [allResponse, issuedResponse] = await Promise.all([
+          fetch(`${API_BASE_URL}/api/item-requests?requestedById=${userId}`),
+          fetch(`${API_BASE_URL}/api/item-requests?requestedById=${userId}&requesterScope=issued`),
+        ])
+
+        const [allData, issuedData] = await Promise.all([
+          allResponse.json().catch(() => ({})),
+          issuedResponse.json().catch(() => ({})),
+        ])
+
+        if (!isMounted) {
+          return
+        }
+
+        const allRequests = allResponse.ok && allData.success ? allData.requests || [] : []
+        const issuedRequests = issuedResponse.ok && issuedData.success ? issuedData.requests || [] : []
+
+        setRequestStats({
+          myRequests: allRequests.length,
+          myIssuedItems: issuedRequests.filter(
+            (request) => String(request.approvalStatus || '').toLowerCase() === 'approved'
+          ).length,
+        })
+      } catch {
+        if (isMounted) {
+          setRequestStats({ myRequests: 0, myIssuedItems: 0 })
+        }
+      } finally {
+        if (isMounted) {
+          setRequestStatsLoading(false)
+        }
+      }
+    }
+
+    loadRequestStats()
+
+    return () => {
+      isMounted = false
+    }
+  }, [currentUser.id])
 
   useEffect(() => {
     if (!isInventoryOfficer) {
@@ -95,6 +147,7 @@ const StaffDashboard = () => {
     }
 
     let isMounted = true
+    const storedUser = getStoredUser()
 
     const loadInventoryFeatures = async () => {
       try {
@@ -160,19 +213,33 @@ const StaffDashboard = () => {
       />
 
       <div className="p-6">
-        <div className={`grid grid-cols-1 md:grid-cols-2 ${(isInventoryOfficer || isManagingInventory) ? 'lg:grid-cols-3' : ''} gap-6 mb-6`}>
-          <Card title="My Requests" icon="receipt_long">
-            <p className="text-3xl font-bold text-primary-800">{stats.myRequests}</p>
-          </Card>
-          <Card title="My Issued Items" icon="">
-            <p className="text-3xl font-bold text-primary-800">{stats.myIssuedItems}</p>
-          </Card>
+        <SummaryCardsGrid showTitle={false} columns={(isInventoryOfficer || isManagingInventory) ? 3 : 2} className="mb-6">
+          <SummaryCard
+            title="My Requests"
+            count={requestStats.myRequests}
+            description="Item requests you have submitted."
+            icon="receipt_long"
+            loading={requestStatsLoading}
+            onClick={() => navigate('/requests/my/staff')}
+          />
+          <SummaryCard
+            title="My Issued Items"
+            count={requestStats.myIssuedItems}
+            description="Items currently issued to you."
+            icon="inventory"
+            loading={requestStatsLoading}
+            onClick={() => navigate('/inventory/list/staff')}
+          />
           {(isInventoryOfficer || isManagingInventory) && (
-            <Card title="Assigned Inventories" icon="inventory">
-              <p className="text-3xl font-bold text-primary-800">{assignedInventoryCount}</p>
-            </Card>
+            <SummaryCard
+              title="Assigned Inventories"
+              count={assignedInventoryCount}
+              description="Inventories you manage as officer."
+              icon="inventory_2"
+              hover={false}
+            />
           )}
-        </div>
+        </SummaryCardsGrid>
 
         <div className="bg-white p-6 rounded-lg shadow-md border border-border-lighter mb-6">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">

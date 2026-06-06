@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import AdminLayout from "../../Components/Layouts/AdminLayout";
-import { Badge, Card, PageHeader } from "../../Components/UI";
+import { Badge, Card, PageHeader, SummaryCard, SummaryCardsGrid } from "../../Components/UI";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
 
@@ -88,30 +88,33 @@ const RegistrarDashboard = () => {
   const pendingCards = [
     {
       title: "Inventory Creation",
-      value: summary.pendingInventory ?? 0,
-      colorClass: "text-primary-800",
+      count: summary.pendingInventory ?? 0,
+      description: "New inventories awaiting your approval.",
       icon: "inventory_2",
       tab: "inventory-requests",
     },
     {
       title: "Item Transfers",
-      value: summary.pendingTransfers ?? 0,
-      colorClass: "text-info",
+      count: summary.pendingTransfers ?? 0,
+      description: "Transfer requests awaiting your approval.",
       icon: "compare_arrows",
+      countClassName: "text-info",
       tab: "transfer-requests",
     },
     {
       title: "Item Disposals",
-      value: summary.pendingDisposals ?? 0,
-      colorClass: "text-warning",
+      count: summary.pendingDisposals ?? 0,
+      description: "Disposal requests awaiting your approval.",
       icon: "delete_sweep",
+      countClassName: "text-warning",
       tab: "disposal-requests",
     },
     {
       title: "Total Pending",
-      value: summary.totalPending ?? 0,
-      colorClass: "text-error",
+      count: summary.totalPending ?? 0,
+      description: "All approval tasks requiring action.",
       icon: "pending_actions",
+      countClassName: "text-error",
       tab: "inventory-requests",
     },
   ];
@@ -131,40 +134,41 @@ const RegistrarDashboard = () => {
           </div>
         )}
 
-        <div>
-          <h2 className="text-lg font-semibold text-text-dark mb-3">Pending Approvals</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-            {pendingCards.map((card) => (
-              <Card
-                key={card.title}
-                icon={card.icon}
-                hover
-                onClick={() => handleOpenApprovals(card.tab)}
-                className="cursor-pointer"
-              >
-                <p className="text-sm text-text-light">{card.title}</p>
-                <p className={`text-3xl font-bold mt-2 ${card.colorClass}`}>
-                  {loading ? "..." : card.value}
-                </p>
-              </Card>
-            ))}
-          </div>
-        </div>
+        <SummaryCardsGrid title="Pending Approvals" columns={4}>
+          {pendingCards.map((card) => (
+            <SummaryCard
+              key={card.title}
+              title={card.title}
+              count={card.count}
+              description={card.description}
+              icon={card.icon}
+              loading={loading}
+              countClassName={card.countClassName}
+              onClick={() => handleOpenApprovals(card.tab)}
+            />
+          ))}
+        </SummaryCardsGrid>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Card title="Approved (recent)" icon="check_circle">
-            <p className="text-3xl font-bold text-success">
-              {loading ? "..." : summary.approvedCount ?? 0}
-            </p>
-            <p className="text-sm text-text-light mt-2">Shown in history below</p>
-          </Card>
-          <Card title="Rejected (recent)" icon="cancel">
-            <p className="text-3xl font-bold text-error">
-              {loading ? "..." : summary.rejectedCount ?? 0}
-            </p>
-            <p className="text-sm text-text-light mt-2">Shown in history below</p>
-          </Card>
-        </div>
+        <SummaryCardsGrid showTitle={false} columns={2}>
+          <SummaryCard
+            title="Approved (recent)"
+            count={summary.approvedCount ?? 0}
+            description="Shown in history below"
+            icon="check_circle"
+            loading={loading}
+            countClassName="text-success"
+            hover={false}
+          />
+          <SummaryCard
+            title="Rejected (recent)"
+            count={summary.rejectedCount ?? 0}
+            description="Shown in history below"
+            icon="cancel"
+            loading={loading}
+            countClassName="text-error"
+            hover={false}
+          />
+        </SummaryCardsGrid>
 
         <Card title="Approval History" icon="history">
           <div className="space-y-2">

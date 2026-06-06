@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import AdminLayout from '../../Components/Layouts/AdminLayout'
-import { Card, PageHeader } from '../../Components/UI'
+import { Card, PageHeader, SummaryCard, SummaryCardsGrid } from '../../Components/UI'
 import RegistrarDashboard from './RegistrarDashboard'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000'
@@ -96,17 +96,38 @@ const AdminDashboardContent = () => {
   };
 
   const stats = [
-    { title: "Total Users", value: summary.totalUsers ?? 0, colorClass: "text-primary-800", icon: "people", link: "/admin/users" },
+    {
+      title: "Total Users",
+      count: summary.totalUsers ?? 0,
+      description: "All registered accounts in the system.",
+      icon: "people",
+      link: "/admin/users",
+    },
     {
       title: "Active Users",
-      value: summary.activeUsers ?? 0,
-      colorClass: "text-success",
+      count: summary.activeUsers ?? 0,
+      description: "Users with an active login status.",
       icon: "check_circle",
+      countClassName: "text-success",
       link: "/admin/users",
       state: { hideSummaryCards: true },
     },
-    { title: "Inventories", value: summary.inventories ?? 0, colorClass: "text-info", icon: "inventory_2", link: "/admin/inventory" },
-    { title: "Total Items", value: summary.totalItems ?? 0, colorClass: "text-primary-600", icon: "category", link: "/admin/inventory" },
+    {
+      title: "Inventories",
+      count: summary.inventories ?? 0,
+      description: "Active inventory locations managed.",
+      icon: "inventory_2",
+      countClassName: "text-info",
+      link: "/admin/inventory",
+    },
+    {
+      title: "Total Items",
+      count: summary.totalItems ?? 0,
+      description: "Assets tracked across all inventories.",
+      icon: "category",
+      countClassName: "text-primary-600",
+      link: "/admin/inventory",
+    },
   ];
 
   return (
@@ -122,23 +143,20 @@ const AdminDashboardContent = () => {
           </div>
         )}
 
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {stats.map((stat, index) => (
-            <Card
-              key={index}
+        <SummaryCardsGrid showTitle={false} columns="4-lg">
+          {stats.map((stat) => (
+            <SummaryCard
+              key={stat.title}
+              title={stat.title}
+              count={stat.count}
+              description={stat.description}
               icon={stat.icon}
-              hover={true}
+              loading={loading}
+              countClassName={stat.countClassName}
               onClick={() => navigate(stat.link, stat.state ? { state: stat.state } : undefined)}
-              className="cursor-pointer"
-            >
-              <p className="text-sm text-text-light">{stat.title}</p>
-              <p className={`text-3xl font-bold mt-2 ${stat.colorClass}`}>
-                {loading ? '...' : stat.value}
-              </p>
-            </Card>
+            />
           ))}
-        </div>
+        </SummaryCardsGrid>
 
         {/* Dashboard Content */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

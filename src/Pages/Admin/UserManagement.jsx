@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import AdminLayout from "../../Components/Layouts/AdminLayout";
-import { Card, Button, SearchBox, Table, Badge, Modal, FormInput, Select, EntityDetailsModal, PageHeader } from "../../Components/UI";
+import { Card, Button, SearchBox, Table, Badge, Modal, FormInput, Select, EntityDetailsModal, PageHeader, SummaryCard, SummaryCardsGrid } from "../../Components/UI";
 import { ROLE_HIERARCHY, ACCOUNT_REQUEST_STATUS, ACCOUNT_REQUEST_STATUS_META } from "../../utils/constants";
 import {
   getPasswordStrength,
@@ -694,26 +694,20 @@ const UserManagement = () => {
 
         {/* Stats */}
         {!hideSummaryCards && (
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <Card title="Total Users" icon="people">
-              <p className="text-3xl font-bold text-primary-800">{totalUsers}</p>
-            </Card>
-            <Card title="Active" icon="check_circle">
-              <p className="text-3xl font-bold text-success">{activeUsers}</p>
-            </Card>
-            <Card
+          <SummaryCardsGrid showTitle={false} columns="4-equal">
+            <SummaryCard title="Total Users" count={totalUsers} icon="people" />
+            <SummaryCard title="Active" count={activeUsers} icon="check_circle" countClassName="text-success" />
+            <SummaryCard
               title="Inactive Users"
+              count={inactiveUsersCount}
+              description="Click to view and reactivate"
               icon="person_off"
+              countClassName="text-warning"
+              active={activeTab === "inactive-users"}
               onClick={() => setActiveTab("inactive-users")}
-              className={activeTab === "inactive-users" ? "ring-2 ring-warning border-warning" : "cursor-pointer"}
-            >
-              <p className="text-3xl font-bold text-warning">{inactiveUsersCount}</p>
-              <p className="text-xs text-text-light mt-1">Click to view and reactivate</p>
-            </Card>
-            <Card title="Pending Approvals" icon="hourglass_empty">
-              <p className="text-3xl font-bold text-info">{pendingRequests}</p>
-            </Card>
-          </div>
+            />
+            <SummaryCard title="Pending Approvals" count={pendingRequests} icon="hourglass_empty" countClassName="text-info" />
+          </SummaryCardsGrid>
         )}
 
         {/* Tabs */}
