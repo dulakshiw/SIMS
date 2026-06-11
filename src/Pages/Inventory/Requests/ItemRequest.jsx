@@ -1,8 +1,8 @@
 import React, { useState } from "react";
 import { useLocation, useParams } from "react-router-dom";
-import MainLayout from "../../Components/Layouts/MainLayout";
-import { Card, Button, Badge, Tabs, PageHeader } from "../../Components/UI";
-import { resolveSidebarVariant } from "../../utils/helpers";
+import MainLayout from "../../../Components/Layouts/MainLayout";
+import { Card, Button, Badge, Tabs, PageHeader } from "../../../Components/UI";
+import { resolveSidebarVariant } from "../../../utils/helpers";
 
 const ItemRequest = () => {
   const location = useLocation();

@@ -2,10 +2,10 @@ import React, { useEffect, useRef, useState } from "react";
 import { useLocation, useParams } from "react-router-dom";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
-import MainLayout from "../../Components/Layouts/MainLayout";
-import { Card, SearchBox, Table, Badge, EntityDetailsModal, Button, PageHeader } from "../../Components/UI";
-import { ITEM_REQUEST_STATUS, ITEM_REQUEST_STATUS_META, ITEM_REQUEST_PENDING_REQUESTER_STATUSES } from "../../utils/constants";
-import { resolveSidebarVariant } from "../../utils/helpers";
+import MainLayout from "../../../Components/Layouts/MainLayout";
+import { Card, SearchBox, Table, Badge, EntityDetailsModal, Button, PageHeader } from "../../../Components/UI";
+import { ITEM_REQUEST_STATUS, ITEM_REQUEST_STATUS_META, ITEM_REQUEST_PENDING_REQUESTER_STATUSES } from "../../../utils/constants";
+import { resolveSidebarVariant } from "../../../utils/helpers";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
 

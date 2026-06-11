@@ -30,6 +30,7 @@ const StaffDashboard = () => {
     pendingRequests: 0,
   })
   const [assignedInventories, setAssignedInventories] = useState([])
+  const [pendingItemRequestCount, setPendingItemRequestCount] = useState(0)
   const [inventoryError, setInventoryError] = useState('')
   const [inventoryLoading, setInventoryLoading] = useState(false)
 
@@ -154,14 +155,21 @@ const StaffDashboard = () => {
         setInventoryLoading(true)
         setInventoryError('')
 
-        const [summaryResponse, inventoriesResponse] = await Promise.all([
+        const officerUserId = Number(storedUser.id ?? 0)
+        const pendingItemRequestsUrl = Number.isInteger(officerUserId) && officerUserId > 0
+          ? `${API_BASE_URL}/api/item-requests?inventoryOfficerUserId=${officerUserId}&inventoryOfficerScope=pending_issue`
+          : null
+
+        const [summaryResponse, inventoriesResponse, pendingItemRequestsResponse] = await Promise.all([
           fetch(`${API_BASE_URL}/api/dashboard/summary`),
           fetch(`${API_BASE_URL}/api/inventories`),
+          pendingItemRequestsUrl ? fetch(pendingItemRequestsUrl) : Promise.resolve(null),
         ])
 
-        const [summaryData, inventoriesData] = await Promise.all([
+        const [summaryData, inventoriesData, pendingItemRequestsData] = await Promise.all([
           summaryResponse.json(),
           inventoriesResponse.json(),
+          pendingItemRequestsResponse ? pendingItemRequestsResponse.json().catch(() => ({})) : Promise.resolve({}),
         ])
 
         if (!summaryResponse.ok || !summaryData.success) {
@@ -182,10 +190,16 @@ const StaffDashboard = () => {
             (inventory) => String(inventory.inchargeId) === String(storedUser.id)
           )
         )
+        setPendingItemRequestCount(
+          pendingItemRequestsResponse?.ok && pendingItemRequestsData.success
+            ? (pendingItemRequestsData.requests || []).length
+            : 0
+        )
       } catch (error) {
         if (isMounted) {
           setInventoryError(error.message || 'Failed to load inventory features.')
           setAssignedInventories([])
+          setPendingItemRequestCount(0)
         }
       } finally {
         if (isMounted) {
@@ -213,7 +227,11 @@ const StaffDashboard = () => {
       />
 
       <div className="p-6">
-        <SummaryCardsGrid showTitle={false} columns={(isInventoryOfficer || isManagingInventory) ? 3 : 2} className="mb-6">
+        <SummaryCardsGrid
+          showTitle={false}
+          columns={(isInventoryOfficer || isManagingInventory) ? 4 : 2}
+          className="mb-6"
+        >
           <SummaryCard
             title="My Requests"
             count={requestStats.myRequests}
@@ -231,13 +249,23 @@ const StaffDashboard = () => {
             onClick={() => navigate('/inventory/list/staff')}
           />
           {(isInventoryOfficer || isManagingInventory) && (
-            <SummaryCard
-              title="Assigned Inventories"
-              count={assignedInventoryCount}
-              description="Inventories you manage as officer."
-              icon="inventory_2"
-              hover={false}
-            />
+            <>
+              <SummaryCard
+                title="Pending Item Requests"
+                count={pendingItemRequestCount}
+                description="Approved staff requests awaiting issue from your inventories."
+                icon="pending_actions"
+                loading={inventoryLoading}
+                onClick={() => navigate('/inventory/requests/list/incharge')}
+              />
+              <SummaryCard
+                title="Assigned Inventories"
+                count={assignedInventoryCount}
+                description="Inventories you manage as officer."
+                icon="inventory_2"
+                hover={false}
+              />
+            </>
           )}
         </SummaryCardsGrid>
 

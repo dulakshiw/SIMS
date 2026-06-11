@@ -34,14 +34,15 @@ import DisposalReports from './Pages/Inventory/Disposals/DisposalReports'
 // Transfer Pages
 import TransferList from './Pages/Inventory/Transfers/TransferList'
 import TransferDetails from './Pages/Inventory/Transfers/TransferDetails'
+import CreateTransfer from './Pages/Inventory/Transfers/CreateTransfer'
 
 // Request Pages
 import RequestList from './Pages/Inventory/Requests/RequestList'
 import CreateRequest from './Pages/Inventory/Requests/CreateRequest'
-import ItemRequest from './Pages/Requests/ItemRequest'
-import MyRequests from './Pages/Requests/MyRequests'
-import MyIssuedItems from './Pages/Requests/MyIssuedItems'
-import InventoryCreationRequest from './Pages/Requests/InventoryCreationRequest'
+import ItemRequest from './Pages/Inventory/Requests/ItemRequest'
+import MyRequests from './Pages/Inventory/Requests/MyRequests'
+import MyIssuedItems from './Pages/Inventory/Requests/MyIssuedItems'
+import InventoryCreationRequest from './Pages/Inventory/InventoryCreationRequest'
 
 // Staff Pages
 import StaffDashboard from './Pages/StaffMember/StaffDashboard'
@@ -167,8 +168,24 @@ const router = createBrowserRouter([
         path: "transfers",
         children: [
           {
+            path: "new/:role",
+            element: <CreateTransfer />
+          },
+          {
+            path: "new",
+            element: <CreateTransfer />
+          },
+          {
+            path: "list/:role",
+            element: <TransferList />
+          },
+          {
             path: "list",
             element: <TransferList />
+          },
+          {
+            path: ":transferId/:role",
+            element: <TransferDetails />
           },
           {
             path: ":transferId",

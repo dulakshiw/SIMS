@@ -172,16 +172,18 @@ const CreateRequest = () => {
 
         <Card>
           <form onSubmit={handleSubmit} className="space-y-6">
-            <Select
-              label="Requested Inventory"
-              name="requestedInventoryId"
-              options={inventoryOptions}
-              value={formData.requestedInventoryId}
-              onChange={(value) => setFormData((prev) => ({ ...prev, requestedInventoryId: value }))}
-              placeholder={isLoadingOptions ? "Loading locations..." : "Select inventory by location"}
-              required
-              disabled={isLoadingOptions || inventoryOptions.length === 0}
-            />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Select
+                label="Requested Inventory"
+                name="requestedInventoryId"
+                options={inventoryOptions}
+                value={formData.requestedInventoryId}
+                onChange={(value) => setFormData((prev) => ({ ...prev, requestedInventoryId: value }))}
+                placeholder={isLoadingOptions ? "Loading locations..." : "Select inventory"}
+                required
+                disabled={isLoadingOptions || inventoryOptions.length === 0}
+              />
+            </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <FormInput

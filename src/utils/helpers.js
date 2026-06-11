@@ -140,6 +140,7 @@ export const resolveSidebarVariant = (pathname, roleParam) => {
   if (pathname.startsWith("/hod")) return "hod";
   if (pathname.startsWith("/dean")) return "dean";
   if (pathname.startsWith("/staff")) return "staff";
+  if (pathname.endsWith("/staff")) return "staff";
   return "inventory";
 };
 

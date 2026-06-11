@@ -6026,8 +6026,37 @@ app.post(
   })
 );
 
+const createItemTransfersTable = async () => {
+  try {
+    await pool.query(
+      `
+        CREATE TABLE IF NOT EXISTS item_transfers (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          item_id INT NOT NULL,
+          from_inventory_id INT NOT NULL,
+          to_inventory_id INT NOT NULL,
+          quantity INT NOT NULL DEFAULT 1,
+          reason TEXT NULL,
+          notes TEXT NULL,
+          status VARCHAR(50) DEFAULT 'pending',
+          approval_status VARCHAR(50) DEFAULT 'pending_registrar',
+          transfer_date DATE NULL,
+          initiated_by_id INT NULL,
+          created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_date TIMESTAMP NULL ON UPDATE CURRENT_TIMESTAMP,
+          completed_date TIMESTAMP NULL
+        )
+      `
+    );
+    console.log("item_transfers table ensured");
+  } catch (error) {
+    console.error("Error creating item_transfers table:", error.message);
+  }
+};
+
 const ensureItemTransfersWorkflow = async () => {
   try {
+    await createItemTransfersTable();
     const [tables] = await pool.query("SHOW TABLES LIKE 'item_transfers'");
     if (tables.length === 0) {
       return null;
@@ -7154,6 +7183,12 @@ app.get(
 
     const schema = await getAuthSchema();
     const approvalStatus = String(req.query.approvalStatus || "").trim().toLowerCase();
+    const inventoryOfficerUserId = Number(
+      req.query?.inventoryOfficerUserId ?? req.query?.inventory_officer_user_id ?? 0
+    );
+    const transferScope = String(req.query?.transferScope ?? "all").trim().toLowerCase();
+    const hasInventoryOfficerFilter =
+      Number.isInteger(inventoryOfficerUserId) && inventoryOfficerUserId > 0;
     const [tableRows] = await pool.query("SHOW TABLES");
     const tableNames = new Set(tableRows.map((row) => Object.values(row)[0]));
     const itemColumns = tableNames.has(DB_ITEMS_TABLE) ? await getTableColumns(DB_ITEMS_TABLE) : new Set();
@@ -7166,7 +7201,43 @@ app.get(
     const params = [];
     const whereParts = [];
 
-    if (approvalStatus) {
+    if (hasInventoryOfficerFilter) {
+      const inventoryColumns = await ensureInventoriesLocationColumn();
+      const inventoryIdColumn = getInventoryIdColumn(inventoryColumns);
+      const inventoryInchargeColumn = getInventoryInchargeColumn(inventoryColumns);
+
+      if (inventoryIdColumn && inventoryInchargeColumn) {
+        const officerInventorySubquery = `(SELECT inv.${inventoryIdColumn} FROM inventories inv WHERE inv.${inventoryInchargeColumn} = ?)`;
+
+        if (transferScope === "pending") {
+          whereParts.push(
+            `(it.from_inventory_id IN ${officerInventorySubquery} OR it.to_inventory_id IN ${officerInventorySubquery})`
+          );
+          params.push(inventoryOfficerUserId);
+          whereParts.push("LOWER(COALESCE(it.status, '')) NOT IN ('completed', 'rejected', 'cancelled')");
+          if (columns.has("approval_status")) {
+            whereParts.push(
+              "(it.approval_status IS NULL OR LOWER(COALESCE(it.approval_status, '')) NOT IN ('rejected', 'cancelled', 'completed'))"
+            );
+          }
+        } else if (transferScope === "transferred") {
+          whereParts.push(`it.from_inventory_id IN ${officerInventorySubquery}`);
+          params.push(inventoryOfficerUserId);
+          whereParts.push("LOWER(COALESCE(it.status, '')) = 'completed'");
+        } else if (transferScope === "received") {
+          whereParts.push(`it.to_inventory_id IN ${officerInventorySubquery}`);
+          params.push(inventoryOfficerUserId);
+          whereParts.push("LOWER(COALESCE(it.status, '')) = 'completed'");
+        } else {
+          whereParts.push(
+            `(it.from_inventory_id IN ${officerInventorySubquery} OR it.to_inventory_id IN ${officerInventorySubquery})`
+          );
+          params.push(inventoryOfficerUserId);
+        }
+      }
+    }
+
+    if (approvalStatus && !hasInventoryOfficerFilter) {
       if (columns.has("approval_status") && approvalStatus === "pending_registrar") {
         whereParts.push(
           `(LOWER(COALESCE(it.approval_status, '')) = ? OR (it.approval_status IS NULL AND LOWER(COALESCE(it.status, '')) = 'pending'))`
@@ -7190,6 +7261,8 @@ app.get(
         SELECT
           it.id,
           it.item_id,
+          it.from_inventory_id,
+          it.to_inventory_id,
           ${itemNameSelect},
           fi.name AS from_inventory_name,
           ti.name AS to_inventory_name,
@@ -7199,6 +7272,7 @@ app.get(
           it.status,
           ${columns.has("approval_status") ? "it.approval_status" : "NULL AS approval_status"},
           ${transferDateCol} AS transfer_date,
+          ${columns.has("completed_date") ? "it.completed_date" : "NULL AS completed_date"},
           ${columns.has("hod_approved_date") ? "it.hod_approved_date" : "NULL AS hod_approved_date"},
           initiator.${userNameColumn} AS initiated_by_name
         FROM item_transfers it
@@ -7218,6 +7292,8 @@ app.get(
         id: row.id,
         itemId: row.item_id,
         itemName: row.item_name || `Item #${row.item_id}`,
+        fromInventoryId: row.from_inventory_id ?? null,
+        toInventoryId: row.to_inventory_id ?? null,
         fromInventory: row.from_inventory_name || "-",
         toInventory: row.to_inventory_name || "-",
         quantity: row.quantity ?? 1,
@@ -7225,11 +7301,191 @@ app.get(
         status: row.status || "pending",
         approvalStatus: resolveTransferDisposalApprovalStatus(row, columns),
         transferDate: row.transfer_date ? new Date(row.transfer_date).toISOString().split("T")[0] : "",
+        completedDate: row.completed_date
+          ? new Date(row.completed_date).toISOString().split("T")[0]
+          : "",
         hodApprovedDate: row.hod_approved_date
           ? new Date(row.hod_approved_date).toISOString().split("T")[0]
           : "",
         initiatedBy: row.initiated_by_name || "-",
       })),
+    });
+  })
+);
+
+app.post(
+  "/api/item-transfers",
+  withDatabase(async (req, res) => {
+    const columns = await ensureItemTransfersWorkflow();
+    if (!columns) {
+      return res.status(500).json({ success: false, message: "Item transfers table is not available." });
+    }
+
+    const initiatedById = Number(req.body?.initiatedById ?? req.body?.initiated_by_id ?? 0);
+    const fromInventoryId = Number(req.body?.fromInventoryId ?? req.body?.from_inventory_id ?? 0);
+    const toInventoryId = Number(req.body?.toInventoryId ?? req.body?.to_inventory_id ?? 0);
+    const reason = String(req.body?.reason ?? "").trim();
+    const transferDate = String(req.body?.transferDate ?? req.body?.transfer_date ?? "").trim();
+    const items = Array.isArray(req.body?.items) ? req.body.items : [];
+
+    if (!Number.isInteger(initiatedById) || initiatedById <= 0) {
+      return res.status(400).json({ success: false, message: "A valid initiating user is required." });
+    }
+
+    if (!Number.isInteger(fromInventoryId) || fromInventoryId <= 0) {
+      return res.status(400).json({ success: false, message: "Please select a source inventory." });
+    }
+
+    if (!Number.isInteger(toInventoryId) || toInventoryId <= 0) {
+      return res.status(400).json({ success: false, message: "Please select a destination inventory." });
+    }
+
+    if (fromInventoryId === toInventoryId) {
+      return res.status(400).json({ success: false, message: "Destination inventory must differ from the source inventory." });
+    }
+
+    if (!reason) {
+      return res.status(400).json({ success: false, message: "Transfer reason is required." });
+    }
+
+    if (!transferDate) {
+      return res.status(400).json({ success: false, message: "Transfer date is required." });
+    }
+
+    if (items.length === 0) {
+      return res.status(400).json({ success: false, message: "Select at least one item to transfer." });
+    }
+
+    const inventoryColumns = await ensureInventoriesLocationColumn();
+    const inventoryIdColumn = getInventoryIdColumn(inventoryColumns);
+    const inventoryInchargeColumn = getInventoryInchargeColumn(inventoryColumns);
+    const inventoryNameColumn = getInventoryNameColumn(inventoryColumns);
+
+    if (!inventoryIdColumn || !inventoryInchargeColumn) {
+      return res.status(500).json({ success: false, message: "Inventory schema is missing required columns." });
+    }
+
+    const [fromInventoryRows] = await pool.execute(
+      `
+        SELECT
+          i.${inventoryIdColumn} AS inventory_id,
+          i.${inventoryInchargeColumn} AS incharge_id,
+          ${inventoryNameColumn ? `i.${inventoryNameColumn} AS inventory_name` : "NULL AS inventory_name"}
+        FROM inventories i
+        WHERE i.${inventoryIdColumn} = ?
+        LIMIT 1
+      `,
+      [fromInventoryId]
+    );
+
+    if (fromInventoryRows.length === 0) {
+      return res.status(404).json({ success: false, message: "Source inventory was not found." });
+    }
+
+    if (String(fromInventoryRows[0]?.incharge_id ?? "") !== String(initiatedById)) {
+      return res.status(403).json({
+        success: false,
+        message: "You can only initiate transfers from inventories assigned to you.",
+      });
+    }
+
+    const [toInventoryRows] = await pool.execute(
+      `SELECT ${inventoryIdColumn} AS inventory_id FROM inventories WHERE ${inventoryIdColumn} = ? LIMIT 1`,
+      [toInventoryId]
+    );
+
+    if (toInventoryRows.length === 0) {
+      return res.status(404).json({ success: false, message: "Destination inventory was not found." });
+    }
+
+    const itemColumns = await ensureInventoryItemsColumns();
+    const itemIdColumn = getItemIdColumn(itemColumns);
+    const itemInventoryColumn = itemColumns.has("inventory_id") ? "inventory_id" : null;
+
+    if (!itemIdColumn || !itemInventoryColumn) {
+      return res.status(500).json({ success: false, message: "Inventory item schema is missing required columns." });
+    }
+
+    const createdTransfers = [];
+
+    for (const entry of items) {
+      const itemId = Number(entry?.itemId ?? entry?.item_id ?? 0);
+      const quantity = Number(entry?.quantity ?? 1);
+
+      if (!Number.isInteger(itemId) || itemId <= 0) {
+        return res.status(400).json({ success: false, message: "Each transfer entry must include a valid item id." });
+      }
+
+      if (!Number.isInteger(quantity) || quantity <= 0) {
+        return res.status(400).json({ success: false, message: "Each transfer entry must include a quantity greater than zero." });
+      }
+
+      const [itemRows] = await pool.execute(
+        `SELECT ${itemIdColumn} AS id, ${itemInventoryColumn} AS inventory_id FROM ${DB_ITEMS_TABLE} WHERE ${itemIdColumn} = ? LIMIT 1`,
+        [itemId]
+      );
+
+      if (itemRows.length === 0) {
+        return res.status(404).json({ success: false, message: `Item #${itemId} was not found.` });
+      }
+
+      if (Number(itemRows[0]?.inventory_id ?? 0) !== fromInventoryId) {
+        return res.status(400).json({
+          success: false,
+          message: `Item #${itemId} does not belong to the selected source inventory.`,
+        });
+      }
+
+      const insertColumns = ["item_id", "from_inventory_id", "to_inventory_id", "quantity", "reason"];
+      const insertValues = [itemId, fromInventoryId, toInventoryId, quantity, reason];
+
+      if (columns.has("notes")) {
+        insertColumns.push("notes");
+        insertValues.push(reason);
+      }
+
+      if (columns.has("status")) {
+        insertColumns.push("status");
+        insertValues.push("pending");
+      }
+
+      if (columns.has("approval_status")) {
+        insertColumns.push("approval_status");
+        insertValues.push("pending_registrar");
+      }
+
+      if (columns.has("transfer_date")) {
+        insertColumns.push("transfer_date");
+        insertValues.push(transferDate);
+      }
+
+      if (columns.has("initiated_by_id")) {
+        insertColumns.push("initiated_by_id");
+        insertValues.push(initiatedById);
+      }
+
+      if (columns.has("created_date")) {
+        insertColumns.push("created_date");
+        insertValues.push(new Date());
+      }
+
+      const placeholders = insertColumns.map(() => "?").join(", ");
+      const [result] = await pool.execute(
+        `INSERT INTO item_transfers (${insertColumns.join(", ")}) VALUES (${placeholders})`,
+        insertValues
+      );
+
+      createdTransfers.push({
+        id: result.insertId,
+        itemId,
+        quantity,
+      });
+    }
+
+    return res.status(201).json({
+      success: true,
+      message: `${createdTransfers.length} item transfer request${createdTransfers.length === 1 ? "" : "s"} submitted for approval.`,
+      transfers: createdTransfers,
     });
   })
 );
@@ -7958,6 +8214,7 @@ const startServer = async () => {
       await createAccountRequestsTable();
       await createInventoryCreationRequestsTable();
       await createItemRequestsTable();
+      await createItemTransfersTable();
       await createInventoryItemsTable();
     }
     await ensureItemRequestsTable();
