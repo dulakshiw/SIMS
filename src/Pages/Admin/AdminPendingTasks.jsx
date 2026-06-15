@@ -575,7 +575,7 @@ const AdminPendingTasks = () => {
     if (type === "approve-registrar-disposal") {
       return {
         title: "Approve Item Disposal",
-        body: `Approve disposal of "${item.itemName}" from ${item.inventory} and forward to the administrator?`,
+        body: `Approve disposal of "${item.itemName}" from ${item.inventory}? Items will remain in inventory until written off after auction processing.`,
       };
     }
     if (type === "reject-disposal") {
@@ -877,8 +877,8 @@ const AdminPendingTasks = () => {
           <Card title="Item Disposals (Awaiting Registrar)" icon="delete_sweep">
             <div className="space-y-4">
               <p className="text-sm text-text-light bg-background-light p-3 rounded">
-                Item disposal requests approved by the HOD are listed here. Approve to forward them to the
-                administrator for final processing.
+                Item disposal requests recommended by the HOD are listed here. Approve to authorize disposal;
+                items remain in inventory until the inventory officer writes them off after auction processing.
               </p>
               {filteredDisposalRequests.length === 0 ? (
                 <div className="text-center py-10 text-text-light">
@@ -1010,7 +1010,7 @@ const AdminPendingTasks = () => {
                     openConfirm("approve", selectedDetails, "approve-registrar-disposal")
                   }
                 >
-                  Approve & Forward
+                  Approve Disposal
                 </Button>
               </>
             ) : null}

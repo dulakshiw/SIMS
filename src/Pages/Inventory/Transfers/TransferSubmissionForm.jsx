@@ -150,6 +150,11 @@ const buildTableRows = (items = [], handedOverDate = "") => {
   return rows;
 };
 
+const formatHodApprovalLabel = (departmentName = "") => {
+  const department = String(departmentName || "").trim();
+  return department ? `Head / Department of ${department}` : "Head / Department of ………………";
+};
+
 const TransferSubmissionForm = ({
   sourceInventory = null,
   destinationInventory = null,
@@ -157,12 +162,18 @@ const TransferSubmissionForm = ({
   items = [],
   issuedByName = "",
   issuedByPost = "",
+  hodApprovedBy = "",
+  hodDepartmentName = "",
+  hodApprovedDate = "",
+  registrarApprovedBy = "",
+  registrarApprovedDate = "",
   showPartB = false,
   className = "",
 }) => {
   const toParty = formatInventoryParty(destinationInventory);
   const fromParty = formatInventoryParty(sourceInventory);
   const tableRows = buildTableRows(items, transferDate);
+  const hodApprovalLabel = formatHodApprovalLabel(hodDepartmentName || sourceInventory?.department || "");
 
   return (
     <div className={`transfer-form-print-area ${className}`.trim()}>
@@ -257,26 +268,38 @@ const TransferSubmissionForm = ({
           </tbody>
         </table>
 
-        <p>Please acknowledge the receipt of the same by filling PART B of this form</p>
+        <p>Please acknowledge the receipt of the same by filling PART B of this form</p><br></br>
 
         <div className="transfer-form-signature-section">
           Issued by (Name of In‑Charge of Inventory Register) :{" "}
-          <span className="transfer-form-signature-line">{issuedByName || "—"}</span>
+          <span className="transfer-form-signature-line"><b>{issuedByName || "—"}</b></span>
           &nbsp;&nbsp; Post :{" "}
-          <span className="transfer-form-line">{issuedByPost || "—"}</span>
-        </div>
+          <span className="transfer-form-line"><b>{issuedByPost || "—"}</b></span>
+        </div><br></br>
 
         <div className="transfer-form-signature-section">
-          Signature : <span className="transfer-form-signature-line" />
+          Certified by :{" "}
+          <span className="transfer-form-signature-line">
+            <b>{hodApprovedDate ? hodApprovalLabel : "\u00A0"}</b>
+          </span>
+          &nbsp;&nbsp; Date :{" "}
+          <span className="transfer-form-line">
+          <b> {hodApprovedDate ? formatDisplayDate(hodApprovedDate) : "\u00A0"}</b>
+          </span>
         </div>
+        <div className="transfer-form-signature-section">
+          <b>Head of the Dept./ Division (Rubber Stamp)</b>
+        </div> <br></br>
 
         <div className="transfer-form-signature-section">
-          Certified by : <span className="transfer-form-signature-line" />
-          &nbsp;&nbsp; Date : <span className="transfer-form-line" />
-        </div>
-
-        <div className="transfer-form-signature-section">
-          Head of the Dept./ Division (Rubber Stamp)
+          Approval of the Registrar :{" "}
+          <span className="transfer-form-signature-line"><b>
+            {registrarApprovedBy || "\u00A0"}</b>
+          </span>
+          &nbsp;&nbsp; <b>Date :{" "}</b>
+          <span className="transfer-form-line">
+            {registrarApprovedDate ? formatDisplayDate(registrarApprovedDate) : "\u00A0"}
+          </span>
         </div>
 
         {showPartB ? (
@@ -356,6 +379,7 @@ export {
   formatDisplayDate,
   formatInventoryParty,
   formatBrandModelSerial,
+  formatHodApprovalLabel,
   mergeTransferItems,
 };
 

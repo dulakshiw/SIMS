@@ -128,6 +128,90 @@ export const getQueryParams = (search) => {
 };
 
 /**
+ * Parse warranty period text (e.g. "1 Year", "6 Months") into months.
+ */
+export const parseWarrantyMonths = (warranty = "") => {
+  const legacyMap = {
+    "1year": "1 Year",
+    "2years": "2 Years",
+    "3years": "3 Years",
+    "5years": "5 Years",
+  };
+  const normalized = String(warranty || "").trim();
+  const mapped = legacyMap[normalized.toLowerCase()] || normalized;
+  const match = mapped.toLowerCase().match(/(\d+)\s*(month|year|yr|yrs|years?)/);
+  if (!match) {
+    return null;
+  }
+
+  const amount = Number(match[1]);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return null;
+  }
+
+  const unit = match[2];
+  return unit.startsWith("month") ? amount : amount * 12;
+};
+
+/**
+ * Resolve the best available purchase date for warranty checks.
+ * Falls back to created_at when purchase date was not recorded (e.g. bulk import).
+ */
+export const resolveItemPurchaseDate = (item = {}) => {
+  const candidates = [
+    item.purchaseDate,
+    item.purchase_date,
+    item.purchased_date,
+    item.purchasedate,
+    item.created_at,
+    item.createdAt,
+  ];
+
+  for (const candidate of candidates) {
+    if (candidate == null || candidate === "") {
+      continue;
+    }
+
+    const parsed = candidate instanceof Date ? candidate : new Date(candidate);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed;
+    }
+  }
+
+  return null;
+};
+
+/**
+ * Check whether an item is still within its warranty period.
+ * Accepts an item object or a purchase date value.
+ */
+export const isItemInWarranty = (purchaseDateOrItem, warranty, referenceDate = new Date()) => {
+  const months = parseWarrantyMonths(warranty);
+  if (!months) {
+    return false;
+  }
+
+  const purchaseDate = typeof purchaseDateOrItem === "object"
+    && purchaseDateOrItem !== null
+    && !(purchaseDateOrItem instanceof Date)
+    ? resolveItemPurchaseDate(purchaseDateOrItem)
+    : purchaseDateOrItem;
+
+  if (!purchaseDate) {
+    return false;
+  }
+
+  const start = purchaseDate instanceof Date ? purchaseDate : new Date(purchaseDate);
+  if (Number.isNaN(start.getTime())) {
+    return false;
+  }
+
+  const expiry = new Date(start);
+  expiry.setMonth(expiry.getMonth() + months);
+  return referenceDate <= expiry;
+};
+
+/**
  * Resolve sidebar variant from route
  * @param {string} pathname - location pathname
  * @param {string} roleParam - optional role param

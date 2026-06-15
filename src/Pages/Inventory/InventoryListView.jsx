@@ -191,9 +191,13 @@ const InventoryListView = () => {
     {
       field: "status",
       label: "Status",
-      render: (value) => {
+      render: (value, row) => {
+        if (row.statusLabel) {
+          return <Badge label={row.statusLabel} variant="info" size="sm" />;
+        }
+
         const statusObj = ITEM_STATUS.find((s) => s.value === value);
-        return <Badge label={statusObj?.label || value || "-"} variant={statusObj?.color || "primary"} />;
+        return <Badge label={statusObj?.label || value || "-"} variant={statusObj?.color || "primary"} size="sm" />;
       },
     },
   ];
@@ -263,12 +267,14 @@ const InventoryListView = () => {
     `${row.name} ${row.location} ${row.department}`.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const normalizedItems = items.map((item) => ({
+  const normalizedItems = useMemo(() => items.map((item) => ({
     ...item,
     name: item.itemName || item.item_name || item.name || "-",
     itemCode: item.itemCode || item.item_code || "",
-    location: item.location || "-",
-    status: item.status || "available",
+    location: item.locationLabel || item.location || "-",
+    status: item.displayStatus || item.status || "available",
+    statusLabel: item.statusLabel || null,
+    issuedToName: item.issuedToName || null,
     lastUpdated: (() => {
       const dateValue = item.updated_at || item.created_at;
       if (!dateValue) {
@@ -277,11 +283,11 @@ const InventoryListView = () => {
       const parsed = new Date(dateValue);
       return Number.isNaN(parsed.getTime()) ? "-" : parsed.toISOString().split("T")[0];
     })(),
-  }));
+  })), [items]);
 
   const filteredItems = normalizedItems
     .filter((item) =>
-      `${item.name} ${item.itemCode || ""} ${item.location || ""} ${item.status || ""}`
+      `${item.name} ${item.itemCode || ""} ${item.location || ""} ${item.status || ""} ${item.statusLabel || ""} ${item.issuedToName || ""}`
         .toLowerCase()
         .includes(searchTerm.toLowerCase())
     )
@@ -509,7 +515,7 @@ const InventoryListView = () => {
     : {
         items: filteredItems.length,
         available: filteredItems.filter((item) => item.status === "available").length,
-        inUse: filteredItems.filter((item) => item.status === "in-use").length,
+        inUse: filteredItems.filter((item) => ["in-use", "issued"].includes(item.status)).length,
         maintenance: filteredItems.filter((item) => item.status === "maintenance").length,
       };
 

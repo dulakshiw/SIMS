@@ -1,0 +1,188 @@
+.repair-form-print-area {
+  width: 100%;
+  max-width: 100%;
+}
+
+.repair-form-document {
+  font-family: Arial, sans-serif;
+  color: #000;
+  background: #fff;
+  padding: 1.5rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.5rem;
+  box-sizing: border-box;
+  line-height: 1.6;
+}
+
+@media screen {
+  .repair-form-document {
+    max-width: 210mm;
+    min-height: 297mm;
+    margin: 0 auto;
+  }
+}
+
+.repair-form-document .repair-form-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+  font-size: 1rem;
+}
+
+.repair-form-document .repair-form-header-date {
+  white-space: nowrap;
+}
+
+.repair-form-document .repair-form-title {
+  text-align: center;
+  font-size: 1.25rem;
+  font-weight: bold;
+  margin: 1.25rem 0;
+}
+
+.repair-form-document .repair-form-section {
+  margin-bottom: 0.75rem;
+  font-size: 1rem;
+}
+
+.repair-form-document .repair-form-subheading {
+  font-size: 1.05rem;
+  font-weight: bold;
+  margin: 1.25rem 0 0.5rem;
+}
+
+.repair-form-document .repair-form-line,
+.repair-form-document .repair-form-field-line {
+  border-bottom: 1px solid #000;
+  display: inline-block;
+  min-width: 10rem;
+  min-height: 1.25rem;
+  padding: 0 0.25rem;
+  vertical-align: bottom;
+  word-break: break-word;
+}
+
+.repair-form-document .repair-form-field-line {
+  width: 100%;
+  display: block;
+  min-width: 0;
+}
+
+.repair-form-document .repair-form-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 0.75rem;
+  table-layout: fixed;
+}
+
+.repair-form-document .repair-form-table,
+.repair-form-document .repair-form-table th,
+.repair-form-document .repair-form-table td {
+  border: 1px solid #000;
+}
+
+.repair-form-document .repair-form-table th,
+.repair-form-document .repair-form-table td {
+  padding: 0.5rem;
+  text-align: left;
+  vertical-align: top;
+  font-size: 0.85rem;
+  font-weight: normal;
+  word-wrap: break-word;
+}
+
+.repair-form-document .repair-form-contact-table td:first-child {
+  width: 32%;
+  font-weight: normal;
+}
+
+.repair-form-document .repair-form-note {
+  margin-top: 1rem;
+  font-size: 0.9rem;
+}
+
+.repair-form-document .repair-form-note p {
+  margin: 0.35rem 0;
+}
+
+.repair-form-document .repair-form-signature-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 2rem;
+  margin-top: 3rem;
+}
+
+.repair-form-document .repair-form-signature-block {
+  flex: 1;
+  text-align: center;
+  font-size: 0.95rem;
+}
+
+.repair-form-document .repair-form-signature-line {
+  border-top: 1px solid #000;
+  margin-top: 3rem;
+  padding-top: 0.35rem;
+}
+
+.repair-form-document .repair-form-footer-signature {
+  margin-top: 2.5rem;
+  font-size: 0.95rem;
+}
+
+.repair-form-document .repair-form-footer-signature .repair-form-signature-line {
+  width: 18rem;
+  margin-top: 2.5rem;
+  text-align: left;
+}
+
+.repair-form-document .repair-form-warranty-top p {
+  margin: 0.35rem 0;
+}
+
+.repair-form-document .repair-form-warranty-body {
+  margin: 1rem 0;
+}
+
+.repair-form-document .repair-form-warranty-details td:first-child {
+  width: 34%;
+  font-weight: bold;
+  background: #f9f9f9;
+}
+
+.repair-form-document .repair-form-warranty-signature {
+  margin-top: 3.5rem;
+}
+
+.repair-form-document .repair-form-warranty-signature .repair-form-signature-line {
+  width: 16rem;
+  margin-top: 0;
+  margin-bottom: 0.5rem;
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+
+  .repair-form-print-area,
+  .repair-form-print-area * {
+    visibility: visible;
+  }
+
+  .repair-form-print-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+
+  .repair-form-document {
+    border: none;
+    border-radius: 0;
+    padding: 0;
+    max-width: none;
+    min-height: auto;
+  }
+}

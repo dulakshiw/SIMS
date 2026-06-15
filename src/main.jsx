@@ -36,6 +36,15 @@ import TransferList from './Pages/Inventory/Transfers/TransferList'
 import TransferDetails from './Pages/Inventory/Transfers/TransferDetails'
 import CreateTransfer from './Pages/Inventory/Transfers/CreateTransfer'
 
+// Repair Pages
+import RepairList from './Pages/Inventory/Repairs/RepairList'
+import CreateRepair from './Pages/Inventory/Repairs/CreateRepair'
+import RepairDetails from './Pages/Inventory/Repairs/RepairDetails'
+import WarrantyClaimList from './Pages/Inventory/Repairs/WarrantyClaimList'
+import CreateWarrantyClaim from './Pages/Inventory/Repairs/CreateWarrantyClaim'
+import WarrantyClaimDetails from './Pages/Inventory/Repairs/WarrantyClaimDetails'
+import InventoryOfficerReports from './Pages/Inventory/InventoryOfficerReports'
+
 // Request Pages
 import RequestList from './Pages/Inventory/Requests/RequestList'
 import CreateRequest from './Pages/Inventory/Requests/CreateRequest'
@@ -205,30 +214,96 @@ const router = createBrowserRouter([
             element: <DisposalList />
           },
           {
-            path: "new",
-            element: <CreateDisposal />
-          },
-          {
             path: "new/:role",
             element: <CreateDisposal />
           },
           {
-            path: ":disposalId",
-            element: <DisposalDetails />
+            path: "new",
+            element: <CreateDisposal />
           },
           {
-            path: ":disposalId/:role",
-            element: <DisposalDetails />
+            path: "reports/:role",
+            element: <DisposalReports />
           },
           {
             path: "reports",
             element: <DisposalReports />
           },
           {
-            path: "reports/:role",
-            element: <DisposalReports />
-          }
+            path: ":disposalId/:role",
+            element: <DisposalDetails />
+          },
+          {
+            path: ":disposalId",
+            element: <DisposalDetails />
+          },
         ]
+      },
+      {
+        path: "repairs",
+        children: [
+          {
+            path: "list",
+            element: <RepairList />
+          },
+          {
+            path: "list/:role",
+            element: <RepairList />
+          },
+          {
+            path: "new",
+            element: <CreateRepair />
+          },
+          {
+            path: "new/:role",
+            element: <CreateRepair />
+          },
+          {
+            path: "warranty-claims",
+            children: [
+              {
+                path: "list",
+                element: <WarrantyClaimList />
+              },
+              {
+                path: "list/:role",
+                element: <WarrantyClaimList />
+              },
+              {
+                path: "new",
+                element: <CreateWarrantyClaim />
+              },
+              {
+                path: "new/:role",
+                element: <CreateWarrantyClaim />
+              },
+              {
+                path: ":claimId",
+                element: <WarrantyClaimDetails />
+              },
+              {
+                path: ":claimId/:role",
+                element: <WarrantyClaimDetails />
+              },
+            ]
+          },
+          {
+            path: ":repairId",
+            element: <RepairDetails />
+          },
+          {
+            path: ":repairId/:role",
+            element: <RepairDetails />
+          },
+        ]
+      },
+      {
+        path: "reports",
+        element: <InventoryOfficerReports />
+      },
+      {
+        path: "reports/:role",
+        element: <InventoryOfficerReports />
       },
       {
         path: "requests",

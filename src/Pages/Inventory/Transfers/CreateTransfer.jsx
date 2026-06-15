@@ -37,7 +37,33 @@ const normalizeInventoryItem = (item = {}) => ({
   ginNo: item.ginNo || item.gin_no || "",
   pageno: item.pageno || item.page_no || item.pageNo || "",
   quantity: 1,
+  transferLocked: Boolean(item.transferLocked),
+  transferLockReason: item.transferLockReason || "",
+  disposalLocked: Boolean(item.disposalLocked),
+  disposalLockReason: item.disposalLockReason || "",
 });
+
+const isTransferLocked = (item = {}) => Boolean(item.transferLocked || item.disposalLocked);
+
+const formatTransferAvailabilityStatus = (item = {}) => {
+  if (item.transferLocked) {
+    if (item.transferLockReason === "completed") {
+      return "Transfer completed";
+    }
+    return "Pending HOD recommendation";
+  }
+
+  if (item.disposalLocked) {
+    if (item.disposalLockReason === "completed") {
+      return "Disposal completed";
+    }
+    return "Pending disposal approval";
+  }
+
+  return item.status || "—";
+};
+
+const getSelectableBrowseRows = (rows = []) => rows.filter((row) => !isTransferLocked(row));
 
 const filterItemsBySearch = (items, searchText = "") => {
   const query = String(searchText || "").trim().toLowerCase();
@@ -218,9 +244,15 @@ const CreateTransfer = () => {
     () =>
       filteredInventoryItems.map((item) => ({
         ...item,
+        availabilityStatus: formatTransferAvailabilityStatus(item),
         _item: item,
       })),
     [filteredInventoryItems]
+  );
+
+  const selectableBrowseRows = useMemo(
+    () => getSelectableBrowseRows(browseRows),
+    [browseRows]
   );
 
   const transferListRows = useMemo(
@@ -259,6 +291,11 @@ const CreateTransfer = () => {
   };
 
   const toggleBrowseSelection = (itemId) => {
+    const item = inventoryItems.find((entry) => entry.id === itemId);
+    if (isTransferLocked(item)) {
+      return;
+    }
+
     setBrowseSelectedIds((prev) =>
       prev.includes(itemId)
         ? prev.filter((id) => id !== itemId)
@@ -275,7 +312,11 @@ const CreateTransfer = () => {
   };
 
   const handleSelectAllBrowse = () => {
-    const visibleIds = browseRows.map((row) => row.id);
+    const visibleIds = selectableBrowseRows.map((row) => row.id);
+    if (visibleIds.length === 0) {
+      return;
+    }
+
     const allSelected = visibleIds.every((id) => browseSelectedIds.includes(id));
     if (allSelected) {
       setBrowseSelectedIds((prev) => prev.filter((id) => !visibleIds.includes(id)));
@@ -295,7 +336,9 @@ const CreateTransfer = () => {
   };
 
   const handleAddToTransferList = () => {
-    const selectedItems = inventoryItems.filter((item) => browseSelectedIds.includes(item.id));
+    const selectedItems = inventoryItems.filter(
+      (item) => browseSelectedIds.includes(item.id) && !isTransferLocked(item)
+    );
     setTransferListItems((prev) => {
       const existingIds = new Set(prev.map((item) => item.id));
       const nextItems = [...prev];
@@ -330,7 +373,9 @@ const CreateTransfer = () => {
 
     const storedUser = getStoredUser();
     const initiatedById = Number(storedUser.id ?? 0);
-    const itemsToTransfer = transferListItems.filter((item) => transferSelectedIds.includes(item.id));
+    const itemsToTransfer = transferListItems.filter(
+      (item) => transferSelectedIds.includes(item.id) && !isTransferLocked(item)
+    );
 
     if (!Number.isInteger(initiatedById) || initiatedById <= 0) {
       setSubmitError("Your session is missing a user id. Please sign in again.");
@@ -399,9 +444,13 @@ const CreateTransfer = () => {
       label: (
         <input
           type="checkbox"
-          checked={browseRows.length > 0 && browseRows.every((row) => browseSelectedIds.includes(row.id))}
+          checked={
+            selectableBrowseRows.length > 0
+            && selectableBrowseRows.every((row) => browseSelectedIds.includes(row.id))
+          }
           onChange={handleSelectAllBrowse}
-          aria-label="Select all visible items"
+          disabled={selectableBrowseRows.length === 0}
+          aria-label="Select all available items"
         />
       ),
       sortable: false,
@@ -409,6 +458,7 @@ const CreateTransfer = () => {
         <input
           type="checkbox"
           checked={browseSelectedIds.includes(row.id)}
+          disabled={isTransferLocked(row)}
           onChange={() => toggleBrowseSelection(row.id)}
           onClick={(event) => event.stopPropagation()}
           aria-label={`Select ${row.itemName}`}
@@ -418,7 +468,7 @@ const CreateTransfer = () => {
     { field: "itemName", label: "Item Name", sortable: true },
     { field: "itemCode", label: "Item Code", sortable: true },
     { field: "serialNo", label: "Serial No.", sortable: true },
-    { field: "status", label: "Status", sortable: true },
+    { field: "availabilityStatus", label: "Status", sortable: true },
   ];
 
   const transferListColumns = [
@@ -508,7 +558,11 @@ const CreateTransfer = () => {
             </div>
 
             {activeView === "browse" ? (
-              <Card title="Inventory Items" icon="search" subtitle="Search and select items to add to the transfer list.">
+              <Card
+                title="Inventory Items"
+                icon="search"
+                subtitle="Search and select items to add to the transfer list. Items in a pending or completed transfer or disposal appear dimmed and cannot be selected."
+              >
                 <div className="space-y-4">
                   <SearchBox
                     placeholder="Search by item name, item code, or serial no."
@@ -519,6 +573,12 @@ const CreateTransfer = () => {
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <p className="text-sm text-text-light">
                       {browseSelectedIds.length} item{browseSelectedIds.length === 1 ? "" : "s"} selected
+                      {selectableBrowseRows.length !== browseRows.length ? (
+                        <span>
+                          {" "}
+                          · {browseRows.length - selectableBrowseRows.length} unavailable
+                        </span>
+                      ) : null}
                     </p>
                     <Button
                       variant="primary"
@@ -534,6 +594,7 @@ const CreateTransfer = () => {
                     columns={browseColumns}
                     data={browseRows}
                     onRowClick={(row) => toggleBrowseSelection(row.id)}
+                    isRowDisabled={(row) => isTransferLocked(row)}
                     loading={itemsLoading}
                     searchable={false}
                     paginated={browseRows.length > 10}

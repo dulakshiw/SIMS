@@ -14,6 +14,11 @@ import {
   LEGACY_WARRANTY_VALUES,
   resolveItemOptionField,
 } from "../../utils/itemFormOptions";
+import {
+  buildBulkCsvTemplate,
+  detectBulkCsvColumnShift,
+  parseBulkCsvText,
+} from "../../utils/bulkCsvImport";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
 
@@ -72,7 +77,8 @@ const pickBulkField = (item, ...keys) => {
   return "";
 };
 
-const getBulkGinNo = (item) => pickBulkField(item, "ginNo", "ginno");
+const getBulkGinNo = (item) =>
+  pickBulkField(item, "ginNo", "ginno", "gin_no", "gin no", "GIN No", "GIN No.");
 const getBulkGinKey = (item) => getBulkGinNo(item).toLowerCase();
 
 /** Same GIN No + item code + item name share one item image (mirrors GIN PDF grouping by GIN No). */
@@ -1286,7 +1292,7 @@ const AddNewItem = () => {
     form.append("qrcode2Url", qr.qrcode2Url);
     form.append("pageno", pickBulkField(item, "pageno"));
     form.append("value", pickBulkField(item, "value"));
-    form.append("purchaseDate", pickBulkField(item, "purchaseDate", "purchasedate"));
+    form.append("purchaseDate", pickBulkField(item, "purchaseDate", "purchasedate", "purchase_date"));
     form.append("ginNo", getBulkGinNo(item));
     form.append("poNo", pickBulkField(item, "poNo", "pono"));
     form.append("supplier", pickBulkField(item, "supplier"));
@@ -1322,24 +1328,26 @@ const AddNewItem = () => {
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
-        const csv = event.target.result;
-        const lines = csv.split('\n');
-        const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
-        
-        const items = [];
-        for (let i = 1; i < lines.length; i++) {
-          const line = lines[i].trim();
-          if (!line || line.startsWith("#")) continue;
+        const { rows, warnings } = parseBulkCsvText(event.target.result);
 
-          const values = line.split(',').map(v => v.trim());
-          const item = {};
-          headers.forEach((header, index) => {
-            item[header] = values[index] || '';
-          });
-          items.push(item);
+        if (rows.length === 0) {
+          alert(warnings[0] || "No item rows were found in the CSV file.");
+          return;
         }
-        
-        const itemsWithQr = items.map((it, idx) => {
+
+        const shiftedRows = rows.filter((row) => detectBulkCsvColumnShift(row));
+        if (shiftedRows.length > 0) {
+          alert(
+            [
+              "The CSV columns appear misaligned. A purchase date is mapped to GIN No.",
+              "Use the downloaded template as-is and do not remove the \"pageno\" column.",
+              warnings.length ? `\n${warnings.join("\n")}` : "",
+            ].join("\n")
+          );
+          return;
+        }
+
+        const itemsWithQr = rows.map((it, idx) => {
           const qr = buildBulkQrPayload(it, idx);
           return {
             ...it,
@@ -1362,9 +1370,14 @@ const AddNewItem = () => {
         setSelectedBulk({});
         setSelectAllBulk(false);
         loadBulkGinSystemCache(itemsWithQr);
-        alert(`Successfully parsed ${items.length} items from CSV file`);
+
+        if (warnings.length > 0) {
+          alert(`Parsed ${rows.length} items with warnings:\n${warnings.join("\n")}`);
+        } else {
+          alert(`Successfully parsed ${rows.length} items from CSV file`);
+        }
       } catch (error) {
-        alert('Error parsing CSV file. Please ensure it has the correct format.');
+        alert("Error parsing CSV file. Please ensure it matches the downloaded template.");
         console.error(error);
       }
     };
@@ -1372,16 +1385,7 @@ const AddNewItem = () => {
   };
 
   const downloadTemplate = () => {
-    const headers = [
-      'itemName', 'itemCode', 'serialNo', 'serialNo2', 'model',
-      'pageno', 'value', 'purchaseDate', 'ginNo', 'poNo',
-      'supplier', 'funding', 'fundingOther', 'receivedfrom', 'warranty', 'warrantyOther', 'location', 'remarks'
-    ];
-    
-    const csvContent = [
-      headers.join(","),
-      "Core i7 Computer,ITDEOFQCE 01,SN123,SN456,HP,1,5000,2025-01-15,15550,PO001,VSIS,Capital Fund,,Stores,2 Years,Deans Office,Good condition",
-    ].join("\n");
+    const csvContent = buildBulkCsvTemplate();
     
     const blob = new Blob([csvContent], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
@@ -2340,6 +2344,7 @@ const AddNewItem = () => {
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-3">
               <p className="text-sm text-text-dark">
                 <strong>Need a template?</strong> Download the CSV template to get started with the correct format.
+                Keep every column header, including <strong>pageno</strong>, even if you leave the value blank.
               </p>
            
               <button

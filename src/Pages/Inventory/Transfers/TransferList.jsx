@@ -4,6 +4,20 @@ import MainLayout from "../../../Components/Layouts/MainLayout";
 import { Card, Button, Table, Badge, PageHeader, SummaryCard, SummaryCardsGrid } from "../../../Components/UI";
 import { resolveSidebarVariant } from "../../../utils/helpers";
 import { TRANSFER_STATUS } from "../../../utils/constants";
+import WorkflowReportExport from "../../../Components/Inventory/WorkflowReportExport";
+
+const TRANSFER_EXPORT_COLUMNS = [
+  { field: "id", label: "Transfer ID" },
+  { field: "item", label: "Item" },
+  { field: "from", label: "From Inventory" },
+  { field: "to", label: "To Inventory" },
+  { field: "quantity", label: "Qty" },
+  { field: "status", label: "Status" },
+  { field: "date", label: "Date" },
+  { field: "initiatedBy", label: "Initiated By" },
+];
+
+const TRANSFER_EXPORT_SEARCH_FIELDS = ["id", "item", "from", "to", "status", "initiatedBy"];
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
 
@@ -19,17 +33,25 @@ const TRANSFER_STATUS_LABELS = Object.fromEntries(
   TRANSFER_STATUS.map((entry) => [entry.value, entry.label])
 );
 
-const formatTransferStatus = (transfer = {}) => {
-  const statusKey = String(transfer.approvalStatus || transfer.status || "pending").toLowerCase();
+const formatTransferStatus = (transfer) => {
+  const safeTransfer = transfer ?? {};
+  const statusKey = String(safeTransfer.approvalStatus || safeTransfer.status || "pending").toLowerCase();
+  if (statusKey === "pending_hod" || statusKey === "pending_staff") {
+    return "Pending HOD recommendation";
+  }
   if (statusKey === "pending_registrar") {
-    return "Pending approval";
+    return "Pending Registrar Approval";
+  }
+  if (statusKey === "cancelled") {
+    return "Cancelled";
   }
   return TRANSFER_STATUS_LABELS[statusKey]
     || statusKey.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 };
 
-const resolveTransferBadgeVariant = (transfer = {}) => {
-  const statusKey = String(transfer.approvalStatus || transfer.status || "pending").toLowerCase();
+const resolveTransferBadgeVariant = (transfer) => {
+  const safeTransfer = transfer ?? {};
+  const statusKey = String(safeTransfer.approvalStatus || safeTransfer.status || "pending").toLowerCase();
   if (["completed"].includes(statusKey)) {
     return "completed";
   }
@@ -259,6 +281,15 @@ const TransferList = () => {
         </SummaryCardsGrid>
 
         <Card title={activeViewSummary.title} subtitle={tableSubtitle()} icon={activeViewSummary.icon}>
+          <WorkflowReportExport
+            rows={activeTableRows}
+            columns={TRANSFER_EXPORT_COLUMNS}
+            reportTitle={`Item Transfers — ${activeViewSummary.title}`}
+            fileNamePrefix={`item-transfers-${activeViewKey}`}
+            searchFields={TRANSFER_EXPORT_SEARCH_FIELDS}
+            searchPlaceholder="Search by transfer ID, item, inventory, or status..."
+            disabled={loading}
+          />
           <Table
             columns={columns}
             data={activeTableRows}

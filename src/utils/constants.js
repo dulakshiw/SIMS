@@ -40,7 +40,21 @@ export const DISPOSAL_REASONS = [
   { value: "theft", label: "Theft" },
   { value: "lost", label: "Lost" },
   { value: "end-of-life", label: "End of Life" },
+  { value: "other", label: "Other" },
 ];
+
+// Disposal Types
+export const DISPOSAL_TYPES = [
+  { value: "auction", label: "Auction" },
+  { value: "donation", label: "Donation" },
+  { value: "other", label: "Other" },
+];
+
+export const getDisposalOptionLabel = (options = [], value = "") => {
+  const normalized = String(value || "").trim().toLowerCase();
+  const match = options.find((entry) => String(entry.value).toLowerCase() === normalized);
+  return match?.label || value || "";
+};
 
 // Condition Assessment
 export const CONDITION_ASSESSMENT = [
@@ -187,6 +201,7 @@ export const INVENTORY_REQUEST_STATUS_META = {
   approved_by_hod: { label: "HOD approved", variant: "info" },
   pending_registrar: { label: "With registrar", variant: "info" },
   approved_by_registrar: { label: "Registrar approved", variant: "info" },
+  pending_writeoff: { label: "Awaiting write-off", variant: "info" },
   pending_admin: { label: "With administrator", variant: "info" },
   approved_by_admin: { label: "Approved", variant: "success" },
   completed: { label: "Completed", variant: "success" },
@@ -244,6 +259,7 @@ export const ITEM_REMARK_TYPE = {
 export const ITEM_STATUS = [
   { value: "available", label: "Available", color: "success" },
   { value: "in-use", label: "In Use", color: "info" },
+  { value: "issued", label: "Issued", color: "info" },
   { value: "returned", label: "Returned", color: "secondary" },
   { value: "Returned", label: "Returned", color: "secondary" },
   { value: "maintenance", label: "Maintenance", color: "warning" },
@@ -321,11 +337,43 @@ export const REGISTRAR_NAV_ITEMS = [
 
 export const INVENTORY_NAV_ITEMS = [
   { id: 1, label: "Dashboard", path: "/inventory/dashboard", icon: "home" },
-  { id: 2, label: "Items", path: "/inventory/list", icon: "inventory_2" },
-  { id: 3, label: "Add Item", path: "/inventory/add", icon: "add_circle" },
-  { id: 4, label: "Transfers", path: "/inventory/transfers/list", icon: "compare_arrows" },
-  { id: 5, label: "Disposals", path: "/inventory/disposals/list", icon: "delete_sweep" },
-  { id: 6, label: "Requests", path: "/inventory/requests/list", icon: "request_quote" },
+  { id: "inventory-menu", type: "section", label: "Inventories", icon: "inventory_2" },
+  { id: 2, type: "item", label: "Items", path: "/inventory/list", icon: "inventory", nested: true },
+  { id: 3, type: "item", label: "Add Item", path: "/inventory/add", icon: "add_circle", nested: true },
+  { id: 4, type: "item", label: "Transfers", path: "/inventory/transfers/list", icon: "compare_arrows", nested: true },
+  { id: 5, type: "item", label: "Disposals", path: "/inventory/disposals/list", icon: "delete_sweep", nested: true },
+  {
+    id: "inventory-warranty-claims",
+    type: "item",
+    label: "Warranty Claims",
+    path: "/inventory/repairs/warranty-claims/list",
+    icon: "verified_user",
+    nested: true,
+  },
+  {
+    id: "inventory-repairs",
+    type: "item",
+    label: "Repairs",
+    path: "/inventory/repairs/list",
+    icon: "handyman",
+    nested: true,
+  },
+  {
+    id: 6,
+    type: "item",
+    label: "Inventory Requests",
+    path: "/inventory/requests/list",
+    icon: "request_quote",
+    nested: true,
+  },
+  {
+    id: "inventory-reports",
+    type: "item",
+    label: "Reports",
+    path: "/inventory/reports",
+    icon: "assessment",
+    nested: true,
+  },
   { id: 7, label: "Profile", path: "/profile", icon: "person" },
 ];
 
@@ -343,12 +391,36 @@ export const STAFF_INCHARGE_NAV_ITEMS = [
   { id: 2, label: "Request Items", path: "/inventory/requests/new/staff", icon: "add_circle" },
   { id: 3, label: "My Requests", path: "/requests/my/staff", icon: "fact_check" },
   { id: 4, label: "My Issued Items", path: "/inventory/list/staff", icon: "inventory_2" },
-  { id: 5, label: "My Inventories", path: "/inventory/list/incharge", icon: "inventory" },
-  { id: 6, label: "Add Item", path: "/inventory/add/incharge", icon: "playlist_add" },
-  { id: 7, label: "Transfers", path: "/inventory/transfers/list/incharge", icon: "compare_arrows" },
-  { id: 8, label: "Disposals", path: "/inventory/disposals/list/incharge", icon: "delete_sweep" },
-  { id: 9, label: "Inventory Requests", path: "/inventory/requests/list/incharge", icon: "request_quote" },
-  { id: 10, label: "Reports", path: "/reports/staff", icon: "assessment" },
+  { id: "staff-incharge-inventories-menu", type: "section", label: "Inventories", icon: "inventory_2" },
+  { id: 5, type: "item", label: "My Inventories", path: "/inventory/list/incharge", icon: "inventory", nested: true },
+  { id: 6, type: "item", label: "Add Item", path: "/inventory/add/incharge", icon: "playlist_add", nested: true },
+  { id: 7, type: "item", label: "Transfers", path: "/inventory/transfers/list/incharge", icon: "compare_arrows", nested: true },
+  { id: 8, type: "item", label: "Disposals", path: "/inventory/disposals/list/incharge", icon: "delete_sweep", nested: true },
+  {
+    id: "staff-warranty-claims",
+    type: "item",
+    label: "Warranty Claims",
+    path: "/inventory/repairs/warranty-claims/list/incharge",
+    icon: "verified_user",
+    nested: true,
+  },
+  {
+    id: "staff-repairs",
+    type: "item",
+    label: "Repairs",
+    path: "/inventory/repairs/list/incharge",
+    icon: "handyman",
+    nested: true,
+  },
+  {
+    id: 9,
+    type: "item",
+    label: "Inventory Requests",
+    path: "/inventory/requests/list/incharge",
+    icon: "request_quote",
+    nested: true,
+  },
+  { id: 10, label: "Reports", path: "/inventory/reports/incharge", icon: "assessment" },
   { id: 11, label: "Profile", path: "/profile/staff", icon: "person" },
 ];
 

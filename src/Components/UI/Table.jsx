@@ -23,6 +23,7 @@ const Table = ({
   itemsPerPage = 10,
   onRowClick,
   getRowActions,
+  isRowDisabled,
   pendingActionLabel = "Awaiting prior approval",
   loading = false,
   className = "",
@@ -154,12 +155,18 @@ const Table = ({
                     ? (currentPage - 1) * itemsPerPage + rowIndex
                     : rowIndex;
                   const rowNumber = filteredData.length - globalIndex;
+                  const rowDisabled = Boolean(isRowDisabled?.(row));
 
                   return (
                   <tr
                     key={rowIndex}
-                    className="border-b border-border-lighter hover:bg-background-light cursor-pointer transition-colors"
-                    onClick={() => onRowClick && onRowClick(row)}
+                    className={`border-b border-border-lighter transition-colors ${
+                      rowDisabled
+                        ? "opacity-45 bg-background-light cursor-not-allowed"
+                        : "hover:bg-background-light cursor-pointer"
+                    }`}
+                    onClick={() => !rowDisabled && onRowClick && onRowClick(row)}
+                    aria-disabled={rowDisabled || undefined}
                   >
                     {resolvedColumns.map((col) => (
                       <td key={col.field} className="px-6 py-4 text-sm text-text-dark">

@@ -18,7 +18,7 @@ const RequestList = () => {
     return <HodStaffItemRequests />;
   }
 
-  if (normalizedRole === "incharge") {
+  if (normalizedRole === "incharge" || sidebarVariant === "inventory") {
     return <InchargeStaffItemRequests />;
   }
 

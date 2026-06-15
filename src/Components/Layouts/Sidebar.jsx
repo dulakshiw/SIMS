@@ -68,8 +68,10 @@ const buildStaffNavItems = (currentUser) => {
       { id: "staff-add-item", type: "item", label: "Add New Item", path: "/inventory/add/incharge", icon: "playlist_add", nested: true },
       { id: "staff-transfers", type: "item", label: "Transfers", path: "/inventory/transfers/list/incharge", icon: "compare_arrows", nested: true },
       { id: "staff-disposals", type: "item", label: "Disposals", path: "/inventory/disposals/list/incharge", icon: "delete_sweep", nested: true },
+      { id: "staff-warranty-claims", type: "item", label: "Warranty Claims", path: "/inventory/repairs/warranty-claims/list/incharge", icon: "verified_user", nested: true },
+      { id: "staff-repairs", type: "item", label: "Repairs", path: "/inventory/repairs/list/incharge", icon: "handyman", nested: true },
       { id: "staff-inventory-requests", type: "item", label: "Inventory Requests", path: "/inventory/requests/list/incharge", icon: "request_quote", nested: true },
-      { id: "staff-reports", type: "item", label: "Reports", path: "/reports/staff", icon: "assessment", nested: true }
+      { id: "staff-reports", type: "item", label: "Reports", path: "/inventory/reports/incharge", icon: "assessment", nested: true }
     );
   }
 
@@ -244,12 +246,12 @@ const Sidebar = ({ variant = "inventory", onCollapseChange }) => {
     <aside
       className={`
         fixed left-0 top-0 h-screen bg-primary-800 text-white transition-all duration-300 z-40
+        flex flex-col
         ${isCollapsed ? "w-20" : "w-64"}
-        overflow-y-auto
       `}
     >
       {/* Header */}
-      <div className="flex items-center justify-between p-4 h-16 border-b border-primary-700">
+      <div className="flex shrink-0 items-center justify-between p-4 h-16 border-b border-primary-700">
         {!isCollapsed && <h1 className="text-lg font-bold">SIMS</h1>}
         <button
           onClick={handleCollapse}
@@ -261,8 +263,8 @@ const Sidebar = ({ variant = "inventory", onCollapseChange }) => {
         </button>
       </div>
 
-      {/* Navigation */}
-      <nav className="p-4 space-y-2">
+      {/* Navigation — scrolls independently so expanded menus don't cover the footer */}
+      <nav className="flex-1 min-h-0 overflow-y-auto p-4 space-y-2">
         {menuEntries.map((entry) => {
           if (entry.type === "menu" && !isCollapsed) {
             const isOpen = Boolean(openMenus[entry.id]);
@@ -368,8 +370,8 @@ const Sidebar = ({ variant = "inventory", onCollapseChange }) => {
         })}
       </nav>
 
-      {/* Footer */}
-      <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-primary-700">
+      {/* Footer — pinned below scrollable nav */}
+      <div className="shrink-0 p-4 border-t border-primary-700 bg-primary-800">
         <button
           type="button"
           onClick={handleLogout}

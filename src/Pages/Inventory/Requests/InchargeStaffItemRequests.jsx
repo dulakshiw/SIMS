@@ -14,8 +14,56 @@ import {
 } from '../../../Components/UI';
 import { ITEM_REQUEST_STATUS, ITEM_REQUEST_STATUS_META } from '../../../utils/constants';
 import { resolveSidebarVariant } from '../../../utils/helpers';
+import WorkflowReportExport from '../../../Components/Inventory/WorkflowReportExport';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
+
+const PENDING_EXPORT_COLUMNS = [
+  { field: 'id', label: 'Request ID' },
+  { field: 'requester', label: 'Requested by' },
+  { field: 'department', label: 'Department' },
+  { field: 'itemName', label: 'Item requested' },
+  { field: 'quantity', label: 'Quantity' },
+  { field: 'inventory', label: 'Lab inventory' },
+  { field: 'requestedDate', label: 'Requested date' },
+  { field: 'priority', label: 'Priority' },
+  { field: 'status', label: 'Status' },
+];
+
+const PENDING_EXPORT_SEARCH_FIELDS = [
+  'id',
+  'requester',
+  'department',
+  'itemName',
+  'inventory',
+  'priority',
+  'status',
+];
+
+const ISSUED_EXPORT_COLUMNS = [
+  { field: 'id', label: 'Request ID' },
+  { field: 'requester', label: 'Staff member' },
+  { field: 'department', label: 'Department' },
+  { field: 'itemName', label: 'Item requested' },
+  { field: 'quantity', label: 'Quantity' },
+  { field: 'inventory', label: 'Inventory' },
+  { field: 'issuedDate', label: 'Issued date' },
+  { field: 'returnedDate', label: 'Returned date' },
+  { field: 'status', label: 'Status' },
+];
+
+const ISSUED_EXPORT_SEARCH_FIELDS = [
+  'id',
+  'requester',
+  'department',
+  'itemName',
+  'inventory',
+  'status',
+];
+
+const formatRequestStatusLabel = (statusKey) =>
+  ITEM_REQUEST_STATUS_META[statusKey]?.label
+  || String(statusKey || '').replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
 
 const ISSUEABLE_STATUSES = new Set([
   ITEM_REQUEST_STATUS.APPROVED_TO_ISSUE,
@@ -166,18 +214,21 @@ const InchargeStaffItemRequests = () => {
     pendingRequests
       .filter((request) => ISSUEABLE_STATUSES.has(String(request.approvalStatus || '').toLowerCase()))
       .map((request) => ({
-        id: request.id,
+        id: `REQ-${request.id}`,
         requester: request.requestedByName || '—',
+        department: request.departmentName || '—',
         itemName: request.itemName || '—',
         quantity: request.quantity ?? '—',
         inventory: request.inventoryLocation || request.inventoryName || '—',
         requestedDate: request.requestedDate || '—',
         priority: request.priority || 'normal',
+        status: formatRequestStatusLabel(request.approvalStatus),
         statusKey: request.approvalStatus,
         _request: request,
       }))
       .sort(
-        (a, b) => String(b.requestedDate).localeCompare(String(a.requestedDate)) || b.id - a.id
+        (a, b) => String(b.requestedDate).localeCompare(String(a.requestedDate))
+          || Number(b._request.id) - Number(a._request.id)
       )
   ), [pendingRequests]);
 
@@ -185,20 +236,22 @@ const InchargeStaffItemRequests = () => {
     issuedRequests
       .filter((request) => !ISSUEABLE_STATUSES.has(String(request.approvalStatus || '').toLowerCase()))
       .map((request) => ({
-        id: request.id,
+        id: `REQ-${request.id}`,
         requester: request.requestedByName || '—',
+        department: request.departmentName || '—',
         itemName: request.itemName || '—',
         quantity: request.quantity ?? '—',
         inventory: request.inventoryLocation || request.inventoryName || '—',
         issuedDate: request.issuedDate || '—',
         returnedDate: request.returnedDate || '—',
+        status: formatRequestStatusLabel(request.approvalStatus),
         statusKey: request.approvalStatus,
         _request: request,
       }))
       .sort((a, b) => {
         const dateA = a._request.issuedDate || a._request.returnedDate || a._request.requestedDate || '';
         const dateB = b._request.issuedDate || b._request.returnedDate || b._request.requestedDate || '';
-        return String(dateB).localeCompare(String(dateA)) || b.id - a.id;
+        return String(dateB).localeCompare(String(dateA)) || Number(b._request.id) - Number(a._request.id);
       })
   ), [issuedRequests]);
 
@@ -211,7 +264,9 @@ const InchargeStaffItemRequests = () => {
   };
 
   const requestColumns = [
+    { field: 'id', label: 'Request ID', sortable: true },
     { field: 'requester', label: 'Requested by', sortable: true },
+    { field: 'department', label: 'Department', sortable: true },
     { field: 'itemName', label: 'Item requested', sortable: true },
     { field: 'quantity', label: 'Quantity', sortable: true },
     { field: 'inventory', label: 'Lab inventory', sortable: true },
@@ -229,27 +284,49 @@ const InchargeStaffItemRequests = () => {
       ),
     },
     {
-      field: 'statusKey',
+      field: 'status',
       label: 'Status',
       sortable: true,
-      render: (value) => statusBadge(value),
+      render: (value, row) => statusBadge(row.statusKey),
     },
   ];
 
   const historyColumns = [
+    { field: 'id', label: 'Request ID', sortable: true },
     { field: 'requester', label: 'Staff member', sortable: true },
+    { field: 'department', label: 'Department', sortable: true },
     { field: 'itemName', label: 'Item requested', sortable: true },
     { field: 'quantity', label: 'Quantity', sortable: true },
     { field: 'inventory', label: 'Inventory Name', sortable: true },
     { field: 'issuedDate', label: 'Issued date', sortable: true },
     { field: 'returnedDate', label: 'Returned date', sortable: true },
     {
-      field: 'statusKey',
+      field: 'status',
       label: 'Status',
       sortable: true,
-      render: (value) => statusBadge(value),
+      render: (value, row) => statusBadge(row.statusKey),
     },
   ];
+
+  const activeExportConfig = activeViewKey === 'pending'
+    ? {
+      rows: pendingRows,
+      columns: PENDING_EXPORT_COLUMNS,
+      searchFields: PENDING_EXPORT_SEARCH_FIELDS,
+      searchPlaceholder: 'Search by request ID, staff name, department, item, or inventory...',
+      reportTitle: 'Inventory Requests — Pending issues',
+      fileNamePrefix: 'inventory-requests-pending',
+      dateField: 'requestedDate',
+    }
+    : {
+      rows: historyRows,
+      columns: ISSUED_EXPORT_COLUMNS,
+      searchFields: ISSUED_EXPORT_SEARCH_FIELDS,
+      searchPlaceholder: 'Search by request ID, staff name, department, item, or status...',
+      reportTitle: 'Inventory Requests — Issued and returned',
+      fileNamePrefix: 'inventory-requests-history',
+      dateField: 'issuedDate',
+    };
 
   const itemPickerColumns = [
     { field: 'itemName', label: 'Item name', sortable: true },
@@ -658,6 +735,16 @@ const InchargeStaffItemRequests = () => {
         </SummaryCardsGrid>
 
         <Card title={activeViewSummary.title} subtitle={tableSubtitle()} icon={activeViewSummary.icon}>
+          <WorkflowReportExport
+            rows={activeExportConfig.rows}
+            columns={activeExportConfig.columns}
+            reportTitle={activeExportConfig.reportTitle}
+            fileNamePrefix={activeExportConfig.fileNamePrefix}
+            dateField={activeExportConfig.dateField}
+            searchFields={activeExportConfig.searchFields}
+            searchPlaceholder={activeExportConfig.searchPlaceholder}
+            disabled={loading}
+          />
           <Table
             columns={activeTableColumns}
             data={activeTableRows}

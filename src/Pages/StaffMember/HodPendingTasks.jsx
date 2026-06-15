@@ -22,7 +22,7 @@ const ACCOUNT_REQUEST_LABELS = {
 
 const HOD_PENDING_INVENTORY_STATUSES = new Set(['pending_hod', 'pending_staff']);
 
-const PENDING_TAB_KEYS = new Set(['accounts', 'inventory', 'item-recommend', 'item-lab']);
+const PENDING_TAB_KEYS = new Set(['accounts', 'inventory', 'transfers', 'disposals', 'item-recommend', 'item-lab']);
 
 const resolveInitialTab = (stateTab) => (
   PENDING_TAB_KEYS.has(stateTab) ? stateTab : 'accounts'
@@ -57,10 +57,14 @@ const HodPendingTasks = () => {
   const [inventoryRequests, setInventoryRequests] = useState([]);
   const [itemRecommendRequests, setItemRecommendRequests] = useState([]);
   const [itemLabRequests, setItemLabRequests] = useState([]);
+  const [transferRequests, setTransferRequests] = useState([]);
+  const [disposalRequests, setDisposalRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [actionLoadingKey, setActionLoadingKey] = useState(null);
   const [error, setError] = useState('');
   const [inventoryLoadError, setInventoryLoadError] = useState('');
+  const [transferLoadError, setTransferLoadError] = useState('');
+  const [disposalLoadError, setDisposalLoadError] = useState('');
   const [itemLoadError, setItemLoadError] = useState('');
   const [activeReviewTab, setActiveReviewTab] = useState(() => resolveInitialTab(location.state?.activeTab));
   const [selectedReviewRow, setSelectedReviewRow] = useState(null);
@@ -73,6 +77,8 @@ const HodPendingTasks = () => {
       setLoading(true);
       setError('');
       setInventoryLoadError('');
+      setTransferLoadError('');
+      setDisposalLoadError('');
       setItemLoadError('');
       const storedUser = getStoredUser();
       setCurrentUser(storedUser);
@@ -87,6 +93,12 @@ const HodPendingTasks = () => {
         : null;
       const itemLabUrl = Number.isInteger(hodUserId) && hodUserId > 0
         ? `${API_BASE_URL}/api/item-requests?labHodUserId=${hodUserId}`
+        : null;
+      const transferUrl = Number.isInteger(hodUserId) && hodUserId > 0
+        ? `${API_BASE_URL}/api/item-transfers?sourceHodUserId=${hodUserId}`
+        : null;
+      const disposalUrl = Number.isInteger(hodUserId) && hodUserId > 0
+        ? `${API_BASE_URL}/api/item-disposals?sourceHodUserId=${hodUserId}`
         : null;
 
       const accountResponse = await fetch(accountUrl);
@@ -118,6 +130,50 @@ const HodPendingTasks = () => {
         setInventoryRequests([]);
         if (!hodUserId) {
           setInventoryLoadError('Your profile is missing a user id, so inventory requests assigned to you cannot be loaded.');
+        }
+      }
+
+      if (transferUrl) {
+        try {
+          const transferResponse = await fetch(transferUrl);
+          const transferData = await transferResponse.json().catch(() => ({}));
+
+          if (!transferResponse.ok || !transferData.success) {
+            setTransferRequests([]);
+            setTransferLoadError(transferData.message || transferData.error || 'Failed to load item transfer requests.');
+          } else {
+            setTransferRequests(transferData.transfers || []);
+          }
+        } catch (transferErr) {
+          setTransferRequests([]);
+          setTransferLoadError(transferErr.message || 'Failed to load item transfer requests.');
+        }
+      } else {
+        setTransferRequests([]);
+        if (!hodUserId) {
+          setTransferLoadError('Your profile is missing a user id, so transfer requests assigned to you cannot be loaded.');
+        }
+      }
+
+      if (disposalUrl) {
+        try {
+          const disposalResponse = await fetch(disposalUrl);
+          const disposalData = await disposalResponse.json().catch(() => ({}));
+
+          if (!disposalResponse.ok || !disposalData.success) {
+            setDisposalRequests([]);
+            setDisposalLoadError(disposalData.message || disposalData.error || 'Failed to load item disposal requests.');
+          } else {
+            setDisposalRequests(disposalData.disposals || []);
+          }
+        } catch (disposalErr) {
+          setDisposalRequests([]);
+          setDisposalLoadError(disposalErr.message || 'Failed to load item disposal requests.');
+        }
+      } else {
+        setDisposalRequests([]);
+        if (!hodUserId) {
+          setDisposalLoadError('Your profile is missing a user id, so disposal requests assigned to you cannot be loaded.');
         }
       }
 
@@ -165,6 +221,7 @@ const HodPendingTasks = () => {
     } catch (loadError) {
       setAccountRequests([]);
       setInventoryRequests([]);
+      setTransferRequests([]);
       setItemRecommendRequests([]);
       setItemLabRequests([]);
       setError((prev) => prev || loadError.message || 'Failed to load requests.');
@@ -246,6 +303,43 @@ const HodPendingTasks = () => {
     return mapPendingRows(rows);
   }, [departmentInventoryRequests]);
 
+  const pendingTransferRows = useMemo(() => {
+    const rows = transferRequests.map((transfer) => ({
+      queueKey: `transfer:${transfer.id}`,
+      source: 'transfer',
+      id: transfer.id,
+      requestLabel: 'Item transfer',
+      requestedBy: transfer.initiatedBy || '—',
+      itemName: transfer.itemName || '—',
+      location: transfer.fromInventory || '—',
+      destination: transfer.toInventory || '—',
+      requestedDate: transfer.transferDate || '',
+      statusKey: transfer.approvalStatus || 'pending_hod',
+      statusKind: 'transfer',
+      _transfer: transfer,
+    }));
+
+    return mapPendingRows(rows);
+  }, [transferRequests]);
+
+  const pendingDisposalRows = useMemo(() => {
+    const rows = disposalRequests.map((disposal) => ({
+      queueKey: `disposal:${disposal.id}`,
+      source: 'disposal',
+      id: disposal.id,
+      requestLabel: 'Item disposal',
+      requestedBy: disposal.initiatedBy || '—',
+      itemName: disposal.itemName || '—',
+      location: disposal.inventory || '—',
+      requestedDate: disposal.disposalDate || '',
+      statusKey: disposal.approvalStatus || 'pending_hod',
+      statusKind: 'disposal',
+      _disposal: disposal,
+    }));
+
+    return mapPendingRows(rows);
+  }, [disposalRequests]);
+
   const pendingItemRecommendRows = useMemo(() => {
     const rows = itemRecommendRequests
       .filter((r) => ITEM_REQUEST_PENDING_REQUESTER_STATUSES.has(String(r.approvalStatus || '').toLowerCase()))
@@ -297,6 +391,12 @@ const HodPendingTasks = () => {
       const config = ITEM_REQUEST_STATUS_META[row.statusKey] || { label: row.statusKey, variant: 'secondary' };
       return <Badge label={config.label} variant={config.variant} size="sm" />;
     }
+    if (row.statusKind === 'transfer') {
+      return <Badge label="Pending HOD recommendation" variant="warning" size="sm" />;
+    }
+    if (row.statusKind === 'disposal') {
+      return <Badge label="Pending HOD recommendation" variant="warning" size="sm" />;
+    }
     const config = INVENTORY_REQUEST_STATUS_META[row.statusKey] || { label: row.statusKey, variant: 'secondary' };
     return <Badge label={config.label} variant={config.variant} size="sm" />;
   };
@@ -328,6 +428,45 @@ const HodPendingTasks = () => {
     { field: 'requestedBy', label: 'Requested by', sortable: true },
     { field: 'location', label: 'Location', sortable: true },
     { field: 'requestedDate', label: 'Requested date', sortable: true },
+    {
+      field: 'statusKey',
+      label: 'Status',
+      sortable: true,
+      render: (_value, row) => statusBadge(row),
+    },
+  ];
+
+  const transferColumns = [
+    {
+      field: 'requestLabel',
+      label: 'Request type',
+      sortable: true,
+      render: (value) => <Badge label={value} variant="info" size="sm" />,
+    },
+    { field: 'requestedBy', label: 'Submitted by', sortable: true },
+    { field: 'itemName', label: 'Item', sortable: true },
+    { field: 'location', label: 'From inventory', sortable: true },
+    { field: 'destination', label: 'To inventory', sortable: true },
+    { field: 'requestedDate', label: 'Transfer date', sortable: true },
+    {
+      field: 'statusKey',
+      label: 'Status',
+      sortable: true,
+      render: (_value, row) => statusBadge(row),
+    },
+  ];
+
+  const disposalColumns = [
+    {
+      field: 'requestLabel',
+      label: 'Request type',
+      sortable: true,
+      render: (value) => <Badge label={value} variant="info" size="sm" />,
+    },
+    { field: 'requestedBy', label: 'Submitted by', sortable: true },
+    { field: 'itemName', label: 'Item', sortable: true },
+    { field: 'location', label: 'Inventory', sortable: true },
+    { field: 'requestedDate', label: 'Disposal date', sortable: true },
     {
       field: 'statusKey',
       label: 'Status',
@@ -384,6 +523,100 @@ const HodPendingTasks = () => {
     }
 
     setItemLabRequests(updateList);
+  };
+
+  const updateTransferStatus = (transferId) => {
+    setTransferRequests((prev) => prev.filter((transfer) => transfer.id !== transferId));
+  };
+
+  const handleTransferAction = async (transfer, actionType) => {
+    const isApprove = actionType === 'approve';
+    const confirmed = window.confirm(
+      isApprove
+        ? `Recommend this transfer from "${transfer.fromInventory}" to "${transfer.toInventory}" and forward it to the registrar?`
+        : `Reject this item transfer request from "${transfer.fromInventory}" to "${transfer.toInventory}"?`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setActionLoadingKey(`transfer:${transfer.id}`);
+      const hodUserId = Number(currentUser.id ?? 0);
+      const url = isApprove
+        ? `${API_BASE_URL}/api/item-transfers/${transfer.id}/approve-hod`
+        : `${API_BASE_URL}/api/item-transfers/${transfer.id}/reject-hod`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(
+          isApprove
+            ? { approverUserId: hodUserId }
+            : { approverUserId: hodUserId, reason: 'Rejected by Head of Department' }
+        ),
+      });
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || data.error || `Failed to ${actionType} transfer request.`);
+      }
+
+      updateTransferStatus(transfer.id);
+      setIsDetailModalOpen(false);
+      setSelectedReviewRow(null);
+    } catch (actionError) {
+      window.alert(actionError.message || `Failed to ${actionType} transfer request.`);
+    } finally {
+      setActionLoadingKey(null);
+    }
+  };
+
+  const updateDisposalStatus = (disposalId) => {
+    setDisposalRequests((prev) => prev.filter((disposal) => disposal.id !== disposalId));
+  };
+
+  const handleDisposalAction = async (disposal, actionType) => {
+    const isApprove = actionType === 'approve';
+    const confirmed = window.confirm(
+      isApprove
+        ? `Recommend disposal of "${disposal.itemName}" from "${disposal.inventory}" and forward it to the registrar?`
+        : `Reject this item disposal request for "${disposal.itemName}" from "${disposal.inventory}"?`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setActionLoadingKey(`disposal:${disposal.id}`);
+      const hodUserId = Number(currentUser.id ?? 0);
+      const url = isApprove
+        ? `${API_BASE_URL}/api/item-disposals/${disposal.id}/approve-hod`
+        : `${API_BASE_URL}/api/item-disposals/${disposal.id}/reject-hod`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(
+          isApprove
+            ? { approverUserId: hodUserId }
+            : { approverUserId: hodUserId, reason: 'Rejected by Head of Department' }
+        ),
+      });
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || data.error || `Failed to ${actionType} disposal request.`);
+      }
+
+      updateDisposalStatus(disposal.id);
+      setIsDetailModalOpen(false);
+      setSelectedReviewRow(null);
+    } catch (actionError) {
+      window.alert(actionError.message || `Failed to ${actionType} disposal request.`);
+    } finally {
+      setActionLoadingKey(null);
+    }
   };
 
   const handleAccountAction = async (request, actionType) => {
@@ -572,6 +805,14 @@ const HodPendingTasks = () => {
       handleItemAction(row._item, actionType, row.itemActionType);
       return;
     }
+    if (row.source === 'transfer') {
+      handleTransferAction(row._transfer, actionType);
+      return;
+    }
+    if (row.source === 'disposal') {
+      handleDisposalAction(row._disposal, actionType);
+      return;
+    }
     handleInventoryAction(row._inventory, actionType);
   };
 
@@ -672,13 +913,42 @@ const HodPendingTasks = () => {
     ];
   };
 
+  const buildTransferDetailFields = (transfer) => [
+    { label: 'Request type', value: 'Item transfer' },
+    { label: 'Item', value: transfer.itemName },
+    { label: 'From inventory', value: transfer.fromInventory },
+    { label: 'To inventory', value: transfer.toInventory },
+    { label: 'Submitted by', value: transfer.initiatedBy },
+    { label: 'Transfer date', value: transfer.transferDate },
+    { label: 'Quantity', value: transfer.quantity },
+    { label: 'Status', value: 'Pending HOD recommendation' },
+    { label: 'Reason', value: transfer.reason, fullWidth: true },
+  ];
+
+  const buildDisposalDetailFields = (disposal) => [
+    { label: 'Request type', value: 'Item disposal' },
+    { label: 'Item', value: disposal.itemName },
+    { label: 'Inventory', value: disposal.inventory },
+    { label: 'Submitted by', value: disposal.initiatedBy },
+    { label: 'Disposal date', value: disposal.disposalDate },
+    { label: 'Quantity', value: disposal.quantity },
+    { label: 'Condition', value: disposal.condition },
+    { label: 'Status', value: 'Pending HOD recommendation' },
+    { label: 'Reason', value: disposal.reason, fullWidth: true },
+    { label: 'Description', value: disposal.description, fullWidth: true },
+  ];
+
   const detailModalTitle = selectedReviewRow
     ? (
       selectedReviewRow.source === 'account'
         ? `${ACCOUNT_REQUEST_LABELS[selectedReviewRow._account?.requestType] || 'Account'} request`
         : selectedReviewRow.source === 'item'
           ? 'Item request'
-          : `${INVENTORY_REQUEST_TYPE_LABELS[selectedReviewRow._inventory?.requestType] || 'Inventory'} request`
+          : selectedReviewRow.source === 'transfer'
+            ? 'Item transfer request'
+            : selectedReviewRow.source === 'disposal'
+              ? 'Item disposal request'
+              : `${INVENTORY_REQUEST_TYPE_LABELS[selectedReviewRow._inventory?.requestType] || 'Inventory'} request`
     )
     : 'Request details';
 
@@ -688,7 +958,11 @@ const HodPendingTasks = () => {
         ? selectedReviewRow._account?.name
         : selectedReviewRow.source === 'item'
           ? selectedReviewRow._item?.itemName
-          : selectedReviewRow._inventory?.name
+          : selectedReviewRow.source === 'transfer'
+            ? selectedReviewRow._transfer?.itemName
+            : selectedReviewRow.source === 'disposal'
+              ? selectedReviewRow._disposal?.itemName
+              : selectedReviewRow._inventory?.name
     )
     : null;
 
@@ -698,14 +972,22 @@ const HodPendingTasks = () => {
         ? buildAccountDetailFields(selectedReviewRow._account)
         : selectedReviewRow.source === 'item'
           ? buildItemDetailFields(selectedReviewRow._item)
-          : buildInventoryDetailFields(selectedReviewRow._inventory)
+          : selectedReviewRow.source === 'transfer'
+            ? buildTransferDetailFields(selectedReviewRow._transfer)
+            : selectedReviewRow.source === 'disposal'
+              ? buildDisposalDetailFields(selectedReviewRow._disposal)
+              : buildInventoryDetailFields(selectedReviewRow._inventory)
     )
     : [];
 
   const selectedItemActionType = selectedReviewRow?.itemActionType || 'recommend';
   const selectedPrimaryActionLabel = selectedReviewRow?.source === 'item'
     ? (selectedItemActionType === 'approveLab' ? 'Approve' : 'Recommend')
-    : 'Accept';
+    : selectedReviewRow?.source === 'transfer'
+      ? 'Recommend'
+      : selectedReviewRow?.source === 'disposal'
+        ? 'Recommend'
+        : 'Accept';
 
   const isSelectedRowLoading = selectedReviewRow
     ? actionLoadingKey === selectedReviewRow.queueKey
@@ -725,6 +1007,20 @@ const HodPendingTasks = () => {
       description: 'Inventory creation, addition, and officer change requests.',
       count: pendingInventoryRows.length,
       icon: 'inventory_2',
+    },
+    {
+      key: 'transfers',
+      title: 'Item Transfers',
+      description: 'Internal inventory transfer requests awaiting your recommendation.',
+      count: pendingTransferRows.length,
+      icon: 'compare_arrows',
+    },
+    {
+      key: 'disposals',
+      title: 'Item Disposals',
+      description: 'Item disposal requests awaiting your recommendation.',
+      count: pendingDisposalRows.length,
+      icon: 'delete_sweep',
     },
     {
       key: 'item-recommend',
@@ -760,6 +1056,12 @@ const HodPendingTasks = () => {
     if (inventoryLoadError && activeReviewTab === 'inventory') {
       return inventoryLoadError;
     }
+    if (transferLoadError && activeReviewTab === 'transfers') {
+      return transferLoadError;
+    }
+    if (disposalLoadError && activeReviewTab === 'disposals') {
+      return disposalLoadError;
+    }
     if (itemLoadError && (activeReviewTab === 'item-recommend' || activeReviewTab === 'item-lab')) {
       return itemLoadError;
     }
@@ -777,20 +1079,28 @@ const HodPendingTasks = () => {
     ? pendingAccountRows
     : activeReviewTab === 'inventory'
       ? pendingInventoryRows
-      : activeReviewTab === 'item-recommend'
-        ? pendingItemRecommendRows
-        : pendingItemLabRows;
+      : activeReviewTab === 'transfers'
+        ? pendingTransferRows
+        : activeReviewTab === 'disposals'
+          ? pendingDisposalRows
+          : activeReviewTab === 'item-recommend'
+            ? pendingItemRecommendRows
+            : pendingItemLabRows;
   const activeTabColumns = activeReviewTab === 'accounts'
     ? accountColumns
     : activeReviewTab === 'inventory'
       ? inventoryColumns
-      : itemColumns;
+      : activeReviewTab === 'transfers'
+        ? transferColumns
+        : activeReviewTab === 'disposals'
+          ? disposalColumns
+          : itemColumns;
 
   return (
     <MainLayout variant="hod">
       <PageHeader
         title="Pending Approvals / Recommendations"
-        subtitle="Review account, inventory, and staff item requests awaiting your action."
+        subtitle="Review account, inventory, transfer, disposal, and staff item requests awaiting your action."
       />
 
       <div className="p-6 space-y-6">
@@ -800,7 +1110,7 @@ const HodPendingTasks = () => {
           </div>
         ) : null}
 
-        <SummaryCardsGrid showTitle={false} columns={4}>
+        <SummaryCardsGrid showTitle={false} gridClassName="md:grid-cols-2 xl:grid-cols-3">
           {pendingSummaryCards.map((card) => (
             <SummaryCard
               key={card.key}
@@ -870,7 +1180,11 @@ const HodPendingTasks = () => {
                   ? 'Inventory'
                   : selectedReviewRow?.source === 'item'
                     ? 'Item'
-                    : 'Applicant'}
+                    : selectedReviewRow?.source === 'transfer'
+                      ? 'Transfer item'
+                      : selectedReviewRow?.source === 'disposal'
+                        ? 'Disposal item'
+                        : 'Applicant'}
               </p>
               <p className="text-lg font-semibold text-text-dark">{formatDetailValue(detailModalSelectedName)}</p>
             </div>
@@ -885,7 +1199,11 @@ const HodPendingTasks = () => {
             </div>
 
             <p className="text-xs text-text-light">
-              {selectedReviewRow?.source === 'item' && selectedItemActionType === 'recommend'
+              {selectedReviewRow?.source === 'transfer'
+                ? 'Recommend to forward this transfer to the registrar, or reject to decline it.'
+                : selectedReviewRow?.source === 'disposal'
+                  ? 'Recommend to forward this disposal to the registrar, or reject to decline it.'
+                  : selectedReviewRow?.source === 'item' && selectedItemActionType === 'recommend'
                 ? 'Recommend to forward this request to the lab Head of Department, or reject to decline it.'
                 : selectedReviewRow?.source === 'item' && selectedItemActionType === 'approveLab'
                   ? 'Approve to accept this lab inventory request, or reject to decline it.'

@@ -53,12 +53,18 @@ const MyIssuedItems = () => {
         setLoading(true);
         setLoadError("");
 
-        const response = await fetch(
-          `${API_BASE_URL}/api/item-requests?requestedById=${requestedById}&requesterScope=issued`
-        );
-        const data = await response.json().catch(() => ({}));
+        const [requestsResponse, locationItemsResponse] = await Promise.all([
+          fetch(
+            `${API_BASE_URL}/api/item-requests?requestedById=${requestedById}&requesterScope=issued`
+          ),
+          fetch(`${API_BASE_URL}/api/items?issuedToUserId=${requestedById}`),
+        ]);
+        const [data, locationItemsData] = await Promise.all([
+          requestsResponse.json().catch(() => ({})),
+          locationItemsResponse.json().catch(() => ({})),
+        ]);
 
-        if (!response.ok || !data.success) {
+        if (!requestsResponse.ok || !data.success) {
           throw new Error(data.message || data.error || "Failed to load your issued items.");
         }
 
@@ -66,34 +72,70 @@ const MyIssuedItems = () => {
           return;
         }
 
-        setIssuedItems(
-          (data.requests || []).map((request) => {
-            const allocated = request.allocatedItem || {};
-            return {
-              id: `REQ-${request.id}`,
-              rawId: request.id,
-              requestedItem: request.itemName || "—",
-              issuedItem: allocated.itemName || request.itemName || "—",
-              itemCode: allocated.itemCode || "—",
-              inventory: request.inventoryLocation || request.inventoryName || "—",
-              issuedDate: request.issuedDate || "—",
-              returnedDate: request.returnedDate || "—",
-              status: request.approvalStatus || "approved",
-              itemStatus: allocated.status || (request.approvalStatus === "returned" ? "Returned" : "in-use"),
-              location: allocated.location || "—",
-              remarks: allocated.remarks || "—",
-              serialNo: allocated.serialNo || "—",
-              model: allocated.model || "—",
-              ginNo: allocated.ginNo || "—",
-              quantity: request.quantity ?? "—",
-              reason: request.reason || "",
-              specification: request.specification || "",
-              priority: request.priority || "normal",
-              requestedDate: request.requestedDate || "",
-              allocatedItemId: allocated.id ?? request.allocatedInventoryItemId ?? null,
-            };
-          })
+        const requestEntries = (data.requests || []).map((request) => {
+          const allocated = request.allocatedItem || {};
+          return {
+            id: `REQ-${request.id}`,
+            rawId: request.id,
+            requestedItem: request.itemName || "—",
+            issuedItem: allocated.itemName || request.itemName || "—",
+            itemCode: allocated.itemCode || "—",
+            inventory: request.inventoryLocation || request.inventoryName || "—",
+            issuedDate: request.issuedDate || "—",
+            returnedDate: request.returnedDate || "—",
+            status: request.approvalStatus || "approved",
+            itemStatus: allocated.status || (request.approvalStatus === "returned" ? "Returned" : "in-use"),
+            location: allocated.location || "—",
+            remarks: allocated.remarks || "—",
+            serialNo: allocated.serialNo || "—",
+            model: allocated.model || "—",
+            ginNo: allocated.ginNo || "—",
+            quantity: request.quantity ?? "—",
+            reason: request.reason || "",
+            specification: request.specification || "",
+            priority: request.priority || "normal",
+            requestedDate: request.requestedDate || "",
+            allocatedItemId: allocated.id ?? request.allocatedInventoryItemId ?? null,
+            source: "request",
+          };
+        });
+
+        const allocatedItemIds = new Set(
+          requestEntries
+            .map((entry) => Number(entry.allocatedItemId))
+            .filter((id) => Number.isInteger(id) && id > 0)
         );
+
+        const locationEntries = (locationItemsResponse.ok && locationItemsData.success
+          ? locationItemsData.items || []
+          : [])
+          .filter((item) => !allocatedItemIds.has(Number(item.id)))
+          .map((item) => ({
+            id: `LOC-${item.id}`,
+            rawId: item.id,
+            requestedItem: item.itemName || item.name || "—",
+            issuedItem: item.itemName || item.name || "—",
+            itemCode: item.itemCode || "—",
+            inventory: item.inventoryName || "—",
+            issuedDate: item.updated_at || item.created_at || "—",
+            returnedDate: "—",
+            status: "approved",
+            itemStatus: "issued",
+            location: item.locationLabel || item.location || "—",
+            remarks: item.remarks || "—",
+            serialNo: item.serialNo || "—",
+            model: item.model || "—",
+            ginNo: item.ginNo || "—",
+            quantity: "—",
+            reason: "",
+            specification: "",
+            priority: "normal",
+            requestedDate: "",
+            allocatedItemId: item.id ?? null,
+            source: "location",
+          }));
+
+        setIssuedItems([...requestEntries, ...locationEntries]);
       } catch (error) {
         if (isMounted) {
           setIssuedItems([]);
@@ -122,7 +164,11 @@ const MyIssuedItems = () => {
     return <Badge label={config.label} variant={config.variant} size="sm" />;
   };
 
-  const itemStatusBadge = (value) => {
+  const itemStatusBadge = (value, row) => {
+    if (row?.statusLabel) {
+      return <Badge label={row.statusLabel} variant="info" size="sm" />;
+    }
+
     const statusObj = ITEM_STATUS.find((entry) => entry.value === value);
     return <Badge label={statusObj?.label || value || "-"} variant={statusObj?.color || "primary"} size="sm" />;
   };
@@ -143,7 +189,7 @@ const MyIssuedItems = () => {
     {
       field: "itemStatus",
       label: "Item Status",
-      render: (value) => itemStatusBadge(value),
+      render: (value, row) => itemStatusBadge(value, row),
     },
     {
       field: "status",
@@ -172,7 +218,7 @@ const MyIssuedItems = () => {
     <MainLayout variant={sidebarVariant}>
       <PageHeader
         title="My Issued Items"
-        subtitle="View inventory items issued to you from approved requests"
+        subtitle="View inventory items issued to you from approved requests or direct assignment"
       />
 
       <div className="p-6 space-y-6">

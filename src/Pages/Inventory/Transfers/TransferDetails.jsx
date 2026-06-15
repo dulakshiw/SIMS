@@ -1,127 +1,354 @@
-import React from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import MainLayout from "../../../Components/Layouts/MainLayout";
-import { Card, Button, Badge, Tabs, PageHeader } from "../../../Components/UI";
-import { useLocation, useParams } from "react-router-dom";
+import { Card, Button, Badge, PageHeader, Table } from "../../../Components/UI";
 import { resolveSidebarVariant } from "../../../utils/helpers";
+import { TRANSFER_STATUS } from "../../../utils/constants";
+import TransferSubmissionForm from "./TransferSubmissionForm";
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
+
+const getStoredUser = () => {
+  try {
+    return JSON.parse(localStorage.getItem("currentUser") || "{}");
+  } catch {
+    return {};
+  }
+};
+
+const TRANSFER_STATUS_LABELS = Object.fromEntries(
+  TRANSFER_STATUS.map((entry) => [entry.value, entry.label])
+);
+
+const resolveCurrentUserId = (user = {}) =>
+  Number(user?.id ?? user?.userId ?? user?.user_id ?? 0);
+
+const isAwaitingHodRecommendation = (statusKey = "") =>
+  statusKey === "pending_hod" || statusKey === "pending_staff";
+
+const formatTransferStatus = (transfer) => {
+  const safeTransfer = transfer ?? {};
+  const statusKey = String(safeTransfer.approvalStatus || safeTransfer.status || "pending").toLowerCase();
+  if (isAwaitingHodRecommendation(statusKey)) {
+    return "Pending HOD recommendation";
+  }
+  if (statusKey === "pending_registrar") {
+    return "Pending Registrar Approval";
+  }
+  if (statusKey === "cancelled") {
+    return "Cancelled";
+  }
+  return TRANSFER_STATUS_LABELS[statusKey]
+    || statusKey.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+};
+
+const canCancelTransfer = (transfer, currentUser = {}) => {
+  if (!transfer) {
+    return false;
+  }
+
+  const statusKey = String(transfer.approvalStatus || transfer.status || "pending").toLowerCase();
+  if (!isAwaitingHodRecommendation(statusKey)) {
+    return false;
+  }
+
+  const currentUserId = resolveCurrentUserId(currentUser);
+  const initiatorId = Number(transfer.initiatedById ?? 0);
+  const sourceInchargeId = Number(transfer.sourceInventory?.inchargeId ?? 0);
+
+  return currentUserId > 0 && (currentUserId === initiatorId || currentUserId === sourceInchargeId);
+};
+
+const resolveTransferBadgeVariant = (transfer) => {
+  const safeTransfer = transfer ?? {};
+  const statusKey = String(safeTransfer.approvalStatus || safeTransfer.status || "pending").toLowerCase();
+  if (["completed"].includes(statusKey)) {
+    return "completed";
+  }
+  if (["rejected", "cancelled"].includes(statusKey)) {
+    return "rejected";
+  }
+  if (["approved", "in-transit"].includes(statusKey)) {
+    return "info";
+  }
+  return "pending";
+};
+
+const formatDetailValue = (value) => {
+  const normalized = String(value ?? "").trim();
+  return normalized || "—";
+};
 
 const TransferDetails = () => {
+  const navigate = useNavigate();
   const location = useLocation();
-  const { role } = useParams();
+  const { transferId, role } = useParams();
   const sidebarVariant = resolveSidebarVariant(location.pathname, role);
-  const transfer = {
-    id: "TRF-001",
-    item: "Laptop Dell XPS",
-    from: "Room 101",
-    to: "Room 202",
-    status: "pending",
-    date: "2024-01-15",
-    approvedBy: "Admin",
-    gatePass: "GP-001",
+  const [transfer, setTransfer] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [cancelError, setCancelError] = useState("");
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [currentUser] = useState(getStoredUser);
+
+  const listPath = role ? `/inventory/transfers/list/${role}` : "/inventory/transfers/list";
+  const canCancel = useMemo(
+    () => canCancelTransfer(transfer, currentUser),
+    [transfer, currentUser]
+  );
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadTransfer = async () => {
+      try {
+        setLoading(true);
+        setLoadError("");
+
+        const response = await fetch(`${API_BASE_URL}/api/item-transfers/${transferId}`);
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok || !data.success) {
+          throw new Error(data.message || data.error || "Failed to load transfer details.");
+        }
+
+        if (isMounted) {
+          setTransfer(data.transfer || null);
+        }
+      } catch (error) {
+        if (isMounted) {
+          setTransfer(null);
+          setLoadError(error.message || "Failed to load transfer details.");
+        }
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    if (transferId) {
+      loadTransfer();
+    } else {
+      setLoading(false);
+      setLoadError("Transfer id is missing.");
+    }
+
+    return () => {
+      isMounted = false;
+    };
+  }, [transferId]);
+
+  const statusLabel = useMemo(
+    () => (transfer ? formatTransferStatus(transfer) : "Pending"),
+    [transfer]
+  );
+
+  const itemRows = useMemo(
+    () =>
+      (transfer?.items || []).map((item) => ({
+        id: `TRF-${item.transferLineId}`,
+        item: item.itemName || "—",
+        quantity: item.quantity ?? 1,
+        status: formatTransferStatus(item),
+      })),
+    [transfer]
+  );
+
+  const itemColumns = [
+    { field: "id", label: "Line ID", sortable: true },
+    { field: "item", label: "Item", sortable: true },
+    { field: "quantity", label: "Qty", sortable: true },
+    { field: "status", label: "Status", sortable: true },
+  ];
+
+  const handlePrintForm = () => {
+    window.print();
   };
 
-  const tabs = [
-    {
-      label: "Details",
-      icon: "description",
-      content: (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div>
-            <p className="text-sm text-text-light">Item Name</p>
-            <p className="text-lg font-semibold text-text-dark mt-1">{transfer.item}</p>
+  const handleCancelTransfer = async () => {
+    if (!transfer || !canCancel) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "Cancel this transfer request before HOD recommendation? The selected items will become available for transfer again."
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setIsCancelling(true);
+      setCancelError("");
+
+      const response = await fetch(`${API_BASE_URL}/api/item-transfers/${transfer.id}/cancel`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          initiatedById: resolveCurrentUserId(currentUser),
+        }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || data.error || "Failed to cancel transfer request.");
+      }
+
+      navigate(listPath);
+    } catch (error) {
+      setCancelError(error.message || "Failed to cancel transfer request.");
+    } finally {
+      setIsCancelling(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <MainLayout variant={sidebarVariant}>
+        <div className="p-6 text-sm text-text-light">Loading transfer details…</div>
+      </MainLayout>
+    );
+  }
+
+  if (loadError || !transfer) {
+    return (
+      <MainLayout variant={sidebarVariant}>
+        <div className="p-6 space-y-4">
+          <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+            {loadError || "Transfer request was not found."}
           </div>
-          <div>
-            <p className="text-sm text-text-light">Transfer ID</p>
-            <p className="text-lg font-semibold text-text-dark mt-1">{transfer.id}</p>
-          </div>
-          <div>
-            <p className="text-sm text-text-light">From Location</p>
-            <p className="text-lg font-semibold text-text-dark mt-1">{transfer.from}</p>
-          </div>
-          <div>
-            <p className="text-sm text-text-light">To Location</p>
-            <p className="text-lg font-semibold text-text-dark mt-1">{transfer.to}</p>
-          </div>
-          <div>
-            <p className="text-sm text-text-light">Transfer Date</p>
-            <p className="text-lg font-semibold text-text-dark mt-1">{transfer.date}</p>
-          </div>
-          <div>
-            <p className="text-sm text-text-light">Gate Pass</p>
-            <p className="text-lg font-semibold text-text-dark mt-1">{transfer.gatePass}</p>
-          </div>
+          <Button variant="secondary" icon="arrow_back" onClick={() => navigate(listPath)}>
+            Back to Transfer List
+          </Button>
         </div>
-      ),
-    },
-    {
-      label: "Approvals",
-      icon: "check_circle",
-      content: (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between p-4 border border-border-lighter rounded-lg">
-            <div>
-              <p className="font-semibold text-text-dark">Department Head</p>
-              <p className="text-sm text-text-light">Approved</p>
-            </div>
-            <Badge label="Approved" variant="success" />
-          </div>
-        </div>
-      ),
-    },
-    {
-      label: "Tracking",
-      icon: "location_on",
-      content: (
-        <div className="space-y-4">
-          <div className="flex gap-4">
-            <div className="flex-shrink-0">
-              <div className="w-10 h-10 rounded-full bg-success flex items-center justify-center text-white">
-                <span className="material-symbols-outlined">check</span>
-              </div>
-            </div>
-            <div>
-              <p className="font-medium text-text-dark">Picked up from {transfer.from}</p>
-              <p className="text-sm text-text-light">2024-01-15 09:30 AM</p>
-            </div>
-          </div>
-          <div className="flex gap-4">
-            <div className="flex-shrink-0">
-              <div className="w-10 h-10 rounded-full bg-warning flex items-center justify-center text-white">
-                <span className="material-symbols-outlined">schedule</span>
-              </div>
-            </div>
-            <div>
-              <p className="font-medium text-text-dark">In transit to {transfer.to}</p>
-              <p className="text-sm text-text-light">Pending arrival</p>
-            </div>
-          </div>
-        </div>
-      ),
-    },
-  ];
+      </MainLayout>
+    );
+  }
+
+  const displayTransferId = transfer.transferIds?.length > 1
+    ? `TRF-${transfer.transferIds.join(", TRF-")}`
+    : `TRF-${transfer.id}`;
 
   return (
     <MainLayout variant={sidebarVariant}>
       <PageHeader
-        title={transfer.item}
-        subtitle={`Transfer Request #${transfer.id}`}
-        actions={<Badge label={transfer.status.toUpperCase()} variant={transfer.status} size="lg" />}
+        title={`Transfer Request ${displayTransferId}`}
+        subtitle="Internal inventory transfer — official submission form (Part A)"
+        actions={(
+          <Badge
+            label={statusLabel}
+            variant={resolveTransferBadgeVariant(transfer)}
+            size="lg"
+          />
+        )}
       />
 
       <div className="p-6 space-y-6">
+        {cancelError ? (
+          <div className="no-print rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+            {cancelError}
+          </div>
+        ) : null}
 
-        {/* Actions */}
-        <div className="flex gap-4">
-          <Button variant="primary" icon="download">
-            Download Gate Pass
+        <div className="no-print flex flex-wrap gap-3">
+          <Button variant="secondary" icon="arrow_back" onClick={() => navigate(listPath)}>
+            Back to Transfer List
           </Button>
-          <Button variant="secondary" icon="print">
-            Print
+          {canCancel ? (
+            <Button
+              variant="secondary"
+              icon="cancel"
+              onClick={handleCancelTransfer}
+              loading={isCancelling}
+              disabled={isCancelling}
+            >
+              Cancel Transfer Request
+            </Button>
+          ) : null}
+          <Button variant="primary" icon="print" onClick={handlePrintForm}>
+            Print Transfer Form
           </Button>
         </div>
 
-        {/* Tabs */}
-        <Card>
-          <Tabs tabs={tabs} />
+        <Card
+          title="Transfer Summary"
+          subtitle="Internal transfer between university inventories. No gate pass is required."
+          icon="info"
+          className="no-print"
+        >
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <p className="text-sm text-text-light">From Inventory</p>
+              <p className="text-lg font-semibold text-text-dark mt-1">
+                {formatDetailValue(transfer.sourceInventory?.location || transfer.fromInventory)}
+              </p>
+              <p className="mt-1 text-sm text-text-light">
+                {formatDetailValue(transfer.sourceInventory?.department)}
+              </p>
+            </div>
+            <div>
+              <p className="text-sm text-text-light">To Inventory</p>
+              <p className="text-lg font-semibold text-text-dark mt-1">
+                {formatDetailValue(transfer.destinationInventory?.location || transfer.toInventory)}
+              </p>
+              <p className="mt-1 text-sm text-text-light">
+                {formatDetailValue(transfer.destinationInventory?.department)}
+              </p>
+            </div>
+            <div>
+              <p className="text-sm text-text-light">Transfer Date</p>
+              <p className="text-lg font-semibold text-text-dark mt-1">
+                {formatDetailValue(transfer.transferDate)}
+              </p>
+            </div>
+            <div>
+              <p className="text-sm text-text-light">Initiated By</p>
+              <p className="text-lg font-semibold text-text-dark mt-1">
+                {formatDetailValue(transfer.initiatedBy)}
+              </p>
+            </div>
+            <div className="md:col-span-2">
+              <p className="text-sm text-text-light">Reason</p>
+              <p className="text-base font-semibold text-text-dark mt-1 whitespace-pre-wrap">
+                {formatDetailValue(transfer.reason)}
+              </p>
+            </div>
+          </div>
+        </Card>
+
+        {itemRows.length > 0 ? (
+          <Card title="Items in this Transfer" icon="inventory_2" className="no-print">
+            <Table
+              columns={itemColumns}
+              data={itemRows}
+              searchable={itemRows.length > 5}
+              paginated={itemRows.length > 10}
+              itemsPerPage={10}
+            />
+          </Card>
+        ) : null}
+
+        <Card
+          title="Part A – Official Transfer Form"
+          subtitle="University of Moratuwa internal inventory transfer submission form"
+          icon="description"
+        >
+          <TransferSubmissionForm
+            sourceInventory={transfer.sourceInventory}
+            destinationInventory={transfer.destinationInventory}
+            transferDate={transfer.transferDate}
+            items={transfer.formItems || []}
+            issuedByName={transfer.issuedByName}
+            issuedByPost={transfer.issuedByPost}
+            hodApprovedBy={transfer.hodApprovedBy}
+            hodDepartmentName={transfer.hodDepartmentName}
+            hodApprovedDate={transfer.hodApprovedDate}
+            registrarApprovedBy={transfer.registrarApprovedBy}
+            registrarApprovedDate={transfer.registrarApprovedDate}
+          />
         </Card>
       </div>
     </MainLayout>
