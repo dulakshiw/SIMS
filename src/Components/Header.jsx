@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import NotificationBell from "./NotificationBell";
 import "../Styles/Header.css";
 
 function Header() {
@@ -16,6 +17,7 @@ function Header() {
         <h3 className="header-title">Inventory Management System - Faculty of Information Technology</h3>
       </div>
       <div className="header-right">
+        <NotificationBell />
         <span className="header-greeting">Hi, {username}</span>
       </div>
     </div>

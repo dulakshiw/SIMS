@@ -6,8 +6,25 @@ import fs from "fs";
 import path from "path";
 import multer from "multer";
 import { parse as csvParse } from "csv-parse/sync";
-import { sendAccountActivationEmail } from "./emailService.js";
+import { sendAccountActivationEmail, sendAccountDeactivationEmail, sendPasswordResetOtpEmail, isDevOtpFallbackEnabled } from "./emailService.js";
 import { PASSWORD_REQUIREMENTS_MESSAGE, validatePassword } from "./passwordValidation.js";
+import { hashPassword, hashPasswordForStorage, isPasswordHashed, verifyPassword } from "./passwordHashing.js";
+import {
+  consumePasswordResetOtp,
+  ensurePasswordResetOtpsTable,
+  issuePasswordResetOtp,
+  PASSWORD_RESET_OTP_EXPIRY_MINUTES,
+  verifyPasswordResetOtp,
+} from "./passwordResetService.js";
+import {
+  ensureNotificationsTable,
+  getNotificationsForUser,
+  markAllNotificationsRead,
+  markNotificationRead,
+  notifyApprovalStage,
+  notifyItemRequestReceived,
+  syncWarrantyNotifications,
+} from "./notificationService.js";
 import {
   applyItemLocationContext,
   buildUsersByNameMap,
@@ -21,6 +38,14 @@ const notifyAccountActivated = async ({ email, name }) => {
     await sendAccountActivationEmail({ email, name });
   } catch (error) {
     console.error("[email] Account activation notification failed:", error.message);
+  }
+};
+
+const notifyAccountDeactivated = async ({ email, name }) => {
+  try {
+    await sendAccountDeactivationEmail({ email, name });
+  } catch (error) {
+    console.error("[email] Account deactivation notification failed:", error.message);
   }
 };
 
@@ -430,6 +455,356 @@ const createInventoryItemsTable = async () => {
       )
     `
   );
+};
+
+const ensureForeignKeyRelationships = async () => {
+  const [tableRows] = await pool.query("SHOW TABLES");
+  const tableNames = new Set(tableRows.map((row) => Object.values(row)[0]));
+
+  const relationships = [
+    {
+      table: DB_ITEMS_TABLE,
+      column: "inventory_id",
+      referencedTable: "inventories",
+      referencedColumn: "id",
+      constraintName: `fk_${DB_ITEMS_TABLE}_inventory`,
+      onDelete: "SET NULL",
+      onUpdate: "CASCADE",
+    },
+    {
+      table: "account_requests",
+      column: "requested_department_id",
+      referencedTable: "departments",
+      referencedColumn: "id",
+      constraintName: "fk_account_requests_requested_department",
+      onDelete: "SET NULL",
+      onUpdate: "CASCADE",
+    },
+    {
+      table: "account_requests",
+      column: "user_id",
+      referencedTable: "users",
+      referencedColumn: "id",
+      constraintName: "fk_account_requests_user",
+      onDelete: "SET NULL",
+      onUpdate: "CASCADE",
+    },
+    {
+      table: "inventory_creation_requests",
+      column: "department_id",
+      referencedTable: "departments",
+      referencedColumn: "id",
+      constraintName: "fk_inventory_creation_requests_department",
+      onDelete: "SET NULL",
+      onUpdate: "CASCADE",
+    },
+    {
+      table: "inventory_creation_requests",
+      column: "requested_by_id",
+      referencedTable: "users",
+      referencedColumn: "id",
+      constraintName: "fk_inventory_creation_requests_requested_by",
+      onDelete: "SET NULL",
+      onUpdate: "CASCADE",
+    },
+    {
+      table: "inventory_creation_requests",
+      column: "incharge_user_id",
+      referencedTable: "users",
+      referencedColumn: "id",
+      constraintName: "fk_inventory_creation_requests_incharge_user",
+      onDelete: "SET NULL",
+      onUpdate: "CASCADE",
+    },
+    {
+      table: "inventory_creation_requests",
+      column: "hod_user_id",
+      referencedTable: "users",
+      referencedColumn: "id",
+      constraintName: "fk_inventory_creation_requests_hod_user",
+      onDelete: "SET NULL",
+      onUpdate: "CASCADE",
+    },
+    {
+      table: "inventory_creation_requests",
+      column: "admin_approved_by_id",
+      referencedTable: "users",
+      referencedColumn: "id",
+      constraintName: "fk_inventory_creation_requests_admin_approved_by",
+      onDelete: "SET NULL",
+      onUpdate: "CASCADE",
+    },
+    {
+      table: "item_requests",
+      column: "requested_by_id",
+      referencedTable: "users",
+      referencedColumn: "id",
+      constraintName: "fk_item_requests_requested_by",
+      onDelete: "SET NULL",
+      onUpdate: "CASCADE",
+    },
+    {
+      table: "item_requests",
+      column: "requested_inventory_id",
+      referencedTable: "inventories",
+      referencedColumn: "id",
+      constraintName: "fk_item_requests_requested_inventory",
+      onDelete: "SET NULL",
+      onUpdate: "CASCADE",
+    },
+    {
+      table: "item_requests",
+      column: "department_id",
+      referencedTable: "departments",
+      referencedColumn: "id",
+      constraintName: "fk_item_requests_department",
+      onDelete: "SET NULL",
+      onUpdate: "CASCADE",
+    },
+    {
+      table: "item_requests",
+      column: "inventory_department_id",
+      referencedTable: "departments",
+      referencedColumn: "id",
+      constraintName: "fk_item_requests_inventory_department",
+      onDelete: "SET NULL",
+      onUpdate: "CASCADE",
+    },
+    {
+      table: "item_requests",
+      column: "hod_user_id",
+      referencedTable: "users",
+      referencedColumn: "id",
+      constraintName: "fk_item_requests_hod_user",
+      onDelete: "SET NULL",
+      onUpdate: "CASCADE",
+    },
+    {
+      table: "item_requests",
+      column: "lab_hod_user_id",
+      referencedTable: "users",
+      referencedColumn: "id",
+      constraintName: "fk_item_requests_lab_hod_user",
+      onDelete: "SET NULL",
+      onUpdate: "CASCADE",
+    },
+    {
+      table: "item_requests",
+      column: "requester_hod_recommended_by_id",
+      referencedTable: "users",
+      referencedColumn: "id",
+      constraintName: "fk_item_requests_requester_hod_recommended_by",
+      onDelete: "SET NULL",
+      onUpdate: "CASCADE",
+    },
+    {
+      table: "item_requests",
+      column: "lab_hod_approved_by_id",
+      referencedTable: "users",
+      referencedColumn: "id",
+      constraintName: "fk_item_requests_lab_hod_approved_by",
+      onDelete: "SET NULL",
+      onUpdate: "CASCADE",
+    },
+    {
+      table: "item_requests",
+      column: "hod_approved_by_id",
+      referencedTable: "users",
+      referencedColumn: "id",
+      constraintName: "fk_item_requests_hod_approved_by",
+      onDelete: "SET NULL",
+      onUpdate: "CASCADE",
+    },
+    {
+      table: "item_transfers",
+      column: "item_id",
+      referencedTable: DB_ITEMS_TABLE,
+      referencedColumn: "id",
+      constraintName: "fk_item_transfers_item",
+      onDelete: "CASCADE",
+      onUpdate: "CASCADE",
+    },
+    {
+      table: "item_transfers",
+      column: "from_inventory_id",
+      referencedTable: "inventories",
+      referencedColumn: "id",
+      constraintName: "fk_item_transfers_from_inventory",
+      onDelete: "SET NULL",
+      onUpdate: "CASCADE",
+    },
+    {
+      table: "item_transfers",
+      column: "to_inventory_id",
+      referencedTable: "inventories",
+      referencedColumn: "id",
+      constraintName: "fk_item_transfers_to_inventory",
+      onDelete: "SET NULL",
+      onUpdate: "CASCADE",
+    },
+    {
+      table: "item_transfers",
+      column: "initiated_by_id",
+      referencedTable: "users",
+      referencedColumn: "id",
+      constraintName: "fk_item_transfers_initiated_by",
+      onDelete: "SET NULL",
+      onUpdate: "CASCADE",
+    },
+    {
+      table: "item_disposals",
+      column: "item_id",
+      referencedTable: DB_ITEMS_TABLE,
+      referencedColumn: "id",
+      constraintName: "fk_item_disposals_item",
+      onDelete: "CASCADE",
+      onUpdate: "CASCADE",
+    },
+    {
+      table: "item_disposals",
+      column: "inventory_id",
+      referencedTable: "inventories",
+      referencedColumn: "id",
+      constraintName: "fk_item_disposals_inventory",
+      onDelete: "SET NULL",
+      onUpdate: "CASCADE",
+    },
+    {
+      table: "item_disposals",
+      column: "initiated_by_id",
+      referencedTable: "users",
+      referencedColumn: "id",
+      constraintName: "fk_item_disposals_initiated_by",
+      onDelete: "SET NULL",
+      onUpdate: "CASCADE",
+    },
+    {
+      table: "item_repairs",
+      column: "item_id",
+      referencedTable: DB_ITEMS_TABLE,
+      referencedColumn: "id",
+      constraintName: "fk_item_repairs_item",
+      onDelete: "CASCADE",
+      onUpdate: "CASCADE",
+    },
+    {
+      table: "item_repairs",
+      column: "inventory_id",
+      referencedTable: "inventories",
+      referencedColumn: "id",
+      constraintName: "fk_item_repairs_inventory",
+      onDelete: "SET NULL",
+      onUpdate: "CASCADE",
+    },
+    {
+      table: "item_repairs",
+      column: "initiated_by_id",
+      referencedTable: "users",
+      referencedColumn: "id",
+      constraintName: "fk_item_repairs_initiated_by",
+      onDelete: "SET NULL",
+      onUpdate: "CASCADE",
+    },
+    {
+      table: "password_reset_otps",
+      column: "user_id",
+      referencedTable: "users",
+      referencedColumn: "id",
+      constraintName: "fk_password_reset_otps_user",
+      onDelete: "SET NULL",
+      onUpdate: "CASCADE",
+    },
+    {
+      table: "warranty_claims",
+      column: "item_id",
+      referencedTable: DB_ITEMS_TABLE,
+      referencedColumn: "id",
+      constraintName: "fk_warranty_claims_item",
+      onDelete: "CASCADE",
+      onUpdate: "CASCADE",
+    },
+    {
+      table: "warranty_claims",
+      column: "inventory_id",
+      referencedTable: "inventories",
+      referencedColumn: "id",
+      constraintName: "fk_warranty_claims_inventory",
+      onDelete: "SET NULL",
+      onUpdate: "CASCADE",
+    },
+    {
+      table: "warranty_claims",
+      column: "initiated_by_id",
+      referencedTable: "users",
+      referencedColumn: "id",
+      constraintName: "fk_warranty_claims_initiated_by",
+      onDelete: "SET NULL",
+      onUpdate: "CASCADE",
+    },
+  ];
+
+  for (const relationship of relationships) {
+    if (!tableNames.has(relationship.table)) {
+      continue;
+    }
+
+    if (!tableNames.has(relationship.referencedTable)) {
+      console.log(
+        `[schema] Skipping foreign key ${relationship.constraintName}: referenced table ${relationship.referencedTable} not found.`
+      );
+      continue;
+    }
+
+    try {
+      const [columnRows] = await pool.query(`SHOW COLUMNS FROM ${relationship.table}`);
+      const columnNames = new Set(columnRows.map((column) => column.Field));
+
+      if (!columnNames.has(relationship.column)) {
+        continue;
+      }
+
+      const [existingFkRows] = await pool.query(
+        `SELECT CONSTRAINT_NAME
+         FROM information_schema.KEY_COLUMN_USAGE
+         WHERE TABLE_SCHEMA = DATABASE()
+           AND TABLE_NAME = ?
+           AND COLUMN_NAME = ?
+           AND REFERENCED_TABLE_NAME IS NOT NULL`,
+        [relationship.table, relationship.column]
+      );
+      const alreadyHasConstraint = existingFkRows.some((row) => row.CONSTRAINT_NAME === relationship.constraintName);
+
+      if (alreadyHasConstraint) {
+        continue;
+      }
+
+      const [invalidRows] = await pool.query(
+        `SELECT COUNT(*) AS count
+         FROM ${relationship.table}
+         WHERE ${relationship.column} IS NOT NULL
+           AND ${relationship.column} NOT IN (SELECT ${relationship.referencedColumn} FROM ${relationship.referencedTable})`
+      );
+
+      if (Number(invalidRows[0]?.count ?? 0) > 0) {
+        console.log(
+          `[schema] Skipping foreign key ${relationship.constraintName}: existing values do not reference ${relationship.referencedTable}.${relationship.referencedColumn}`
+        );
+        continue;
+      }
+
+      await pool.query(
+        `ALTER TABLE ${relationship.table}
+         ADD CONSTRAINT ${relationship.constraintName}
+         FOREIGN KEY (${relationship.column})
+         REFERENCES ${relationship.referencedTable}(${relationship.referencedColumn})
+         ON DELETE ${relationship.onDelete}
+         ON UPDATE ${relationship.onUpdate}`
+      );
+      console.log(`[schema] Added foreign key ${relationship.constraintName} on ${relationship.table}.${relationship.column}`);
+    } catch (error) {
+      console.warn(`[schema] Could not add foreign key ${relationship.constraintName}: ${error.message}`);
+    }
+  }
 };
 
 const ensureInventoryItemsColumns = async () => {
@@ -2977,6 +3352,13 @@ const finalizeAccountRequestApproval = async ({
       return { status: 400, body: { success: false, message: "Deactivation request is missing the target user." } };
     }
 
+    const userIdColumn = schema.userColumns.has("id") ? "id" : "user_id";
+    const userNameColumn = schema.userColumns.has("name") ? "name" : "full_name";
+    const [deactivatedUserRows] = await pool.execute(
+      `SELECT email, ${userNameColumn} AS name FROM users WHERE ${userIdColumn} = ? LIMIT 1`,
+      [userToDeactivate]
+    );
+
     await updateStoredUserStatus(
       schema,
       userToDeactivate,
@@ -2991,6 +3373,13 @@ const finalizeAccountRequestApproval = async ({
 
     updateValues.push(requestId);
     await pool.execute(`UPDATE account_requests SET ${updateAssignments.join(", ")} WHERE id = ?`, updateValues);
+
+    if (deactivatedUserRows[0]?.email) {
+      await notifyAccountDeactivated({
+        email: deactivatedUserRows[0].email,
+        name: deactivatedUserRows[0].name,
+      });
+    }
 
     return {
       status: 200,
@@ -3021,7 +3410,7 @@ const finalizeAccountRequestApproval = async ({
     const insertValues = [
       String(request.requested_by_name || request.email || "").trim(),
       normalizedEmail,
-      String(request.requested_password || ""),
+      await hashPasswordForStorage(String(request.requested_password || "")),
       request.requested_department_id ?? null,
       schema.hasUserRolesTable ? "Active" : "active",
     ];
@@ -3356,6 +3745,13 @@ app.patch(
       });
     }
 
+    if (nextStatus === "inactive" && userRows[0]?.email) {
+      await notifyAccountDeactivated({
+        email: userRows[0].email,
+        name: userRows[0].name,
+      });
+    }
+
     return res.json({ success: true, message: `User marked as ${nextStatus}.` });
   })
 );
@@ -3422,7 +3818,7 @@ app.patch(
 
     if (nextPassword) {
       updateAssignments.push("password = ?");
-      updateValues.push(nextPassword);
+      updateValues.push(await hashPassword(nextPassword));
     }
 
     if (mobileNoRaw) {
@@ -3487,7 +3883,10 @@ app.patch(
       return res.status(404).json({ success: false, message: "User not found." });
     }
 
-    await pool.execute(`UPDATE users SET password = ? WHERE ${userIdColumn} = ?`, [nextPassword, userId]);
+    await pool.execute(`UPDATE users SET password = ? WHERE ${userIdColumn} = ?`, [
+      await hashPassword(nextPassword),
+      userId,
+    ]);
 
     return res.json({
       success: true,
@@ -3805,6 +4204,19 @@ const formatReportCurrency = (value) =>
     maximumFractionDigits: 2,
   });
 
+const formatReportDate = (value) => {
+  if (!value) {
+    return "";
+  }
+
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return String(value).split("T")[0] || "";
+  }
+
+  return date.toISOString().split("T")[0];
+};
+
 app.get(
   "/api/inventory-officer/reports",
   withDatabase(async (req, res) => {
@@ -4050,6 +4462,334 @@ app.get(
         assetsByInventory,
         issuedItems,
         assetsByCategory,
+      },
+    });
+  })
+);
+
+app.get(
+  "/api/hod/reports",
+  withDatabase(async (req, res) => {
+    const hodUserId = Number(req.query?.hodUserId ?? req.query?.hod_user_id ?? 0);
+
+    if (!Number.isInteger(hodUserId) || hodUserId <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "A valid head of department user id is required.",
+      });
+    }
+
+    const schema = await getAuthSchema();
+    const userIdColumn = schema.userColumns.has("id") ? "id" : "user_id";
+    const userNameColumn = schema.userColumns.has("name") ? "name" : "full_name";
+    const userRoleColumn = schema.userColumns.has("role") ? "role" : null;
+    const departmentIdColumn = schema.departmentColumns.has("id") ? "id" : "department_id";
+    const departmentNameColumn = schema.departmentColumns.has("name")
+      ? "name"
+      : schema.departmentColumns.has("department_name")
+        ? "department_name"
+        : null;
+
+    const [hodRows] = await pool.execute(
+      `
+        SELECT
+          u.${userIdColumn} AS id,
+          u.department_id,
+          ${departmentNameColumn ? `d.${departmentNameColumn}` : "NULL"} AS department_name
+        FROM users u
+        ${schema.hasDepartmentsTable ? `LEFT JOIN departments d ON d.${departmentIdColumn} = u.department_id` : ""}
+        WHERE u.${userIdColumn} = ?
+        LIMIT 1
+      `,
+      [hodUserId]
+    );
+
+    const hodRow = hodRows[0];
+    const departmentId = Number(hodRow?.department_id ?? 0);
+
+    if (!hodRow || !Number.isInteger(departmentId) || departmentId <= 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Unable to resolve the department for this head of department.",
+      });
+    }
+
+    const departmentName = hodRow.department_name ?? "";
+    const { designationSelection, designationJoin } = getDesignationQueryParts(schema);
+    const roleSelection = userRoleColumn
+      ? `u.${userRoleColumn} AS role`
+      : schema.hasUserRolesTable
+        ? "ur.user_role AS role"
+        : "NULL AS role";
+    const roleJoin = !userRoleColumn && schema.hasUserRolesTable
+      ? "LEFT JOIN user_roles ur ON ur.role_id = u.role_id"
+      : "";
+
+    const [departmentUserRows] = await pool.execute(
+      `
+        SELECT
+          u.${userIdColumn} AS id,
+          u.${userNameColumn} AS name,
+          u.email,
+          ${roleSelection},
+          ${designationSelection},
+          ${schema.userColumns.has("status") ? "u.status" : "'active'"} AS status
+        FROM users u
+        ${roleJoin}
+        ${designationJoin}
+        WHERE u.department_id = ?
+        ORDER BY u.${userNameColumn} ASC
+      `,
+      [departmentId]
+    );
+
+    const departmentUsers = departmentUserRows.map((row) => ({
+      id: row.id,
+      name: row.name ?? "",
+      email: row.email ?? "",
+      role: normalizeUserRole(row.role),
+      designation: row.designation ?? "",
+      status: String(row.status ?? "active").toLowerCase(),
+    }));
+
+    const inventoryColumns = await ensureInventoriesLocationColumn();
+    const inventoryIdColumn = getInventoryIdColumn(inventoryColumns);
+    const inventoryNameColumn = getInventoryNameColumn(inventoryColumns);
+    const inventoryInchargeColumn = getInventoryInchargeColumn(inventoryColumns);
+    const inventoryHodColumn = getInventoryHodColumn(inventoryColumns);
+
+    if (!inventoryIdColumn || !inventoryNameColumn || !inventoryInchargeColumn) {
+      return res.status(500).json({
+        success: false,
+        message: "Inventory schema is missing required columns.",
+      });
+    }
+
+    const createdDateExpression = inventoryColumns.has("created_date")
+      ? "i.created_date"
+      : inventoryColumns.has("created_at")
+        ? "i.created_at"
+        : "NULL";
+
+    const [inventoryRows] = await pool.execute(
+      `
+        SELECT
+          i.${inventoryIdColumn} AS id,
+          i.${inventoryNameColumn} AS name,
+          i.department_id,
+          ${inventoryColumns.has("description") ? "i.description" : "NULL"} AS description,
+          ${inventoryColumns.has("location") ? "i.location" : "''"} AS location,
+          ${inventoryColumns.has("status") ? "i.status" : "'active'"} AS status,
+          ${createdDateExpression} AS created_date,
+          ${departmentNameColumn ? `d.${departmentNameColumn}` : "NULL"} AS department_name,
+          u.${userNameColumn} AS incharge_name,
+          ${inventoryHodColumn ? `hod_u.${userNameColumn}` : "NULL"} AS hod_name
+        FROM inventories i
+        LEFT JOIN departments d ON d.${departmentIdColumn} = i.department_id
+        LEFT JOIN users u ON u.${userIdColumn} = i.${inventoryInchargeColumn}
+        ${inventoryHodColumn ? `LEFT JOIN users hod_u ON hod_u.${userIdColumn} = i.${inventoryHodColumn}` : ""}
+        WHERE i.department_id = ?
+        ORDER BY i.${inventoryNameColumn} ASC
+      `,
+      [departmentId]
+    );
+
+    const departmentInventories = inventoryRows.map((row) => ({
+      id: row.id,
+      name: row.name ?? "",
+      department: row.department_name ?? departmentName,
+      location: row.location ?? "",
+      incharge: row.incharge_name ?? "",
+      hod: row.hod_name ?? "—",
+      description: row.description ?? "",
+      status: String(row.status ?? "active").toLowerCase(),
+      createdDate: row.created_date ? new Date(row.created_date).toISOString().split("T")[0] : "",
+      itemCount: 0,
+      totalValue: 0,
+    }));
+
+    const inventoryIds = departmentInventories.map((entry) => Number(entry.id)).filter((id) => id > 0);
+    const inventoryMap = new Map(departmentInventories.map((entry) => [Number(entry.id), entry]));
+
+    const itemColumns = await ensureInventoryItemsColumns();
+    const itemIdColumn = getItemIdColumn(itemColumns);
+    const itemNameColumn = resolveDbColumn(itemColumns, ["itemName", "item_name", "name"]) || "itemName";
+    const itemCodeColumn = resolveDbColumn(itemColumns, ["itemCode", "item_code"]);
+    const serialNoColumn = resolveDbColumn(itemColumns, ["serialNo", "serial_no"]);
+    const valueColumn = resolveDbColumn(itemColumns, ["value"]);
+    const statusColumn = itemColumns.has("status") ? "status" : null;
+    const locationColumn = itemColumns.has("location") ? "location" : null;
+    const createdAtColumn = resolveDbColumn(itemColumns, ["created_at", "createdAt", "created_date"]);
+    const updatedAtColumn = resolveDbColumn(itemColumns, ["updated_at", "updatedAt", "updated_date"]);
+    const purchaseDateColumn = resolveDbColumn(itemColumns, ["purchaseDate", "purchase_date"]);
+
+    let itemRows = [];
+    if (inventoryIds.length > 0 && itemColumns.has("inventory_id")) {
+      const placeholders = inventoryIds.map(() => "?").join(", ");
+      const selectParts = [
+        `${itemIdColumn} AS id`,
+        "inventory_id",
+        `${itemNameColumn} AS item_name`,
+      ];
+      if (itemCodeColumn) selectParts.push(`${itemCodeColumn} AS item_code`);
+      if (serialNoColumn) selectParts.push(`${serialNoColumn} AS serial_no`);
+      if (valueColumn) selectParts.push(`${valueColumn} AS value`);
+      if (statusColumn) selectParts.push(`${statusColumn} AS status`);
+      if (locationColumn) selectParts.push(`${locationColumn} AS location`);
+      if (createdAtColumn) selectParts.push(`${createdAtColumn} AS created_at`);
+      if (updatedAtColumn) selectParts.push(`${updatedAtColumn} AS updated_at`);
+      if (purchaseDateColumn) selectParts.push(`${purchaseDateColumn} AS purchase_date`);
+
+      const [rows] = await pool.execute(
+        `SELECT ${selectParts.join(", ")} FROM ${DB_ITEMS_TABLE} WHERE inventory_id IN (${placeholders})`,
+        inventoryIds
+      );
+      itemRows = rows;
+    }
+
+    const issuedRequestByItemId = new Map();
+    const itemRequestColumns = await getTableColumns("item_requests");
+    if (itemRows.length > 0 && itemRequestColumns.has("allocated_inventory_item_id")) {
+      const itemIds = itemRows.map((row) => Number(row.id)).filter((id) => id > 0);
+      if (itemIds.length > 0) {
+        const requestPlaceholders = itemIds.map(() => "?").join(", ");
+        const issuedDateSelect = itemRequestColumns.has("issued_date") ? "ir.issued_date" : "NULL AS issued_date";
+        const returnedDateSelect = itemRequestColumns.has("returned_date") ? "ir.returned_date" : "NULL AS returned_date";
+        const orderByClause = itemRequestColumns.has("issued_date")
+          ? "ORDER BY ir.issued_date DESC, ir.id DESC"
+          : "ORDER BY ir.id DESC";
+        const [requestRows] = await pool.execute(
+          `
+            SELECT
+              ir.allocated_inventory_item_id,
+              ${issuedDateSelect},
+              ${returnedDateSelect}
+            FROM item_requests ir
+            WHERE ir.allocated_inventory_item_id IN (${requestPlaceholders})
+            ${orderByClause}
+          `,
+          itemIds
+        );
+
+        requestRows.forEach((row) => {
+          const itemId = Number(row.allocated_inventory_item_id ?? 0);
+          if (itemId > 0 && !issuedRequestByItemId.has(itemId)) {
+            issuedRequestByItemId.set(itemId, row);
+          }
+        });
+      }
+    }
+
+    const usersByName = new Map();
+    departmentUserRows.forEach((user) => {
+      const key = normalizeReportNameKey(user.name);
+      if (key) {
+        usersByName.set(key, user);
+      }
+    });
+
+    const assets = [];
+    const issuedItems = [];
+    let totalAssets = 0;
+    let totalValue = 0;
+
+    itemRows.forEach((item) => {
+      const inventoryId = Number(item.inventory_id ?? 0);
+      const inventory = inventoryMap.get(inventoryId);
+      const itemValue = parseReportItemValue(item.value);
+      const itemName = String(item.item_name || "Uncategorized").trim() || "Uncategorized";
+      const status = String(item.status || "").trim().toLowerCase();
+      const location = String(item.location || "").trim();
+      const locationKey = normalizeReportNameKey(location);
+      const matchedUser = locationKey ? usersByName.get(locationKey) : null;
+
+      totalAssets += 1;
+      totalValue += itemValue;
+
+      if (inventory) {
+        inventory.itemCount += 1;
+        inventory.totalValue += itemValue;
+      }
+
+      const createdDate = formatReportDate(item.created_at);
+      const updatedDate = formatReportDate(item.updated_at);
+      const purchaseDate = formatReportDate(item.purchase_date);
+      const assetDate = updatedDate || createdDate || purchaseDate;
+      const issuedRequest = issuedRequestByItemId.get(Number(item.id));
+      const issuedDate = formatReportDate(issuedRequest?.issued_date);
+      const returnedDate = formatReportDate(issuedRequest?.returned_date);
+
+      assets.push({
+        itemId: item.id,
+        itemName,
+        itemCode: item.item_code || "",
+        serialNo: item.serial_no || "",
+        inventoryId,
+        inventoryName: inventory?.name || "",
+        inventoryLocation: inventory?.location || "",
+        location,
+        status: item.status || "—",
+        value: formatReportCurrency(itemValue),
+        createdDate,
+        updatedDate,
+        purchaseDate,
+        date: assetDate,
+      });
+
+      const isIssuedToStaff = status === "in-use" || Boolean(matchedUser);
+      if (isIssuedToStaff && location) {
+        issuedItems.push({
+          itemId: item.id,
+          itemName,
+          itemCode: item.item_code || "",
+          serialNo: item.serial_no || "",
+          inventoryId,
+          inventoryName: inventory?.name || "",
+          inventoryLocation: inventory?.location || "",
+          staffName: matchedUser?.name || location,
+          department: departmentName || "—",
+          designation: matchedUser?.designation || "—",
+          status: item.status || "—",
+          value: formatReportCurrency(itemValue),
+          location,
+          issuedDate,
+          returnedDate,
+          date: issuedDate || assetDate,
+        });
+      }
+    });
+
+    const inventories = departmentInventories.map((entry) => ({
+      ...entry,
+      totalValue: formatReportCurrency(entry.totalValue),
+      itemCount: entry.itemCount,
+    }));
+
+    assets.sort((left, right) =>
+      left.inventoryName.localeCompare(right.inventoryName, undefined, { sensitivity: "base" })
+      || left.itemName.localeCompare(right.itemName, undefined, { sensitivity: "base" })
+    );
+
+    issuedItems.sort((left, right) =>
+      left.staffName.localeCompare(right.staffName, undefined, { sensitivity: "base" })
+      || left.itemName.localeCompare(right.itemName, undefined, { sensitivity: "base" })
+    );
+
+    return res.json({
+      success: true,
+      departmentName,
+      reports: {
+        summary: {
+          totalUsers: departmentUsers.length,
+          totalInventories: inventories.length,
+          totalAssets,
+          totalValue: formatReportCurrency(totalValue),
+          issuedToStaffCount: issuedItems.length,
+        },
+        departmentUsers,
+        inventories,
+        assets,
+        issuedItems,
       },
     });
   })
@@ -4756,12 +5496,16 @@ app.post(
       [email]
     );
     const pendingRequest = pendingRequestRows[0] || null;
+    const passwordValid =
+      rows.length > 0 ? await verifyPassword(password, rows[0].password) : false;
 
-    if (rows.length === 0 || rows[0].password !== password) {
+    if (rows.length === 0 || !passwordValid) {
       if (pendingRequest) {
         const pendingPassword = String(pendingRequest.requested_password || "");
+        const pendingPasswordValid =
+          !pendingPassword || (await verifyPassword(password, pendingPassword));
 
-        if (!pendingPassword || pendingPassword === password) {
+        if (pendingPasswordValid) {
           return res.status(403).json({
             success: false,
             error: getPendingAccountStatusMessage(pendingRequest.approval_status, pendingRequest.requested_role),
@@ -4776,6 +5520,14 @@ app.post(
     }
 
     const user = rows[0];
+
+    if (!isPasswordHashed(user.password)) {
+      const idColumnName = schema.userColumns.has("id") ? "id" : "user_id";
+      await pool.execute(`UPDATE users SET password = ? WHERE ${idColumnName} = ?`, [
+        await hashPassword(password),
+        user.id,
+      ]);
+    }
 
     if (String(user.status ?? "").toLowerCase() !== "active") {
       const [requestRows] = await pool.execute(
@@ -4953,7 +5705,7 @@ app.post(
       const insertValues = [
         fullName,
         email,
-        password,
+        await hashPassword(password),
         departmentId || null,
         schema.hasUserRolesTable ? "Active" : "active",
       ];
@@ -5049,7 +5801,7 @@ app.post(
 
       if (accountRequestColumns.has("requested_password")) {
         requestInsertColumns.push("requested_password");
-        requestInsertValues.push(password);
+        requestInsertValues.push(await hashPassword(password));
       }
 
       if (accountRequestColumns.has("requested_designation")) {
@@ -5114,6 +5866,175 @@ app.post(
         },
       });
     }
+  })
+);
+
+app.post(
+  "/api/auth/forgot-password",
+  withDatabase(async (req, res) => {
+    const email = String(req.body?.email ?? "").trim().toLowerCase();
+    const genericMessage =
+      "If an account exists with that email, a verification code has been sent.";
+
+    if (!email) {
+      return res.status(400).json({ success: false, error: "Email is required." });
+    }
+
+    const schema = await getAuthSchema();
+    const userIdColumn = schema.userColumns.has("id") ? "id" : "user_id";
+    const userNameColumn = schema.userColumns.has("name") ? "name" : "full_name";
+    const [rows] = await pool.execute(
+      `SELECT ${userIdColumn} AS id, email, ${userNameColumn} AS name, status FROM users WHERE LOWER(email) = ? LIMIT 1`,
+      [email]
+    );
+
+    if (rows.length === 0) {
+      return res.json({
+        success: true,
+        message: genericMessage,
+        expiresInSeconds: PASSWORD_RESET_OTP_EXPIRY_MINUTES * 60,
+      });
+    }
+
+    const user = rows[0];
+    const userStatus = String(user.status ?? "").toLowerCase();
+
+    if (userStatus !== "active") {
+      return res.json({
+        success: true,
+        message: genericMessage,
+        expiresInSeconds: PASSWORD_RESET_OTP_EXPIRY_MINUTES * 60,
+      });
+    }
+
+    const { otp } = await issuePasswordResetOtp(pool, email);
+    const emailResult = await sendPasswordResetOtpEmail({
+      email,
+      name: user.name,
+      otp,
+      expiresMinutes: PASSWORD_RESET_OTP_EXPIRY_MINUTES,
+    });
+
+    if (!emailResult.sent && emailResult.reason === "smtp_not_configured" && isDevOtpFallbackEnabled()) {
+      console.warn(`[email] DEV MODE: Password reset OTP for ${email}: ${otp}`);
+      return res.json({
+        success: true,
+        message: "Email is not configured. Use the development verification code shown below.",
+        expiresInSeconds: PASSWORD_RESET_OTP_EXPIRY_MINUTES * 60,
+        devMode: true,
+        devOtp: otp,
+      });
+    }
+
+    if (!emailResult.sent && emailResult.reason === "smtp_not_configured") {
+      return res.status(503).json({
+        success: false,
+        error: "Email service is not configured. Please contact your system administrator.",
+      });
+    }
+
+    if (!emailResult.sent) {
+      return res.status(500).json({
+        success: false,
+        error: "Unable to send the verification email right now. Please try again later.",
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: genericMessage,
+      expiresInSeconds: PASSWORD_RESET_OTP_EXPIRY_MINUTES * 60,
+    });
+  })
+);
+
+app.post(
+  "/api/auth/verify-reset-otp",
+  withDatabase(async (req, res) => {
+    const email = String(req.body?.email ?? "").trim().toLowerCase();
+    const otp = String(req.body?.otp ?? "").trim();
+
+    if (!email || !otp) {
+      return res.status(400).json({ success: false, error: "Email and verification code are required." });
+    }
+
+    const verification = await verifyPasswordResetOtp(pool, email, otp);
+
+    if (!verification.valid) {
+      const errorMessages = {
+        expired: "This verification code has expired. Please request a new one.",
+        invalid_otp: "Invalid verification code.",
+        already_used: "This verification code has already been used.",
+        not_found: "Invalid verification code.",
+      };
+
+      return res.status(400).json({
+        success: false,
+        error: errorMessages[verification.reason] || "Invalid verification code.",
+      });
+    }
+
+    return res.json({ success: true, message: "Verification code accepted." });
+  })
+);
+
+app.post(
+  "/api/auth/reset-password",
+  withDatabase(async (req, res) => {
+    const email = String(req.body?.email ?? "").trim().toLowerCase();
+    const otp = String(req.body?.otp ?? "").trim();
+    const password = String(req.body?.password ?? "");
+
+    if (!email || !otp || !password) {
+      return res.status(400).json({
+        success: false,
+        error: "Email, verification code, and new password are required.",
+      });
+    }
+
+    const passwordCheck = validatePassword(password);
+    if (!passwordCheck.valid) {
+      return res.status(400).json({
+        success: false,
+        error: passwordCheck.message || PASSWORD_REQUIREMENTS_MESSAGE,
+      });
+    }
+
+    const otpVerification = await consumePasswordResetOtp(pool, email, otp);
+    if (!otpVerification.valid) {
+      const errorMessages = {
+        expired: "This verification code has expired. Please request a new one.",
+        invalid_otp: "Invalid verification code.",
+        already_used: "This verification code has already been used.",
+        not_found: "Invalid verification code.",
+      };
+
+      return res.status(400).json({
+        success: false,
+        error: errorMessages[otpVerification.reason] || "Invalid verification code.",
+      });
+    }
+
+    const schema = await getAuthSchema();
+    const idColumnName = schema.userColumns.has("id") ? "id" : "user_id";
+    const [rows] = await pool.execute(
+      `SELECT ${idColumnName} AS id FROM users WHERE LOWER(email) = ? LIMIT 1`,
+      [email]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ success: false, error: "Account not found." });
+    }
+
+    await pool.execute(`UPDATE users SET password = ? WHERE ${idColumnName} = ?`, [
+      await hashPassword(password),
+      rows[0].id,
+    ]);
+
+    return res.json({
+      success: true,
+      message: "Password reset successfully. You can now sign in with your new password.",
+    });
   })
 );
 
@@ -5659,13 +6580,17 @@ app.put(
     }
 
     if (updatingPassword) {
-      if (String(rows[0].password ?? "") !== currentPassword) {
+      const currentPasswordValid = await verifyPassword(currentPassword, rows[0].password);
+      if (!currentPasswordValid) {
         return res.status(401).json({
           success: false,
           message: "Current password is incorrect.",
         });
       }
-      await pool.execute(`UPDATE users SET password = ? WHERE ${idColumnName} = ?`, [nextPassword, rows[0].id]);
+      await pool.execute(`UPDATE users SET password = ? WHERE ${idColumnName} = ?`, [
+        await hashPassword(nextPassword),
+        rows[0].id,
+      ]);
     }
 
     if (updatingMobile) {
@@ -5961,6 +6886,17 @@ const finalizeInventoryCreationRequest = async ({
     updateValues
   );
 
+  if (approverRole === "registrar") {
+    await notifyApprovalStage(pool, {
+      userIds: [inv.requested_by_id],
+      workflow: "inventory_creation",
+      stage: "registrar",
+      entityId: requestId,
+      entityLabel: inv.name || `Request #${requestId}`,
+      link: "/requests/inventory/staff",
+    });
+  }
+
   return {
     status: 200,
     body: {
@@ -6063,6 +6999,15 @@ app.post(
       `UPDATE inventory_creation_requests SET ${updateParts.join(", ")} WHERE ${inventoryRequestIdColumn} = ?`,
       updateValues
     );
+
+    await notifyApprovalStage(pool, {
+      userIds: [inv.requested_by_id],
+      workflow: "inventory_creation",
+      stage: "hod",
+      entityId: requestId,
+      entityLabel: inv.name || `Request #${requestId}`,
+      link: "/requests/inventory/staff",
+    });
 
     return res.json({
       success: true,
@@ -7927,6 +8872,39 @@ app.post(
     updateValues.push(requestId);
     await pool.execute(`UPDATE item_requests SET ${updateParts.join(", ")} WHERE id = ?`, updateValues);
 
+    const schema = await getAuthSchema();
+    const userIdColumn = schema.userColumns.has("id") ? "id" : "user_id";
+    const userNameColumn = schema.userColumns.has("name") ? "name" : "full_name";
+    const inventoryNameColumn = getInventoryNameColumn(inventoryColumns);
+    const requestedById = Number(itemRequest.requested_by_id ?? 0);
+    let requesterName = "";
+
+    if (requestedById > 0) {
+      const [requesterRows] = await pool.execute(
+        `SELECT ${userNameColumn} AS name FROM users WHERE ${userIdColumn} = ? LIMIT 1`,
+        [requestedById]
+      );
+      requesterName = String(requesterRows[0]?.name || "").trim();
+    }
+
+    let inventoryName = String(itemRequest.inventory_location || "").trim();
+    if (!inventoryName && requestedInventoryId > 0 && inventoryIdColumn && inventoryNameColumn) {
+      const [inventoryNameRows] = await pool.execute(
+        `SELECT ${inventoryNameColumn} AS inventory_name FROM inventories WHERE ${inventoryIdColumn} = ? LIMIT 1`,
+        [requestedInventoryId]
+      );
+      inventoryName = String(inventoryNameRows[0]?.inventory_name || "").trim();
+    }
+
+    await notifyItemRequestReceived(pool, {
+      inventoryOfficerUserId,
+      requestId,
+      itemName: itemRequest.item_name,
+      quantity: itemRequest.quantity,
+      requesterName,
+      inventoryName,
+    });
+
     return res.json({
       success: true,
       message: "Item request approved and forwarded to the lab inventory officer for issuing.",
@@ -9165,6 +10143,15 @@ app.post(
       [...updateValues, ...lineIds]
     );
 
+    await notifyApprovalStage(pool, {
+      userIds: [anchor.initiated_by_id],
+      workflow: "transfer",
+      stage: "hod",
+      entityId: transferId,
+      entityLabel: anchor.transfer_reference || anchor.reference_no || `Transfer #${transferId}`,
+      link: `/inventory/transfers/${transferId}`,
+    });
+
     return res.json({
       success: true,
       message: "Transfer recommended by Head of Department and forwarded to the registrar.",
@@ -9866,6 +10853,20 @@ const approveTransferDisposalByRegistrar = async ({
   updateValues.push(requestId);
   await pool.execute(`UPDATE ${tableName} SET ${updateParts.join(", ")} WHERE id = ?`, updateValues);
 
+  const workflow = tableName === "item_disposals" ? "disposal" : "transfer";
+  const detailPath = tableName === "item_disposals"
+    ? `/inventory/disposals/${requestId}`
+    : `/inventory/transfers/${requestId}`;
+
+  await notifyApprovalStage(pool, {
+    userIds: [record.initiated_by_id],
+    workflow,
+    stage: "registrar",
+    entityId: requestId,
+    entityLabel: record.transfer_reference || record.reference_no || record.disposal_reference || `${workflow} #${requestId}`,
+    link: detailPath,
+  });
+
   return {
     status: 200,
     body: {
@@ -10083,6 +11084,15 @@ app.post(
       `UPDATE item_disposals SET ${updateParts.join(", ")} WHERE id IN (${placeholders})`,
       [...updateValues, ...lineIds]
     );
+
+    await notifyApprovalStage(pool, {
+      userIds: [anchor.initiated_by_id],
+      workflow: "disposal",
+      stage: "hod",
+      entityId: disposalId,
+      entityLabel: anchor.disposal_reference || anchor.reference_no || `Disposal #${disposalId}`,
+      link: `/inventory/disposals/${disposalId}`,
+    });
 
     return res.json({
       success: true,
@@ -11742,6 +12752,69 @@ app.get(
 );
 
 app.get(
+  "/api/notifications",
+  withDatabase(async (req, res) => {
+    const userId = Number(req.query?.userId ?? 0);
+
+    if (!Number.isInteger(userId) || userId <= 0) {
+      return res.status(400).json({ success: false, message: "A valid userId is required." });
+    }
+
+    await syncWarrantyNotifications(pool, DB_ITEMS_TABLE);
+    const result = await getNotificationsForUser(pool, userId);
+
+    return res.json({
+      success: true,
+      notifications: result.notifications,
+      unreadCount: result.unreadCount,
+    });
+  })
+);
+
+app.patch(
+  "/api/notifications/:id/read",
+  withDatabase(async (req, res) => {
+    const notificationId = Number(req.params.id);
+    const userId = Number(req.body?.userId ?? req.query?.userId ?? 0);
+
+    if (!Number.isInteger(notificationId) || notificationId <= 0) {
+      return res.status(400).json({ success: false, message: "A valid notification id is required." });
+    }
+
+    if (!Number.isInteger(userId) || userId <= 0) {
+      return res.status(400).json({ success: false, message: "A valid userId is required." });
+    }
+
+    const updated = await markNotificationRead(pool, { notificationId, userId });
+
+    if (!updated) {
+      return res.status(404).json({ success: false, message: "Notification not found." });
+    }
+
+    return res.json({ success: true, message: "Notification marked as read." });
+  })
+);
+
+app.patch(
+  "/api/notifications/read-all",
+  withDatabase(async (req, res) => {
+    const userId = Number(req.body?.userId ?? req.query?.userId ?? 0);
+
+    if (!Number.isInteger(userId) || userId <= 0) {
+      return res.status(400).json({ success: false, message: "A valid userId is required." });
+    }
+
+    const updatedCount = await markAllNotificationsRead(pool, userId);
+
+    return res.json({
+      success: true,
+      message: "All notifications marked as read.",
+      updatedCount,
+    });
+  })
+);
+
+app.get(
   "/api/item-identifiers/check",
   withDatabase(async (req, res) => {
     const dbColumns = await ensureInventoryItemsColumns();
@@ -11782,6 +12855,9 @@ const startServer = async () => {
     await ensureItemDisposalsWorkflow();
     await ensureItemRepairsWorkflow();
     await ensureWarrantyClaimsWorkflow();
+    await ensureNotificationsTable(pool);
+    await ensurePasswordResetOtpsTable(pool);
+    await ensureForeignKeyRelationships();
     dbReady = true;
     console.log(`MySQL connected to ${DB_NAME} on ${DB_HOST}:${DB_PORT}`);
     if (AUTO_CREATE_TABLES) {

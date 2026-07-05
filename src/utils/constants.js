@@ -445,7 +445,6 @@ export const HOD_NAV_ITEMS = [
     nested: true,
   },
   { id: 5, label: "Requests by Staff", path: "/inventory/requests/list/hod", icon: "rule" },
-  { id: 6, label: "Inventories", path: "/inventory/list/hod", icon: "inventory_2" },
   { id: 7, label: "Reports", path: "/reports/hod", icon: "assessment" },
   { id: 8, label: "Profile", path: "/profile/hod", icon: "person" },
 ];

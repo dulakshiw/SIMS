@@ -9,6 +9,8 @@ import {
   PASSWORD_REQUIREMENTS_MESSAGE,
 } from "../../utils/passwordValidation";
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
+
 const ResetPassword = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -66,17 +68,34 @@ const ResetPassword = () => {
       return;
     }
 
-    // Simulate API call
-    setTimeout(() => {
-      console.log("Password reset for:", email);
-      console.log("New password set");
-      setMessage("Password reset successfully! Redirecting to login...");
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/auth/reset-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          otp,
+          password: formData.newPassword,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || data.message || "Unable to reset password.");
+      }
+
+      setMessage(data.message || "Password reset successfully! Redirecting to login...");
       setMessageType("success");
       setTimeout(() => {
         navigate("/");
       }, 2000);
+    } catch (error) {
+      setMessage(error.message || "Unable to reset password.");
+      setMessageType("error");
+    } finally {
       setLoading(false);
-    }, 1500);
+    }
   };
 
   if (!email || !otp) {

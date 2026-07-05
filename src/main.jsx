@@ -57,6 +57,7 @@ import InventoryCreationRequest from './Pages/Inventory/InventoryCreationRequest
 import StaffDashboard from './Pages/StaffMember/StaffDashboard'
 import HodDashboard from './Pages/StaffMember/HodDashboard'
 import HodPendingTasks from './Pages/StaffMember/HodPendingTasks'
+import HodReports from './Pages/StaffMember/HodReports'
 import DeanDashboard from './Pages/StaffMember/DeanDashboard'
 import DepartmentManagement from './Pages/Admin/DepartmentManagement'
 import InventoryManagement from './Pages/Admin/InventoryManagement'
@@ -340,6 +341,10 @@ const router = createBrowserRouter([
   },
 
   // ==================== Shared Reports Route ====================
+  {
+    path: "/reports/hod",
+    element: <HodReports />
+  },
   {
     path: "/reports/:role",
     element: <Reports layoutVariant="main" />

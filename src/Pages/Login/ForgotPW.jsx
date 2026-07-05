@@ -1,58 +1,94 @@
 import React, { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Card, Button } from "../../Components/UI";
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
+const OTP_EXPIRY_SECONDS = 600;
+
 const ForgotPW = () => {
-  const [step, setStep] = useState(1); // Step 1: Email input, Step 2: OTP verification
+  const navigate = useNavigate();
+  const [step, setStep] = useState(1);
   const [email, setEmail] = useState("");
   const [otp, setOtp] = useState("");
   const [timer, setTimer] = useState(0);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
-  const [messageType, setMessageType] = useState(""); // 'success' or 'error'
+  const [messageType, setMessageType] = useState("");
 
-  // Handle email submission
   const handleSendOTP = async (e) => {
     e.preventDefault();
     setLoading(true);
     setMessage("");
 
-    // Simulate API call
-    setTimeout(() => {
-      console.log("OTP sent to:", email);
-      setMessage("OTP has been sent to your email!");
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/auth/forgot-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim().toLowerCase() }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || data.message || "Unable to send verification code.");
+      }
+
+      if (data.devOtp) {
+        setOtp(String(data.devOtp));
+        setMessage(
+          data.message ||
+            `Email is not configured. Use this development code: ${data.devOtp}`
+        );
+      } else {
+        setMessage(
+          data.message || "If an account exists with that email, a verification code has been sent."
+        );
+      }
       setMessageType("success");
       setStep(2);
-      setTimer(300); // 5 minutes
+      setTimer(Number(data.expiresInSeconds) || OTP_EXPIRY_SECONDS);
+    } catch (error) {
+      setMessage(error.message || "Unable to send verification code.");
+      setMessageType("error");
+    } finally {
       setLoading(false);
-    }, 1000);
+    }
   };
 
-  // Handle OTP verification
   const handleVerifyOTP = async (e) => {
     e.preventDefault();
     setLoading(true);
     setMessage("");
 
-    // Simulate API call
-    setTimeout(() => {
-      if (otp.length === 6) {
-        console.log("OTP verified:", otp);
-        setMessage("OTP verified successfully! Redirecting...");
-        setMessageType("success");
-        // Redirect to reset password page
-        setTimeout(() => {
-          window.location.href = `/resetPassword?email=${email}&otp=${otp}`;
-        }, 1500);
-      } else {
-        setMessage("Please enter a valid 6-digit OTP");
-        setMessageType("error");
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/auth/verify-reset-otp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          otp,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || data.message || "Invalid verification code.");
       }
+
+      setMessage("Verification code accepted. Redirecting...");
+      setMessageType("success");
+      setTimeout(() => {
+        navigate(`/resetPassword?email=${encodeURIComponent(email.trim().toLowerCase())}&otp=${encodeURIComponent(otp)}`);
+      }, 800);
+    } catch (error) {
+      setMessage(error.message || "Invalid verification code.");
+      setMessageType("error");
+    } finally {
       setLoading(false);
-    }, 1000);
+    }
   };
 
-  // Countdown timer effect
   React.useEffect(() => {
     let interval;
     if (timer > 0) {
@@ -68,19 +104,18 @@ const ForgotPW = () => {
   };
 
   return (
-    <div 
+    <div
       className="min-h-screen flex items-center justify-center p-4"
       style={{
-        backgroundImage: 'linear-gradient(rgba(0,0,0,0.5),rgba(0,0,0,0.5)), url(/src/assets/loginbg1.jpg)',
-        backgroundSize: 'cover',
-        backgroundPosition: 'center',
-        backgroundAttachment: 'fixed'
+        backgroundImage: "linear-gradient(rgba(0,0,0,0.5),rgba(0,0,0,0.5)), url(/src/assets/loginbg1.jpg)",
+        backgroundSize: "cover",
+        backgroundPosition: "center",
+        backgroundAttachment: "fixed",
       }}
     >
       <div className="max-w-md w-full">
         <Card className="shadow-2xl">
           <div className="space-y-6">
-            {/* Header */}
             <div className="text-center space-y-2">
               <h1 className="text-3xl font-bold text-text-dark">Reset Password</h1>
               <p className="text-text-light text-sm">
@@ -90,7 +125,6 @@ const ForgotPW = () => {
               </p>
             </div>
 
-            {/* Message Alert */}
             {message && (
               <div
                 className={`p-3 rounded-lg text-sm ${
@@ -103,12 +137,11 @@ const ForgotPW = () => {
               </div>
             )}
 
-            {/* Step 1: Email Input */}
             {step === 1 && (
               <form onSubmit={handleSendOTP} className="space-y-4">
                 <div className="space-y-2">
                   <label className="block text-sm font-semibold text-text-dark">
-                    Email Address 
+                    Email Address
                   </label>
                   <input
                     type="email"
@@ -117,25 +150,19 @@ const ForgotPW = () => {
                     placeholder="Enter your registered email"
                     required
                     className="w-full px-4 py-2.5 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                    style={{ backgroundColor: '#F2F0F0' }}
+                    style={{ backgroundColor: "#F2F0F0" }}
                   />
                   <p className="text-xs text-text-light">
-                    We'll send a verification code to this email
+                    We&apos;ll send a verification code to this email
                   </p>
                 </div>
 
-                <Button
-                  type="submit"
-                  variant="primary"
-                  className="w-full"
-                  disabled={loading}
-                >
+                <Button type="submit" variant="primary" className="w-full" disabled={loading}>
                   {loading ? "Sending..." : "Send OTP"}
                 </Button>
               </form>
             )}
 
-            {/* Step 2: OTP Verification */}
             {step === 2 && (
               <form onSubmit={handleVerifyOTP} className="space-y-4">
                 <div className="space-y-2">
@@ -145,30 +172,21 @@ const ForgotPW = () => {
                   <input
                     type="text"
                     value={otp}
-                    onChange={(e) =>
-                      setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))
-                    }
+                    onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
                     placeholder="000000"
                     maxLength="6"
                     required
                     className="w-full px-4 py-2.5 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-center text-2xl tracking-widest"
-                    style={{ backgroundColor: '#F2F0F0' }}
+                    style={{ backgroundColor: "#F2F0F0" }}
                   />
                   <p className="text-xs text-text-light">
                     Enter the 6-digit code sent to <strong>{email}</strong>
                   </p>
                 </div>
 
-                {/* Timer */}
                 <div className="flex items-center justify-between bg-gray-50 p-3 rounded-lg">
-                  <span className="text-sm text-text-dark font-medium">
-                    Expires in:
-                  </span>
-                  <span
-                    className={`font-semibold ${
-                      timer < 60 ? "text-danger" : "text-text-dark"
-                    }`}
-                  >
+                  <span className="text-sm text-text-dark font-medium">Expires in:</span>
+                  <span className={`font-semibold ${timer < 60 ? "text-danger" : "text-text-dark"}`}>
                     {formatTimer()}
                   </span>
                 </div>
@@ -182,12 +200,12 @@ const ForgotPW = () => {
                   {loading ? "Verifying..." : "Verify OTP"}
                 </Button>
 
-                {/* Resend OTP */}
                 <div className="text-center">
                   <p className="text-sm text-text-light">
-                    Didn't receive the code?{" "}
+                    Didn&apos;t receive the code?{" "}
                     {timer === 0 ? (
                       <button
+                        type="button"
                         onClick={() => {
                           setStep(1);
                           setOtp("");
@@ -198,23 +216,17 @@ const ForgotPW = () => {
                         Send again
                       </button>
                     ) : (
-                      <span className="text-gray-400">
-                        Try again in {formatTimer()}
-                      </span>
+                      <span className="text-gray-400">Try again in {formatTimer()}</span>
                     )}
                   </p>
                 </div>
               </form>
             )}
 
-            {/* Footer Link */}
             <div className="pt-4 border-t border-border text-center">
               <p className="text-sm text-text-light">
                 Remember your password?{" "}
-                <Link
-                  to="/"
-                  className="text-primary-600 hover:text-primary-700 font-semibold"
-                >
+                <Link to="/" className="text-primary-600 hover:text-primary-700 font-semibold">
                   Login here
                 </Link>
               </p>
