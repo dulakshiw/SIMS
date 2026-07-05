@@ -4775,6 +4775,195 @@ app.get(
       || left.itemName.localeCompare(right.itemName, undefined, { sensitivity: "base" })
     );
 
+    // Fetch transfers, disposals, and repairs for all department inventories
+    let departmentTransfers = [];
+    let departmentDisposals = [];
+    let departmentRepairs = [];
+
+    if (inventoryIds.length > 0) {
+      const invPlaceholders = inventoryIds.map(() => "?").join(", ");
+      const [reportTableRows] = await pool.query("SHOW TABLES");
+      const reportTableNames = new Set(reportTableRows.map((row) => Object.values(row)[0]));
+      const itemNameExpr = buildItemNameExpression(itemColumns);
+
+      if (reportTableNames.has("item_transfers")) {
+        try {
+          const tColumns = await ensureItemTransfersWorkflow();
+          if (tColumns) {
+            const tItemJoin = reportTableNames.has(DB_ITEMS_TABLE)
+              ? buildItemAliasJoin(itemColumns, "it.item_id")
+              : "";
+            const tItemNameSelect = reportTableNames.has(DB_ITEMS_TABLE)
+              ? `${itemNameExpr} AS item_name`
+              : "CAST(it.item_id AS CHAR) AS item_name";
+            const fromInvSel = buildInventoryAliasNameSelect("fi", inventoryColumns, "from_inventory_name");
+            const toInvSel = buildInventoryAliasNameSelect("ti", inventoryColumns, "to_inventory_name");
+            const fromInvJoin = buildInventoryTransferJoin("fi", inventoryColumns, "from_inventory_id");
+            const toInvJoin = buildInventoryTransferJoin("ti", inventoryColumns, "to_inventory_id");
+            const tDateCol = tColumns.has("transfer_date") ? "it.transfer_date" : "it.created_date";
+
+            const [tRows] = await pool.execute(
+              `SELECT
+                  it.id, it.item_id,
+                  ${tItemNameSelect},
+                  ${fromInvSel}, ${toInvSel},
+                  it.quantity, it.reason, it.status,
+                  ${tColumns.has("approval_status") ? "it.approval_status" : "NULL AS approval_status"},
+                  ${tDateCol} AS transfer_date,
+                  ${tColumns.has("completed_date") ? "it.completed_date" : "NULL AS completed_date"},
+                  initiator.${userNameColumn} AS initiated_by
+                FROM item_transfers it
+                ${tItemJoin}
+                ${fromInvJoin}
+                ${toInvJoin}
+                LEFT JOIN users initiator ON initiator.${userIdColumn} = it.initiated_by_id
+                WHERE it.from_inventory_id IN (${invPlaceholders})
+                ORDER BY ${tDateCol} DESC, it.id DESC`,
+              inventoryIds
+            );
+
+            departmentTransfers = tRows.map((row) => ({
+              id: row.id,
+              itemName: row.item_name || `Item #${row.item_id}`,
+              fromInventory: row.from_inventory_name || "—",
+              toInventory: row.to_inventory_name || "—",
+              quantity: row.quantity ?? 1,
+              reason: row.reason || "",
+              status: row.status || "pending",
+              approvalStatus: resolveTransferDisposalApprovalStatus(row, tColumns),
+              transferDate: row.transfer_date
+                ? new Date(row.transfer_date).toISOString().split("T")[0]
+                : "",
+              completedDate: row.completed_date
+                ? new Date(row.completed_date).toISOString().split("T")[0]
+                : "",
+              initiatedBy: row.initiated_by || "—",
+              date: row.transfer_date
+                ? new Date(row.transfer_date).toISOString().split("T")[0]
+                : "",
+            }));
+          }
+        } catch {
+          // table missing or schema mismatch — leave as []
+        }
+      }
+
+      if (reportTableNames.has("item_disposals")) {
+        try {
+          const dColumns = await ensureItemDisposalsWorkflow();
+          if (dColumns) {
+            const dItemJoin = reportTableNames.has(DB_ITEMS_TABLE)
+              ? buildItemAliasJoin(itemColumns, "idp.item_id")
+              : "";
+            const dItemNameSelect = reportTableNames.has(DB_ITEMS_TABLE)
+              ? `${itemNameExpr} AS item_name`
+              : "CAST(idp.item_id AS CHAR) AS item_name";
+            const dInvSel = buildInventoryAliasNameSelect("di", inventoryColumns, "inventory_name");
+            const dInvJoin = buildInventoryAliasJoin("di", inventoryColumns, "idp.inventory_id");
+            const dDateCol = dColumns.has("disposal_date") ? "idp.disposal_date" : "idp.created_date";
+
+            const [dRows] = await pool.execute(
+              `SELECT
+                  idp.id, idp.item_id,
+                  ${dItemNameSelect},
+                  ${dInvSel},
+                  idp.quantity, idp.reason,
+                  ${dColumns.has("disposal_type") ? "idp.disposal_type" : "NULL AS disposal_type"},
+                  idp.status,
+                  ${dColumns.has("approval_status") ? "idp.approval_status" : "NULL AS approval_status"},
+                  ${dDateCol} AS disposal_date,
+                  initiator.${userNameColumn} AS initiated_by
+                FROM item_disposals idp
+                ${dItemJoin}
+                ${dInvJoin}
+                LEFT JOIN users initiator ON initiator.${userIdColumn} = idp.initiated_by_id
+                WHERE idp.inventory_id IN (${invPlaceholders})
+                ORDER BY ${dDateCol} DESC, idp.id DESC`,
+              inventoryIds
+            );
+
+            departmentDisposals = dRows.map((row) => ({
+              id: row.id,
+              itemName: row.item_name || `Item #${row.item_id}`,
+              inventory: row.inventory_name || "—",
+              quantity: row.quantity ?? 1,
+              reason: row.reason || "",
+              disposalType: row.disposal_type || "",
+              status: row.status || "pending",
+              approvalStatus: resolveTransferDisposalApprovalStatus(row, dColumns),
+              disposalDate: row.disposal_date
+                ? new Date(row.disposal_date).toISOString().split("T")[0]
+                : "",
+              initiatedBy: row.initiated_by || "—",
+              date: row.disposal_date
+                ? new Date(row.disposal_date).toISOString().split("T")[0]
+                : "",
+            }));
+          }
+        } catch {
+          // table missing or schema mismatch — leave as []
+        }
+      }
+
+      if (reportTableNames.has("item_repairs")) {
+        try {
+          const rColumns = await ensureItemRepairsWorkflow();
+          if (rColumns) {
+            const rItemJoin = reportTableNames.has(DB_ITEMS_TABLE)
+              ? buildItemAliasJoin(itemColumns, "ir.item_id")
+              : "";
+            const rItemNameSelect = reportTableNames.has(DB_ITEMS_TABLE)
+              ? `${itemNameExpr} AS item_name`
+              : "CAST(ir.item_id AS CHAR) AS item_name";
+            const rInvSel = buildInventoryAliasNameSelect("ri", inventoryColumns, "inventory_name");
+            const rInvJoin = buildInventoryAliasJoin("ri", inventoryColumns, "ir.inventory_id");
+            const rDateCol = rColumns.has("repair_date") ? "ir.repair_date" : "ir.created_date";
+
+            const [rRows] = await pool.execute(
+              `SELECT
+                  ir.id, ir.item_id,
+                  ${rItemNameSelect},
+                  ${rInvSel},
+                  ir.quantity, ir.fault_description, ir.status,
+                  ${rColumns.has("approval_status") ? "ir.approval_status" : "NULL AS approval_status"},
+                  ${rDateCol} AS repair_date,
+                  ${rColumns.has("repair_cost") ? "ir.repair_cost" : "NULL AS repair_cost"},
+                  initiator.${userNameColumn} AS initiated_by
+                FROM item_repairs ir
+                ${rItemJoin}
+                ${rInvJoin}
+                LEFT JOIN users initiator ON initiator.${userIdColumn} = ir.initiated_by_id
+                WHERE ir.inventory_id IN (${invPlaceholders})
+                ORDER BY ${rDateCol} DESC, ir.id DESC`,
+              inventoryIds
+            );
+
+            departmentRepairs = rRows.map((row) => ({
+              id: row.id,
+              itemName: row.item_name || `Item #${row.item_id}`,
+              inventory: row.inventory_name || "—",
+              quantity: row.quantity ?? 1,
+              faultDescription: row.fault_description || "",
+              status: row.status || "submitted",
+              approvalStatus: row.approval_status || row.status || "submitted",
+              repairCost: row.repair_cost != null
+                ? formatReportCurrency(parseFloat(row.repair_cost) || 0)
+                : "",
+              repairDate: row.repair_date
+                ? new Date(row.repair_date).toISOString().split("T")[0]
+                : "",
+              initiatedBy: row.initiated_by || "—",
+              date: row.repair_date
+                ? new Date(row.repair_date).toISOString().split("T")[0]
+                : "",
+            }));
+          }
+        } catch {
+          // table missing or schema mismatch — leave as []
+        }
+      }
+    }
+
     return res.json({
       success: true,
       departmentName,
@@ -4785,11 +4974,17 @@ app.get(
           totalAssets,
           totalValue: formatReportCurrency(totalValue),
           issuedToStaffCount: issuedItems.length,
+          transferCount: departmentTransfers.length,
+          disposalCount: departmentDisposals.length,
+          repairCount: departmentRepairs.length,
         },
         departmentUsers,
         inventories,
         assets,
         issuedItems,
+        transfers: departmentTransfers,
+        disposals: departmentDisposals,
+        repairs: departmentRepairs,
       },
     });
   })
@@ -7503,8 +7698,19 @@ const createItemRepairsTable = async () => {
           fault_description TEXT NULL,
           repair_notes TEXT NULL,
           status VARCHAR(50) DEFAULT 'submitted',
+          approval_status VARCHAR(50) DEFAULT 'pending_hod',
           repair_date DATE NULL,
           initiated_by_id INT NULL,
+          contact_person_user_id INT NULL,
+          source_hod_user_id INT NULL,
+          hod_approved_date TIMESTAMP NULL,
+          hod_approved_by_id INT NULL,
+          registrar_approved_date TIMESTAMP NULL,
+          registrar_approved_by_id INT NULL,
+          rejection_reason VARCHAR(500) NULL,
+          repaired_by VARCHAR(255) NULL,
+          repair_cost DECIMAL(10,2) NULL,
+          received_date DATE NULL,
           created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           updated_date TIMESTAMP NULL ON UPDATE CURRENT_TIMESTAMP,
           completed_date TIMESTAMP NULL
@@ -7679,7 +7885,44 @@ const ensureItemRepairsWorkflow = async () => {
     }
 
     const columns = await getTableColumns("item_repairs");
+    await addWorkflowColumnIfMissing("item_repairs", columns, "approval_status", "VARCHAR(50) NULL");
+    await addWorkflowColumnIfMissing("item_repairs", columns, "registrar_approved_date", "TIMESTAMP NULL");
+    await addWorkflowColumnIfMissing("item_repairs", columns, "registrar_approved_by_id", "INT NULL");
+    await addWorkflowColumnIfMissing("item_repairs", columns, "hod_approved_date", "TIMESTAMP NULL");
+    await addWorkflowColumnIfMissing("item_repairs", columns, "hod_approved_by_id", "INT NULL");
+    await addWorkflowColumnIfMissing("item_repairs", columns, "rejection_reason", "VARCHAR(500) NULL");
     await addWorkflowColumnIfMissing("item_repairs", columns, "contact_person_user_id", "INT NULL");
+    await addWorkflowColumnIfMissing("item_repairs", columns, "source_hod_user_id", "INT NULL");
+    await addWorkflowColumnIfMissing("item_repairs", columns, "repaired_by", "VARCHAR(255) NULL");
+    await addWorkflowColumnIfMissing("item_repairs", columns, "repair_cost", "DECIMAL(10,2) NULL");
+    await addWorkflowColumnIfMissing("item_repairs", columns, "received_date", "DATE NULL");
+
+    if (!columns.has("source_hod_user_id")) {
+      columns.add("source_hod_user_id");
+    }
+
+    await pool.query(`
+      UPDATE item_repairs
+      SET status = 'pending_hod', approval_status = 'pending_hod'
+      WHERE LOWER(COALESCE(status, '')) = 'submitted'
+        AND (approval_status IS NULL OR LOWER(COALESCE(approval_status, '')) = '')
+        AND LOWER(COALESCE(status, '')) NOT IN ('completed', 'rejected', 'cancelled')
+    `);
+
+    const inventoryColumns = await ensureInventoriesLocationColumn();
+    const inventoryIdColumn = getInventoryIdColumn(inventoryColumns);
+    const inventoryHodColumn = getInventoryHodColumn(inventoryColumns);
+
+    if (inventoryIdColumn && inventoryHodColumn) {
+      await pool.query(`
+        UPDATE item_repairs ir
+        INNER JOIN inventories inv ON inv.${inventoryIdColumn} = ir.inventory_id
+        SET ir.source_hod_user_id = inv.${inventoryHodColumn}
+        WHERE ir.source_hod_user_id IS NULL
+          AND inv.${inventoryHodColumn} IS NOT NULL
+      `);
+    }
+
     return columns;
   } catch (error) {
     console.error("Error ensuring item_repairs workflow columns:", error.message);
@@ -7850,6 +8093,19 @@ const buildActiveRepairLockCondition = (tableAlias) =>
   `LOWER(COALESCE(${tableAlias}.status, '')) NOT IN ('completed', 'cancelled')`;
 
 const resolveRepairStatus = (row = {}) => String(row.status || "submitted").trim().toLowerCase();
+
+const resolveRepairApprovalStatus = (row = {}, columns) => {
+  if (columns?.has("approval_status") && row.approval_status) {
+    return String(row.approval_status).trim().toLowerCase();
+  }
+
+  const legacyStatus = String(row.status || "submitted").trim().toLowerCase();
+  if (legacyStatus === "pending" || legacyStatus === "submitted") {
+    return "pending_hod";
+  }
+
+  return legacyStatus;
+};
 
 const resolveTransferDisposalApprovalStatus = (row, columns) => {
   if (columns?.has("approval_status") && row.approval_status) {
@@ -10309,9 +10565,10 @@ app.post(
       .map((entry) => Number(entry?.itemId ?? entry?.item_id ?? 0))
       .filter((itemId) => Number.isInteger(itemId) && itemId > 0);
 
-    const [transferLockMap, disposalLockMap] = await Promise.all([
+    const [transferLockMap, disposalLockMap, repairLockMap] = await Promise.all([
       getTransferLockMapForInventory(inventoryId, requestedItemIds),
       getDisposalLockMapForInventory(inventoryId, requestedItemIds),
+      getRepairLockMapForInventory(inventoryId, requestedItemIds),
     ]);
 
     const lockedTransferItemId = requestedItemIds.find((itemId) => transferLockMap.has(itemId));
@@ -10325,6 +10582,24 @@ app.post(
     }
 
     const lockedDisposalItemId = requestedItemIds.find((itemId) => disposalLockMap.has(itemId));
+    if (lockedDisposalItemId) {
+      const lock = disposalLockMap.get(lockedDisposalItemId);
+      const lockLabel = lock?.disposalLockReason === "completed" ? "a completed disposal" : "a pending disposal";
+      return res.status(409).json({
+        success: false,
+        message: `Item #${lockedDisposalItemId} is already included in ${lockLabel} and cannot be disposed again.`,
+      });
+    }
+
+    const lockedRepairItemId = requestedItemIds.find((itemId) => repairLockMap.has(itemId));
+    if (lockedRepairItemId) {
+      const lock = repairLockMap.get(lockedRepairItemId);
+      const lockLabel = lock?.repairLockReason === "completed" ? "a completed repair" : "a pending repair";
+      return res.status(409).json({
+        success: false,
+        message: `Item #${lockedRepairItemId} is already included in ${lockLabel} and cannot be disposed.`,
+      });
+    }
     if (lockedDisposalItemId) {
       const lock = disposalLockMap.get(lockedDisposalItemId);
       const lockLabel = lock?.disposalLockReason === "completed" ? "a completed disposal" : "a pending disposal";
@@ -10938,25 +11213,493 @@ const rejectTransferDisposalByRegistrar = async ({
   };
 };
 
-app.post(
-  "/api/item-transfers/:id/approve-registrar",
-  withDatabase(async (req, res) => {
-    const requestId = Number(req.params.id);
-    const approverUserId = Number(req.body?.approverUserId ?? 0);
+const approveRepairByHod = async ({ repairId, approverUserId }) => {
+  const columns = await ensureItemRepairsWorkflow();
+  if (!columns) {
+    return { status: 404, body: { success: false, message: "Repair records are not available." } };
+  }
 
-    if (!Number.isInteger(requestId) || requestId <= 0) {
-      return res.status(400).json({ success: false, message: "A valid transfer id is required." });
+  const [rows] = await pool.execute(`SELECT * FROM item_repairs WHERE id = ? LIMIT 1`, [repairId]);
+  if (rows.length === 0) {
+    return { status: 404, body: { success: false, message: "Repair request not found." } };
+  }
+
+  const record = rows[0];
+  const currentApprovalStatus = resolveRepairApprovalStatus(record, columns);
+  if (!["pending_hod", "pending_staff"].includes(currentApprovalStatus)) {
+    return {
+      status: 409,
+      body: { success: false, message: "This repair is not awaiting HOD recommendation." },
+    };
+  }
+
+  const assignedHod = columns.has("source_hod_user_id") ? Number(record.source_hod_user_id ?? 0) : 0;
+  if (assignedHod > 0 && assignedHod !== approverUserId) {
+    return {
+      status: 403,
+      body: { success: false, message: "Only the assigned Head of Department can recommend this repair." },
+    };
+  }
+
+  const lineIds = await fetchRepairBatchLineIds(repairId, columns);
+  if (lineIds.length === 0) {
+    return { status: 404, body: { success: false, message: "Repair request was not found." } };
+  }
+
+  const updateParts = [];
+  const updateValues = [];
+
+  if (columns.has("approval_status")) {
+    updateParts.push("approval_status = ?");
+    updateValues.push("pending_registrar");
+  }
+
+  if (columns.has("hod_approved_date")) {
+    updateParts.push("hod_approved_date = CURRENT_TIMESTAMP");
+  }
+
+  if (columns.has("hod_approved_by_id")) {
+    updateParts.push("hod_approved_by_id = ?");
+    updateValues.push(approverUserId);
+  }
+
+  if (updateParts.length === 0) {
+    return { status: 500, body: { success: false, message: "Unable to update repair approval status." } };
+  }
+
+  const placeholders = lineIds.map(() => "?").join(", ");
+  await pool.execute(
+    `UPDATE item_repairs SET ${updateParts.join(", ")} WHERE id IN (${placeholders})`,
+    [...updateValues, ...lineIds]
+  );
+
+  await notifyApprovalStage(pool, {
+    userIds: [record.initiated_by_id],
+    workflow: "repair",
+    stage: "hod",
+    entityId: repairId,
+    entityLabel: `Repair #${repairId}`,
+    link: `/inventory/repairs/${repairId}`,
+  });
+
+  return {
+    status: 200,
+    body: {
+      success: true,
+      message: "Repair recommended by Head of Department and forwarded to the registrar.",
+      approvalStatus: "pending_registrar",
+      repairIds: lineIds,
+    },
+  };
+};
+
+const rejectRepairByHod = async ({ repairId, approverUserId, reason }) => {
+  const columns = await ensureItemRepairsWorkflow();
+  if (!columns) {
+    return { status: 404, body: { success: false, message: "Repair records are not available." } };
+  }
+
+  const [rows] = await pool.execute(`SELECT * FROM item_repairs WHERE id = ? LIMIT 1`, [repairId]);
+  if (rows.length === 0) {
+    return { status: 404, body: { success: false, message: "Repair request not found." } };
+  }
+
+  const record = rows[0];
+  const currentApprovalStatus = resolveRepairApprovalStatus(record, columns);
+  if (!["pending_hod", "pending_staff"].includes(currentApprovalStatus)) {
+    return {
+      status: 409,
+      body: { success: false, message: "This repair is not awaiting HOD recommendation." },
+    };
+  }
+
+  const assignedHod = columns.has("source_hod_user_id") ? Number(record.source_hod_user_id ?? 0) : 0;
+  if (assignedHod > 0 && assignedHod !== approverUserId) {
+    return {
+      status: 403,
+      body: { success: false, message: "Only the assigned Head of Department can reject this repair." },
+    };
+  }
+
+  const lineIds = await fetchRepairBatchLineIds(repairId, columns);
+  if (lineIds.length === 0) {
+    return { status: 404, body: { success: false, message: "Repair request was not found." } };
+  }
+
+  const updateParts = [];
+  const updateValues = [];
+
+  if (columns.has("approval_status")) {
+    updateParts.push("approval_status = ?");
+    updateValues.push("rejected");
+  }
+
+  if (columns.has("status")) {
+    updateParts.push("status = ?");
+    updateValues.push("rejected");
+  }
+
+  if (columns.has("rejection_reason")) {
+    updateParts.push("rejection_reason = ?");
+    updateValues.push(reason);
+  }
+
+  if (updateParts.length === 0) {
+    return { status: 500, body: { success: false, message: "Unable to reject this repair request." } };
+  }
+
+  const placeholders = lineIds.map(() => "?").join(", ");
+  await pool.execute(
+    `UPDATE item_repairs SET ${updateParts.join(", ")} WHERE id IN (${placeholders})`,
+    [...updateValues, ...lineIds]
+  );
+
+  return {
+    status: 200,
+    body: {
+      success: true,
+      message: "Repair request rejected by Head of Department.",
+      approvalStatus: "rejected",
+      repairIds: lineIds,
+    },
+  };
+};
+
+const approveRepairByRegistrar = async ({ repairId, approverUserId }) => {
+  const columns = await ensureItemRepairsWorkflow();
+  if (!columns) {
+    return { status: 404, body: { success: false, message: "Repair records are not available." } };
+  }
+
+  const [rows] = await pool.execute(`SELECT * FROM item_repairs WHERE id = ? LIMIT 1`, [repairId]);
+  if (rows.length === 0) {
+    return { status: 404, body: { success: false, message: "Repair request not found." } };
+  }
+
+  const record = rows[0];
+  const currentApprovalStatus = resolveRepairApprovalStatus(record, columns);
+  if (currentApprovalStatus !== "pending_registrar") {
+    return {
+      status: 409,
+      body: { success: false, message: "This repair is not awaiting registrar approval." },
+    };
+  }
+
+  const lineIds = await fetchRepairBatchLineIds(repairId, columns);
+  if (lineIds.length === 0) {
+    return { status: 404, body: { success: false, message: "Repair request was not found." } };
+  }
+
+  const updateParts = [];
+  const updateValues = [];
+
+  if (columns.has("approval_status")) {
+    updateParts.push("approval_status = ?");
+    updateValues.push("approved");
+  }
+
+  if (columns.has("status")) {
+    updateParts.push("status = ?");
+    updateValues.push("in_progress");
+  }
+
+  if (columns.has("registrar_approved_date")) {
+    updateParts.push("registrar_approved_date = CURRENT_TIMESTAMP");
+  }
+
+  if (columns.has("registrar_approved_by_id")) {
+    updateParts.push("registrar_approved_by_id = ?");
+    updateValues.push(approverUserId);
+  }
+
+  if (updateParts.length === 0) {
+    return { status: 500, body: { success: false, message: "Unable to update repair approval status." } };
+  }
+
+  const placeholders = lineIds.map(() => "?").join(", ");
+  await pool.execute(
+    `UPDATE item_repairs SET ${updateParts.join(", ")} WHERE id IN (${placeholders})`,
+    [...updateValues, ...lineIds]
+  );
+
+  await notifyApprovalStage(pool, {
+    userIds: [record.initiated_by_id],
+    workflow: "repair",
+    stage: "registrar",
+    entityId: repairId,
+    entityLabel: `Repair #${repairId}`,
+    link: `/inventory/repairs/${repairId}`,
+  });
+
+  return {
+    status: 200,
+    body: {
+      success: true,
+      message: "Repair approved by registrar. Send the repair form to the General Administration Division.",
+      approvalStatus: "approved",
+      repairIds: lineIds,
+    },
+  };
+};
+
+const rejectRepairByRegistrar = async ({ repairId, reason }) => {
+  const columns = await ensureItemRepairsWorkflow();
+  if (!columns) {
+    return { status: 404, body: { success: false, message: "Repair records are not available." } };
+  }
+
+  const [rows] = await pool.execute(`SELECT * FROM item_repairs WHERE id = ? LIMIT 1`, [repairId]);
+  if (rows.length === 0) {
+    return { status: 404, body: { success: false, message: "Repair request not found." } };
+  }
+
+  const record = rows[0];
+  const currentApprovalStatus = resolveRepairApprovalStatus(record, columns);
+  if (currentApprovalStatus !== "pending_registrar") {
+    return {
+      status: 409,
+      body: { success: false, message: "This repair is not awaiting registrar approval." },
+    };
+  }
+
+  const lineIds = await fetchRepairBatchLineIds(repairId, columns);
+  if (lineIds.length === 0) {
+    return { status: 404, body: { success: false, message: "Repair request was not found." } };
+  }
+
+  const updateParts = [];
+  const updateValues = [];
+
+  if (columns.has("approval_status")) {
+    updateParts.push("approval_status = ?");
+    updateValues.push("rejected");
+  }
+
+  if (columns.has("status")) {
+    updateParts.push("status = ?");
+    updateValues.push("rejected");
+  }
+
+  if (columns.has("rejection_reason")) {
+    updateParts.push("rejection_reason = ?");
+    updateValues.push(reason);
+  }
+
+  if (updateParts.length === 0) {
+    return { status: 500, body: { success: false, message: "Unable to reject this repair request." } };
+  }
+
+  const placeholders = lineIds.map(() => "?").join(", ");
+  await pool.execute(
+    `UPDATE item_repairs SET ${updateParts.join(", ")} WHERE id IN (${placeholders})`,
+    [...updateValues, ...lineIds]
+  );
+
+  return {
+    status: 200,
+    body: {
+      success: true,
+      message: "Repair request rejected by registrar.",
+      approvalStatus: "rejected",
+      repairIds: lineIds,
+    },
+  };
+};
+
+app.post(
+  "/api/item-repairs/:id/approve-hod",
+  withDatabase(async (req, res) => {
+    const repairId = Number(req.params.id);
+    const approverUserId = Number(req.body?.approverUserId ?? req.body?.approver_user_id ?? 0);
+
+    if (!Number.isInteger(repairId) || repairId <= 0) {
+      return res.status(400).json({ success: false, message: "A valid repair id is required." });
     }
 
-    const result = await approveTransferDisposalByRegistrar({
-      tableName: "item_transfers",
-      ensureColumns: ensureItemTransfersWorkflow,
-      requestId,
-      approverUserId,
-      nextOperationalStatus: "pending",
-    });
+    if (!Number.isInteger(approverUserId) || approverUserId <= 0) {
+      return res.status(400).json({ success: false, message: "A valid approver user id is required." });
+    }
 
+    const result = await approveRepairByHod({ repairId, approverUserId });
     return res.status(result.status).json(result.body);
+  })
+);
+
+app.post(
+  "/api/item-repairs/:id/reject-hod",
+  withDatabase(async (req, res) => {
+    const repairId = Number(req.params.id);
+    const approverUserId = Number(req.body?.approverUserId ?? req.body?.approver_user_id ?? 0);
+    const reason = String(req.body?.reason || "Rejected by Head of Department").trim();
+
+    if (!Number.isInteger(repairId) || repairId <= 0) {
+      return res.status(400).json({ success: false, message: "A valid repair id is required." });
+    }
+
+    if (!Number.isInteger(approverUserId) || approverUserId <= 0) {
+      return res.status(400).json({ success: false, message: "A valid approver user id is required." });
+    }
+
+    const result = await rejectRepairByHod({ repairId, approverUserId, reason });
+    return res.status(result.status).json(result.body);
+  })
+);
+
+app.post(
+  "/api/item-repairs/:id/approve-registrar",
+  withDatabase(async (req, res) => {
+    const repairId = Number(req.params.id);
+    const approverUserId = Number(req.body?.approverUserId ?? req.body?.approver_user_id ?? 0);
+
+    if (!Number.isInteger(repairId) || repairId <= 0) {
+      return res.status(400).json({ success: false, message: "A valid repair id is required." });
+    }
+
+    if (!Number.isInteger(approverUserId) || approverUserId <= 0) {
+      return res.status(400).json({ success: false, message: "A valid approver user id is required." });
+    }
+
+    const result = await approveRepairByRegistrar({ repairId, approverUserId });
+    return res.status(result.status).json(result.body);
+  })
+);
+
+app.post(
+  "/api/item-repairs/:id/reject",
+  withDatabase(async (req, res) => {
+    const repairId = Number(req.params.id);
+    const reason = String(req.body?.reason || "Rejected by Registrar").trim();
+
+    if (!Number.isInteger(repairId) || repairId <= 0) {
+      return res.status(400).json({ success: false, message: "A valid repair id is required." });
+    }
+
+    const result = await rejectRepairByRegistrar({ repairId, reason });
+    return res.status(result.status).json(result.body);
+  })
+);
+
+app.post(
+  "/api/item-repairs/:id/receive",
+  withDatabase(async (req, res) => {
+    const repairId = Number(req.params.id);
+    const repairedBy = String(req.body?.repairedBy ?? req.body?.repaired_by ?? "").trim();
+    const repairCost = Number(req.body?.repairCost ?? req.body?.repair_cost ?? 0);
+    const receivedDate = String(req.body?.receivedDate ?? req.body?.received_date ?? "").trim();
+    const columns = await ensureItemRepairsWorkflow();
+
+    if (!columns) {
+      return res.status(404).json({ success: false, message: "Repair records are not available." });
+    }
+
+    if (!Number.isInteger(repairId) || repairId <= 0) {
+      return res.status(400).json({ success: false, message: "A valid repair id is required." });
+    }
+
+    if (!receivedDate) {
+      return res.status(400).json({ success: false, message: "Received date is required." });
+    }
+
+    const [anchorRows] = await pool.execute("SELECT * FROM item_repairs WHERE id = ? LIMIT 1", [repairId]);
+    if (anchorRows.length === 0) {
+      return res.status(404).json({ success: false, message: "Repair request was not found." });
+    }
+
+    const anchor = anchorRows[0];
+    const currentApprovalStatus = resolveRepairApprovalStatus(anchor, columns);
+    if (currentApprovalStatus !== "approved" && String(anchor.status || "").toLowerCase() !== "in_progress") {
+      return res.status(409).json({ success: false, message: "This repair is not ready to be received yet." });
+    }
+
+    const lineIds = await fetchRepairBatchLineIds(repairId, columns);
+    if (lineIds.length === 0) {
+      return res.status(404).json({ success: false, message: "Repair request was not found." });
+    }
+
+    const updateParts = [];
+    const updateValues = [];
+
+    if (columns.has("approval_status")) {
+      updateParts.push("approval_status = ?");
+      updateValues.push("completed");
+    }
+
+    if (columns.has("status")) {
+      updateParts.push("status = ?");
+      updateValues.push("completed");
+    }
+
+    if (columns.has("repaired_by")) {
+      updateParts.push("repaired_by = ?");
+      updateValues.push(repairedBy);
+    }
+
+    if (columns.has("repair_cost")) {
+      updateParts.push("repair_cost = ?");
+      updateValues.push(Number.isFinite(repairCost) ? repairCost : null);
+    }
+
+    if (columns.has("received_date")) {
+      updateParts.push("received_date = ?");
+      updateValues.push(receivedDate);
+    }
+
+    if (columns.has("completed_date")) {
+      updateParts.push("completed_date = CURRENT_TIMESTAMP");
+    }
+
+    if (updateParts.length === 0) {
+      return res.status(500).json({ success: false, message: "Unable to update repair completion status." });
+    }
+
+    const placeholders = lineIds.map(() => "?").join(", ");
+    await pool.execute(
+      `UPDATE item_repairs SET ${updateParts.join(", ")} WHERE id IN (${placeholders})`,
+      [...updateValues, ...lineIds]
+    );
+
+    const itemColumns = await ensureInventoryItemsColumns();
+    const itemIdColumn = getItemIdColumn(itemColumns);
+    const itemIds = await (async () => {
+      const [lineRows] = await pool.execute(
+        `SELECT item_id FROM item_repairs WHERE id IN (${lineIds.map(() => "?").join(", ")})`,
+        lineIds
+      );
+      return [...new Set(lineRows.map((row) => Number(row.item_id)).filter((id) => id > 0))];
+    })();
+
+    if (itemIdColumn && itemIds.length > 0) {
+      const itemPlaceholders = itemIds.map(() => "?").join(", ");
+      const itemUpdateParts = [];
+      const itemUpdateValues = [];
+
+      if (itemColumns.has("status")) {
+        itemUpdateParts.push("status = ?");
+        itemUpdateValues.push("available");
+      }
+
+      if (itemColumns.has("remarks")) {
+        itemUpdateParts.push(
+          `remarks = TRIM(CONCAT(COALESCE(remarks, ''), CASE WHEN COALESCE(remarks, '') = '' THEN '' ELSE '\n' END, ?))`
+        );
+        itemUpdateValues.push(`Repaired and received via repair #${repairId}.`);
+      }
+
+      if (itemUpdateParts.length > 0) {
+        await pool.execute(
+          `UPDATE ${DB_ITEMS_TABLE} SET ${itemUpdateParts.join(", ")} WHERE ${itemIdColumn} IN (${itemPlaceholders})`,
+          [...itemUpdateValues, ...itemIds]
+        );
+      }
+    }
+
+    return res.json({
+      success: true,
+      message: "Repair received and item(s) returned to available use.",
+      approvalStatus: "completed",
+      repairIds: lineIds,
+      receivedDate,
+    });
   })
 );
 
@@ -11448,8 +12191,13 @@ app.get(
     const inventoryOfficerUserId = Number(
       req.query?.inventoryOfficerUserId ?? req.query?.inventory_officer_user_id ?? 0
     );
+    const sourceHodUserId = Number(
+      req.query?.sourceHodUserId ?? req.query?.source_hod_user_id ?? 0
+    );
+    const approvalStatus = String(req.query?.approvalStatus ?? req.query?.approval_status ?? "").trim().toLowerCase();
     const repairScope = String(req.query?.repairScope ?? "all").trim().toLowerCase();
     const hasInventoryOfficerFilter = Number.isInteger(inventoryOfficerUserId) && inventoryOfficerUserId > 0;
+    const hasSourceHodFilter = Number.isInteger(sourceHodUserId) && sourceHodUserId > 0;
     const [tableRows] = await pool.query("SHOW TABLES");
     const tableNames = new Set(tableRows.map((row) => Object.values(row)[0]));
     const itemColumns = tableNames.has(DB_ITEMS_TABLE) ? await getTableColumns(DB_ITEMS_TABLE) : new Set();
@@ -11478,6 +12226,21 @@ app.get(
       }
     }
 
+    if (hasSourceHodFilter) {
+      whereParts.push("ir.source_hod_user_id = ?");
+      params.push(sourceHodUserId);
+    }
+
+    if (approvalStatus) {
+      if (columns.has("approval_status")) {
+        whereParts.push("LOWER(COALESCE(ir.approval_status, '')) = ?");
+        params.push(approvalStatus);
+      } else {
+        whereParts.push("LOWER(COALESCE(ir.status, '')) = ?");
+        params.push(approvalStatus);
+      }
+    }
+
     const inventoryColumns = await ensureInventoriesLocationColumn();
     const inventoryNameSelect = buildInventoryAliasNameSelect("inv", inventoryColumns, "inventory_name");
     const inventoryJoin = buildInventoryAliasJoin("inv", inventoryColumns, "ir.inventory_id");
@@ -11496,6 +12259,7 @@ app.get(
           ir.fault_description,
           ${columns.has("repair_notes") ? "ir.repair_notes" : "NULL AS repair_notes"},
           ir.status,
+          ${columns.has("approval_status") ? "ir.approval_status" : "NULL AS approval_status"},
           ${repairDateCol} AS repair_date,
           initiator.${userNameColumn} AS initiated_by_name
         FROM item_repairs ir
@@ -11519,6 +12283,7 @@ app.get(
         faultDescription: row.fault_description || "",
         repairNotes: row.repair_notes || "",
         status: row.status || "submitted",
+        approvalStatus: row.approval_status || row.status || "submitted",
         repairDate: row.repair_date ? new Date(row.repair_date).toISOString().split("T")[0] : "",
         initiatedBy: row.initiated_by_name || "-",
       })),
@@ -11558,6 +12323,15 @@ app.get(
           ${columns.has("repair_notes") ? "ir.repair_notes" : "NULL AS repair_notes"},
           ${columns.has("contact_person_user_id") ? "ir.contact_person_user_id" : "NULL AS contact_person_user_id"},
           ir.status,
+          ${columns.has("approval_status") ? "ir.approval_status" : "NULL AS approval_status"},
+          ${columns.has("hod_approved_date") ? "ir.hod_approved_date" : "NULL AS hod_approved_date"},
+          ${columns.has("hod_approved_by_id") ? "ir.hod_approved_by_id" : "NULL AS hod_approved_by_id"},
+          ${columns.has("registrar_approved_date") ? "ir.registrar_approved_date" : "NULL AS registrar_approved_date"},
+          ${columns.has("registrar_approved_by_id") ? "ir.registrar_approved_by_id" : "NULL AS registrar_approved_by_id"},
+          ${columns.has("rejection_reason") ? "ir.rejection_reason" : "NULL AS rejection_reason"},
+          ${columns.has("repaired_by") ? "ir.repaired_by" : "NULL AS repaired_by"},
+          ${columns.has("repair_cost") ? "ir.repair_cost" : "NULL AS repair_cost"},
+          ${columns.has("received_date") ? "ir.received_date" : "NULL AS received_date"},
           ir.${repairDateCol} AS repair_date,
           ${columns.has("initiated_by_id") ? "ir.initiated_by_id" : "NULL AS initiated_by_id"},
           initiator.${userNameColumn} AS initiated_by_name,
@@ -11664,6 +12438,15 @@ app.get(
         officerMobileNo: anchor.initiated_by_mobile ?? "",
         officerExtensionNo: anchor.initiated_by_extension ?? "",
         status: anchor.status || "submitted",
+        approvalStatus: anchor.approval_status || anchor.status || "submitted",
+        hodApprovedDate: anchor.hod_approved_date ? new Date(anchor.hod_approved_date).toISOString().split("T")[0] : "",
+        hodApprovedById: anchor.hod_approved_by_id ?? null,
+        registrarApprovedDate: anchor.registrar_approved_date ? new Date(anchor.registrar_approved_date).toISOString().split("T")[0] : "",
+        registrarApprovedById: anchor.registrar_approved_by_id ?? null,
+        rejectionReason: anchor.rejection_reason || "",
+        repairedBy: anchor.repaired_by || "",
+        repairCost: anchor.repair_cost ?? null,
+        receivedDate: anchor.received_date ? new Date(anchor.received_date).toISOString().split("T")[0] : "",
         repairDate: anchor.repair_date ? new Date(anchor.repair_date).toISOString().split("T")[0] : "",
         initiatedById: anchor.initiated_by_id ?? null,
         initiatedBy: anchor.initiated_by_name || "-",
@@ -11718,6 +12501,7 @@ app.post(
     const schema = await getAuthSchema();
     const inventoryColumns = officerCheck.inventoryColumns || (await ensureInventoriesLocationColumn());
     const inventoryIdColumn = getInventoryIdColumn(inventoryColumns);
+    const sourceHodUserId = await resolveSourceInventoryHodUserId(inventoryId, inventoryColumns, schema);
     const departmentIdColumn = inventoryColumns.has("department_id") ? "department_id" : null;
     let inventoryDepartmentId = null;
 
@@ -11819,8 +12603,12 @@ app.post(
       }
 
       const insertColumns = ["item_id", "inventory_id", "quantity", "fault_description", "status"];
-      const insertValues = [itemId, inventoryId, quantity, faultDescription, "submitted"];
+      const insertValues = [itemId, inventoryId, quantity, faultDescription, "pending_hod"];
 
+      if (columns.has("approval_status")) {
+        insertColumns.push("approval_status");
+        insertValues.push("pending_hod");
+      }
       if (columns.has("repair_notes")) {
         insertColumns.push("repair_notes");
         insertValues.push(repairNotes);
@@ -11836,6 +12624,10 @@ app.post(
       if (columns.has("contact_person_user_id") && hasContactPerson) {
         insertColumns.push("contact_person_user_id");
         insertValues.push(contactPersonUserId);
+      }
+      if (columns.has("source_hod_user_id") && Number.isInteger(sourceHodUserId) && sourceHodUserId > 0) {
+        insertColumns.push("source_hod_user_id");
+        insertValues.push(sourceHodUserId);
       }
       if (columns.has("created_date")) {
         insertColumns.push("created_date");

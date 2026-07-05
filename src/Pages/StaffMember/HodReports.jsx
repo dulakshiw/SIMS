@@ -17,8 +17,10 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000
 const REPORT_TABS = [
   { id: "department-users", label: "Department Users", icon: "people" },
   { id: "inventories", label: "Inventories", icon: "inventory_2" },
-  { id: "assets", label: "Total Assets", icon: "category" },
   { id: "issued-items", label: "Items Issued to Staff", icon: "assignment_ind" },
+  { id: "transfers", label: "Transfers", icon: "swap_horiz" },
+  { id: "disposals", label: "Disposals", icon: "category" },
+  { id: "repairs", label: "Repairs", icon: "build" },
 ];
 
 const EMPTY_REPORTS = {
@@ -33,6 +35,9 @@ const EMPTY_REPORTS = {
   inventories: [],
   assets: [],
   issuedItems: [],
+  transfers: [],
+  disposals: [],
+  repairs: [],
 };
 
 const formatRoleLabel = (role) =>
@@ -136,6 +141,66 @@ const HodReports = () => {
       date: item.date || item.issuedDate || "—",
     })),
     [reports.issuedItems, departmentName]
+  );
+
+  const renderApprovalStatus = (value) => {
+    const s = String(value || "").toLowerCase();
+    const label = String(value || "—").replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+    let variant = "warning";
+    if (s.includes("complet") || s === "approved" || s === "repaired") variant = "success";
+    else if (s.includes("reject") || s.includes("cancel")) variant = "danger";
+    else if (s.includes("progress")) variant = "primary";
+    else if (s.includes("registrar")) variant = "info";
+    return <Badge label={label} variant={variant} size="sm" />;
+  };
+
+  const transferData = useMemo(
+    () => (reports.transfers || []).map((t) => ({
+      id: t.id,
+      itemName: t.itemName || "—",
+      fromInventory: t.fromInventory || "—",
+      toInventory: t.toInventory || "—",
+      quantity: t.quantity ?? 1,
+      reason: t.reason || "—",
+      approvalStatus: t.approvalStatus || "",
+      transferDate: t.transferDate || "—",
+      completedDate: t.completedDate || "—",
+      initiatedBy: t.initiatedBy || "—",
+      date: t.date || t.transferDate || "—",
+    })),
+    [reports.transfers]
+  );
+
+  const disposalData = useMemo(
+    () => (reports.disposals || []).map((d) => ({
+      id: d.id,
+      itemName: d.itemName || "—",
+      inventory: d.inventory || "—",
+      quantity: d.quantity ?? 1,
+      reason: d.reason || "—",
+      disposalType: d.disposalType || "—",
+      approvalStatus: d.approvalStatus || "",
+      disposalDate: d.disposalDate || "—",
+      initiatedBy: d.initiatedBy || "—",
+      date: d.date || d.disposalDate || "—",
+    })),
+    [reports.disposals]
+  );
+
+  const repairData = useMemo(
+    () => (reports.repairs || []).map((r) => ({
+      id: r.id,
+      itemName: r.itemName || "—",
+      inventory: r.inventory || "—",
+      quantity: r.quantity ?? 1,
+      faultDescription: r.faultDescription || "—",
+      approvalStatus: r.approvalStatus || "",
+      repairCost: r.repairCost || "—",
+      repairDate: r.repairDate || "—",
+      initiatedBy: r.initiatedBy || "—",
+      date: r.date || r.repairDate || "—",
+    })),
+    [reports.repairs]
   );
 
   const stats = useMemo(
@@ -242,6 +307,52 @@ const HodReports = () => {
     { field: "value", label: "Value (LKR)", sortable: true },
   ];
 
+  const transferColumns = [
+    { field: "itemName", label: "Item", sortable: true },
+    { field: "fromInventory", label: "From Inventory", sortable: true },
+    { field: "toInventory", label: "To Inventory", sortable: true },
+    { field: "quantity", label: "Qty", sortable: true },
+    { field: "reason", label: "Reason", sortable: true },
+    {
+      field: "approvalStatus",
+      label: "Status",
+      render: renderApprovalStatus,
+    },
+    { field: "transferDate", label: "Transfer Date", sortable: true },
+    { field: "completedDate", label: "Completed Date", sortable: true },
+    { field: "initiatedBy", label: "Initiated By", sortable: true },
+  ];
+
+  const disposalColumns = [
+    { field: "itemName", label: "Item", sortable: true },
+    { field: "inventory", label: "Inventory", sortable: true },
+    { field: "quantity", label: "Qty", sortable: true },
+    { field: "reason", label: "Reason", sortable: true },
+    { field: "disposalType", label: "Type", sortable: true },
+    {
+      field: "approvalStatus",
+      label: "Status",
+      render: renderApprovalStatus,
+    },
+    { field: "disposalDate", label: "Disposal Date", sortable: true },
+    { field: "initiatedBy", label: "Initiated By", sortable: true },
+  ];
+
+  const repairColumns = [
+    { field: "itemName", label: "Item", sortable: true },
+    { field: "inventory", label: "Inventory", sortable: true },
+    { field: "quantity", label: "Qty", sortable: true },
+    { field: "faultDescription", label: "Fault Description", sortable: true },
+    {
+      field: "approvalStatus",
+      label: "Status",
+      render: renderApprovalStatus,
+    },
+    { field: "repairCost", label: "Repair Cost (LKR)", sortable: true },
+    { field: "repairDate", label: "Repair Date", sortable: true },
+    { field: "initiatedBy", label: "Initiated By", sortable: true },
+  ];
+
   const activeTabConfig = useMemo(() => {
     switch (activeTab) {
       case "inventories":
@@ -288,6 +399,39 @@ const HodReports = () => {
           dateField: "date",
           showDateFilters: true,
         };
+      case "transfers":
+        return {
+          rows: transferData,
+          columns: transferColumns,
+          searchFields: ["itemName", "fromInventory", "toInventory", "reason", "approvalStatus", "initiatedBy"],
+          searchPlaceholder: "Search by item, inventory, reason, or status...",
+          reportTitle: "Department Item Transfers Report",
+          fileNamePrefix: "department-transfers",
+          dateField: "date",
+          showDateFilters: true,
+        };
+      case "disposals":
+        return {
+          rows: disposalData,
+          columns: disposalColumns,
+          searchFields: ["itemName", "inventory", "reason", "disposalType", "approvalStatus", "initiatedBy"],
+          searchPlaceholder: "Search by item, inventory, reason, or type...",
+          reportTitle: "Department Item Disposals Report",
+          fileNamePrefix: "department-disposals",
+          dateField: "date",
+          showDateFilters: true,
+        };
+      case "repairs":
+        return {
+          rows: repairData,
+          columns: repairColumns,
+          searchFields: ["itemName", "inventory", "faultDescription", "approvalStatus", "initiatedBy"],
+          searchPlaceholder: "Search by item, inventory, fault, or status...",
+          reportTitle: "Department Item Repairs Report",
+          fileNamePrefix: "department-repairs",
+          dateField: "date",
+          showDateFilters: true,
+        };
       default:
         return {
           rows: departmentUserData,
@@ -306,10 +450,16 @@ const HodReports = () => {
     inventoryData,
     assetData,
     issuedItemData,
+    transferData,
+    disposalData,
+    repairData,
     departmentUserColumns,
     inventoryColumns,
     assetColumns,
     issuedItemColumns,
+    transferColumns,
+    disposalColumns,
+    repairColumns,
   ]);
 
   const activeTabMeta = REPORT_TABS.find((tab) => tab.id === activeTab) || REPORT_TABS[0];

@@ -440,6 +440,15 @@ const CreateRepair = () => {
       return;
     }
 
+    const confirmed = window.confirm(
+      "Submit repair request for the selected item(s)?\n\n" +
+      "This will also prevent the selected item(s) from being included in transfer or disposal workflows while the repair request is active."
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
     try {
       setIsSubmitting(true);
       const response = await fetch(`${API_BASE_URL}/api/item-repairs`, {
@@ -459,7 +468,7 @@ const CreateRepair = () => {
         throw new Error(data.message || data.error || "Failed to submit repair request.");
       }
 
-      setSubmitMessage(data.message || "Repair request submitted successfully.");
+      setSubmitMessage(data.message || "Repair request submitted successfully. The selected item(s) are now reserved from transfer and disposal workflows.");
       setTimeout(() => navigate(repairListPath), 1200);
     } catch (error) {
       setSubmitError(error.message || "Failed to submit repair request.");

@@ -3,6 +3,12 @@ import React, { useState } from "react";
 const Tabs = ({ tabs = [], activeTab = 0, onChange, className = "" }) => {
   const [active, setActive] = useState(activeTab);
 
+  React.useEffect(() => {
+    if (activeTab !== active) {
+      setActive(activeTab);
+    }
+  }, [activeTab, active]);
+
   const handleTabChange = (index) => {
     setActive(index);
     onChange && onChange(index);

@@ -162,8 +162,6 @@ export const ACCOUNT_REQUEST_STATUS = {
   PENDING_DEPT_HEAD: "pending_dept_head",
   PENDING_DEAN: "pending_dean",
   APPROVED_BY_DEPT_HEAD: "approved_by_dept_head",
-  PENDING_ADMIN: "pending_admin",
-  APPROVED_BY_ADMIN: "approved_by_admin",
   REJECTED: "rejected",
 };
 
@@ -182,8 +180,6 @@ export const INVENTORY_REQUEST_STATUS = {
   APPROVED_BY_HOD: "approved_by_hod",
   PENDING_REGISTRAR: "pending_registrar",
   APPROVED_BY_REGISTRAR: "approved_by_registrar",
-  PENDING_ADMIN: "pending_admin",
-  APPROVED_BY_ADMIN: "approved_by_admin",
   COMPLETED: "completed",
   PENDING_STAFF: "pending_hod",
   REJECTED: "rejected",

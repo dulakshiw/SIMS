@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import MainLayout from '../../Components/Layouts/MainLayout';
-import { Badge, Button, Card, Modal, PageHeader, SummaryCard, SummaryCardsGrid, Table } from '../../Components/UI';
+import { Badge, Button, Card, Modal, PageHeader, SummaryCard, SummaryCardsGrid, Table, Tabs } from '../../Components/UI';
 import {
   ACCOUNT_REQUEST_STATUS,
   ACCOUNT_REQUEST_STATUS_META,
@@ -22,7 +22,7 @@ const ACCOUNT_REQUEST_LABELS = {
 
 const HOD_PENDING_INVENTORY_STATUSES = new Set(['pending_hod', 'pending_staff']);
 
-const PENDING_TAB_KEYS = new Set(['accounts', 'inventory', 'transfers', 'disposals', 'item-recommend', 'item-lab']);
+const PENDING_TAB_KEYS = new Set(['accounts', 'inventory', 'movements', 'item-recommend', 'item-lab']);
 
 const resolveInitialTab = (stateTab) => (
   PENDING_TAB_KEYS.has(stateTab) ? stateTab : 'accounts'
@@ -59,14 +59,17 @@ const HodPendingTasks = () => {
   const [itemLabRequests, setItemLabRequests] = useState([]);
   const [transferRequests, setTransferRequests] = useState([]);
   const [disposalRequests, setDisposalRequests] = useState([]);
+  const [repairRequests, setRepairRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [actionLoadingKey, setActionLoadingKey] = useState(null);
   const [error, setError] = useState('');
   const [inventoryLoadError, setInventoryLoadError] = useState('');
   const [transferLoadError, setTransferLoadError] = useState('');
   const [disposalLoadError, setDisposalLoadError] = useState('');
+  const [repairLoadError, setRepairLoadError] = useState('');
   const [itemLoadError, setItemLoadError] = useState('');
   const [activeReviewTab, setActiveReviewTab] = useState(() => resolveInitialTab(location.state?.activeTab));
+  const [activeMovementTabIndex, setActiveMovementTabIndex] = useState(0);
   const [selectedReviewRow, setSelectedReviewRow] = useState(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
 
@@ -174,6 +177,33 @@ const HodPendingTasks = () => {
         setDisposalRequests([]);
         if (!hodUserId) {
           setDisposalLoadError('Your profile is missing a user id, so disposal requests assigned to you cannot be loaded.');
+        }
+      }
+
+      const repairUrl = Number.isInteger(hodUserId) && hodUserId > 0
+        ? `${API_BASE_URL}/api/item-repairs?sourceHodUserId=${hodUserId}&approvalStatus=pending_hod`
+        : null;
+
+      if (repairUrl) {
+        try {
+          const repairResponse = await fetch(repairUrl);
+          const repairData = await repairResponse.json().catch(() => ({}));
+
+          if (!repairResponse.ok || !repairData.success) {
+            setRepairRequests([]);
+            setRepairLoadError(repairData.message || repairData.error || 'Failed to load repair requests.');
+          } else {
+            setRepairRequests(repairData.repairs || []);
+            setRepairLoadError('');
+          }
+        } catch (repairErr) {
+          setRepairRequests([]);
+          setRepairLoadError(repairErr.message || 'Failed to load repair requests.');
+        }
+      } else {
+        setRepairRequests([]);
+        if (!hodUserId) {
+          setRepairLoadError('Your profile is missing a user id, so repair requests assigned to you cannot be loaded.');
         }
       }
 
@@ -340,6 +370,25 @@ const HodPendingTasks = () => {
     return mapPendingRows(rows);
   }, [disposalRequests]);
 
+  const pendingRepairRows = useMemo(() => {
+    const rows = repairRequests.map((repair) => ({
+      queueKey: `repair:${repair.id}`,
+      source: 'repair',
+      id: repair.id,
+      requestLabel: 'Item repair',
+      requestedBy: repair.initiatedBy || '—',
+      itemName: repair.itemName || '—',
+      location: repair.inventory || '—',
+      destination: '—',
+      requestedDate: repair.repairDate || '',
+      statusKey: repair.approvalStatus || 'pending_hod',
+      statusKind: 'repair',
+      _repair: repair,
+    }));
+
+    return mapPendingRows(rows);
+  }, [repairRequests]);
+
   const pendingItemRecommendRows = useMemo(() => {
     const rows = itemRecommendRequests
       .filter((r) => ITEM_REQUEST_PENDING_REQUESTER_STATUSES.has(String(r.approvalStatus || '').toLowerCase()))
@@ -391,10 +440,7 @@ const HodPendingTasks = () => {
       const config = ITEM_REQUEST_STATUS_META[row.statusKey] || { label: row.statusKey, variant: 'secondary' };
       return <Badge label={config.label} variant={config.variant} size="sm" />;
     }
-    if (row.statusKind === 'transfer') {
-      return <Badge label="Pending HOD recommendation" variant="warning" size="sm" />;
-    }
-    if (row.statusKind === 'disposal') {
+    if (row.statusKind === 'transfer' || row.statusKind === 'disposal' || row.statusKind === 'repair') {
       return <Badge label="Pending HOD recommendation" variant="warning" size="sm" />;
     }
     const config = INVENTORY_REQUEST_STATUS_META[row.statusKey] || { label: row.statusKey, variant: 'secondary' };
@@ -467,6 +513,26 @@ const HodPendingTasks = () => {
     { field: 'itemName', label: 'Item', sortable: true },
     { field: 'location', label: 'Inventory', sortable: true },
     { field: 'requestedDate', label: 'Disposal date', sortable: true },
+    {
+      field: 'statusKey',
+      label: 'Status',
+      sortable: true,
+      render: (_value, row) => statusBadge(row),
+    },
+  ];
+
+  const movementColumns = [
+    {
+      field: 'requestLabel',
+      label: 'Request type',
+      sortable: true,
+      render: (value) => <Badge label={value} variant="info" size="sm" />,
+    },
+    { field: 'requestedBy', label: 'Submitted by', sortable: true },
+    { field: 'itemName', label: 'Item', sortable: true },
+    { field: 'location', label: 'From / Inventory', sortable: true },
+    { field: 'destination', label: 'To / Destination', sortable: true },
+    { field: 'requestedDate', label: 'Date', sortable: true },
     {
       field: 'statusKey',
       label: 'Status',
@@ -574,6 +640,53 @@ const HodPendingTasks = () => {
 
   const updateDisposalStatus = (disposalId) => {
     setDisposalRequests((prev) => prev.filter((disposal) => disposal.id !== disposalId));
+  };
+
+  const updateRepairStatus = (repairId) => {
+    setRepairRequests((prev) => prev.filter((repair) => repair.id !== repairId));
+  };
+
+  const handleRepairAction = async (repair, actionType) => {
+    const isApprove = actionType === 'approve';
+    const confirmed = window.confirm(
+      isApprove
+        ? `Recommend this repair request for "${repair.itemName}" from "${repair.inventory}" and forward it to the registrar?`
+        : `Reject this repair request for "${repair.itemName}" from "${repair.inventory}"?`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setActionLoadingKey(`repair:${repair.id}`);
+      const hodUserId = Number(currentUser.id ?? 0);
+      const url = isApprove
+        ? `${API_BASE_URL}/api/item-repairs/${repair.id}/approve-hod`
+        : `${API_BASE_URL}/api/item-repairs/${repair.id}/reject-hod`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(
+          isApprove
+            ? { approverUserId: hodUserId }
+            : { approverUserId: hodUserId, reason: 'Rejected by Head of Department' }
+        ),
+      });
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || data.error || `Failed to ${actionType} repair request.`);
+      }
+
+      updateRepairStatus(repair.id);
+      setIsDetailModalOpen(false);
+      setSelectedReviewRow(null);
+    } catch (actionError) {
+      window.alert(actionError.message || `Failed to ${actionType} repair request.`);
+    } finally {
+      setActionLoadingKey(null);
+    }
   };
 
   const handleDisposalAction = async (disposal, actionType) => {
@@ -813,6 +926,10 @@ const HodPendingTasks = () => {
       handleDisposalAction(row._disposal, actionType);
       return;
     }
+    if (row.source === 'repair') {
+      handleRepairAction(row._repair, actionType);
+      return;
+    }
     handleInventoryAction(row._inventory, actionType);
   };
 
@@ -938,6 +1055,18 @@ const HodPendingTasks = () => {
     { label: 'Description', value: disposal.description, fullWidth: true },
   ];
 
+  const buildRepairDetailFields = (repair) => [
+    { label: 'Request type', value: 'Item repair' },
+    { label: 'Item', value: repair.itemName },
+    { label: 'Inventory', value: repair.inventory },
+    { label: 'Submitted by', value: repair.initiatedBy },
+    { label: 'Repair date', value: repair.repairDate },
+    { label: 'Quantity', value: repair.quantity },
+    { label: 'Status', value: repair.approvalStatus ? repair.approvalStatus.replace(/_/g, ' ') : 'Pending HOD recommendation' },
+    { label: 'Fault description', value: repair.faultDescription, fullWidth: true },
+    { label: 'Repair notes', value: repair.repairNotes, fullWidth: true },
+  ];
+
   const detailModalTitle = selectedReviewRow
     ? (
       selectedReviewRow.source === 'account'
@@ -948,7 +1077,9 @@ const HodPendingTasks = () => {
             ? 'Item transfer request'
             : selectedReviewRow.source === 'disposal'
               ? 'Item disposal request'
-              : `${INVENTORY_REQUEST_TYPE_LABELS[selectedReviewRow._inventory?.requestType] || 'Inventory'} request`
+              : selectedReviewRow.source === 'repair'
+                ? 'Item repair request'
+                : `${INVENTORY_REQUEST_TYPE_LABELS[selectedReviewRow._inventory?.requestType] || 'Inventory'} request`
     )
     : 'Request details';
 
@@ -962,7 +1093,9 @@ const HodPendingTasks = () => {
             ? selectedReviewRow._transfer?.itemName
             : selectedReviewRow.source === 'disposal'
               ? selectedReviewRow._disposal?.itemName
-              : selectedReviewRow._inventory?.name
+              : selectedReviewRow.source === 'repair'
+                ? selectedReviewRow._repair?.itemName
+                : selectedReviewRow._inventory?.name
     )
     : null;
 
@@ -976,7 +1109,9 @@ const HodPendingTasks = () => {
             ? buildTransferDetailFields(selectedReviewRow._transfer)
             : selectedReviewRow.source === 'disposal'
               ? buildDisposalDetailFields(selectedReviewRow._disposal)
-              : buildInventoryDetailFields(selectedReviewRow._inventory)
+              : selectedReviewRow.source === 'repair'
+                ? buildRepairDetailFields(selectedReviewRow._repair)
+                : buildInventoryDetailFields(selectedReviewRow._inventory)
     )
     : [];
 
@@ -987,11 +1122,19 @@ const HodPendingTasks = () => {
       ? 'Recommend'
       : selectedReviewRow?.source === 'disposal'
         ? 'Recommend'
-        : 'Accept';
+        : selectedReviewRow?.source === 'repair'
+          ? 'Recommend'
+          : 'Accept';
 
   const isSelectedRowLoading = selectedReviewRow
     ? actionLoadingKey === selectedReviewRow.queueKey
     : false;
+
+  const movementTabs = [
+    { id: 'transfers', label: `Transfers (${pendingTransferRows.length})` },
+    { id: 'disposals', label: `Disposals (${pendingDisposalRows.length})` },
+    { id: 'repairs', label: `Repairs (${pendingRepairRows.length})` },
+  ];
 
   const pendingSummaryCards = [
     {
@@ -1009,18 +1152,11 @@ const HodPendingTasks = () => {
       icon: 'inventory_2',
     },
     {
-      key: 'transfers',
-      title: 'Item Transfers',
-      description: 'Internal inventory transfer requests awaiting your recommendation.',
-      count: pendingTransferRows.length,
-      icon: 'compare_arrows',
-    },
-    {
-      key: 'disposals',
-      title: 'Item Disposals',
-      description: 'Item disposal requests awaiting your recommendation.',
-      count: pendingDisposalRows.length,
-      icon: 'delete_sweep',
+      key: 'movements',
+      title: 'Movements & Repairs',
+      description: 'Item transfers, disposals, and repair requests awaiting your recommendation.',
+      count: pendingTransferRows.length + pendingDisposalRows.length + pendingRepairRows.length,
+      icon: 'swap_horiz',
     },
     {
       key: 'item-recommend',
@@ -1043,6 +1179,9 @@ const HodPendingTasks = () => {
 
   const handleSelectPendingTab = (tabKey) => {
     setActiveReviewTab(tabKey);
+    if (tabKey === 'movements') {
+      setActiveMovementTabIndex(0);
+    }
     closeDetailModal();
   };
 
@@ -1056,10 +1195,22 @@ const HodPendingTasks = () => {
     if (inventoryLoadError && activeReviewTab === 'inventory') {
       return inventoryLoadError;
     }
-    if (transferLoadError && activeReviewTab === 'transfers') {
+    if (activeReviewTab === 'movements') {
+      const activeMovementId = movementTabs[activeMovementTabIndex]?.id;
+      if (activeMovementId === 'repairs' && repairLoadError) {
+        return repairLoadError;
+      }
+      if (activeMovementId === 'transfers' || activeMovementId === 'disposals') {
+        const movementError = [transferLoadError, disposalLoadError].filter(Boolean).join(' ');
+        if (movementError) {
+          return movementError;
+        }
+      }
+    }
+    if (transferLoadError && activeReviewTab === 'movements' && activeMovementTabId === 'transfers') {
       return transferLoadError;
     }
-    if (disposalLoadError && activeReviewTab === 'disposals') {
+    if (disposalLoadError && activeReviewTab === 'movements' && activeMovementTabId === 'disposals') {
       return disposalLoadError;
     }
     if (itemLoadError && (activeReviewTab === 'item-recommend' || activeReviewTab === 'item-lab')) {
@@ -1075,25 +1226,28 @@ const HodPendingTasks = () => {
     return `${activeTabRows.length} request${activeTabRows.length === 1 ? '' : 's'} awaiting your action.`;
   };
 
+  const activeMovementTabId = movementTabs[activeMovementTabIndex]?.id;
   const activeTabRows = activeReviewTab === 'accounts'
     ? pendingAccountRows
     : activeReviewTab === 'inventory'
       ? pendingInventoryRows
-      : activeReviewTab === 'transfers'
-        ? pendingTransferRows
-        : activeReviewTab === 'disposals'
-          ? pendingDisposalRows
-          : activeReviewTab === 'item-recommend'
-            ? pendingItemRecommendRows
-            : pendingItemLabRows;
+      : activeReviewTab === 'movements'
+        ? (activeMovementTabId === 'repairs'
+          ? pendingRepairRows
+          : activeMovementTabId === 'disposals'
+            ? pendingDisposalRows
+            : pendingTransferRows)
+        : activeReviewTab === 'item-recommend'
+          ? pendingItemRecommendRows
+          : pendingItemLabRows;
   const activeTabColumns = activeReviewTab === 'accounts'
     ? accountColumns
     : activeReviewTab === 'inventory'
       ? inventoryColumns
-      : activeReviewTab === 'transfers'
-        ? transferColumns
-        : activeReviewTab === 'disposals'
-          ? disposalColumns
+      : activeReviewTab === 'movements'
+        ? movementColumns
+        : activeReviewTab === 'item-recommend'
+          ? itemColumns
           : itemColumns;
 
   return (
@@ -1130,8 +1284,19 @@ const HodPendingTasks = () => {
             <p className="mb-4 text-sm text-text-light">Updating request...</p>
           ) : null}
 
+          {activeReviewTab === 'movements' ? (
+            <div className="mb-4">
+              <Tabs
+                tabs={movementTabs.map((tab) => ({ label: tab.label }))}
+                activeTab={activeMovementTabIndex}
+                onChange={setActiveMovementTabIndex}
+                className="border-b border-border-light"
+              />
+            </div>
+          ) : null}
+
           <Table
-            key={activeReviewTab}
+            key={`${activeReviewTab}-${activeMovementTabIndex}`}
             columns={activeTabColumns}
             data={activeTabRows}
             onRowClick={handleViewRowDetails}
