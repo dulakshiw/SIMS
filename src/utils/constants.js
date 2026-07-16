@@ -328,6 +328,8 @@ export const REGISTRAR_NAV_ITEMS = [
     nested: true,
     activeTab: "disposal-requests",
   },
+  { id: "registrar-view-inventories", type: "section", label: "Inventories" },
+  { id: "registrar-inventories-list", type: "item", label: "View Inventories", path: "/admin/inventory", icon: "inventory_2", nested: true },
   { id: "registrar-profile", type: "item", label: "Profile", path: "/admin/profile", icon: "person" },
 ];
 
@@ -423,7 +425,14 @@ export const STAFF_INCHARGE_NAV_ITEMS = [
 export const HOD_NAV_ITEMS = [
   { id: 1, label: "Dashboard", path: "/hod/dashboard", icon: "dashboard" },
   { id: 2, label: "Pending Tasks", path: "/hod/pending-tasks", icon: "pending_actions" },
-  { id: "hod-my-requests-menu", type: "section", label: "My Requests", icon: "fact_check" },
+  {
+    id: "hod-approval-history",
+    label: "Approval History",
+    path: "/hod/approval-history",
+    icon: "history",
+    activeTab: "forwarded",
+  },
+  { id: "hod-my-requests-menu", type: "section", label: "Item Requests", icon: "fact_check" },
   {
     id: "hod-request-items",
     type: "item",
@@ -440,20 +449,52 @@ export const HOD_NAV_ITEMS = [
     icon: "receipt_long",
     nested: true,
   },
-  { id: 5, label: "Requests by Staff", path: "/inventory/requests/list/hod", icon: "rule" },
+  {
+    id: "hod-my-issued-items",
+    type: "item",
+    label: "My Issued Items",
+    path: "/inventory/list/hod",
+    icon: "inventory_2",
+    nested: true,
+  },
+  { id: "hod-inventories", label: "Inventories", path: "/hod/inventory", icon: "inventory_2" },
+  { id: 6, label: "Requests by Staff", path: "/inventory/requests/list/hod", icon: "rule" },
   { id: 7, label: "Reports", path: "/reports/hod", icon: "assessment" },
   { id: 8, label: "Profile", path: "/profile/hod", icon: "person" },
+
 ];
 
 export const DEAN_NAV_ITEMS = [
   { id: 1, label: "Dashboard", path: "/dean/dashboard", icon: "dashboard" },
-  { id: 2, label: "Request Items", path: "/inventory/requests/new/dean", icon: "add_circle" },
-  { id: 3, label: "My Requests", path: "/requests/my/dean", icon: "fact_check" },
-  { id: 4, label: "Faculty Inventories", path: "/inventory/list/dean", icon: "inventory_2" },
-  { id: 5, label: "Faculty Requests", path: "/inventory/requests/list/dean", icon: "rule" },
-  { id: 6, label: "Approvals", path: "/requests/approval/dean", icon: "how_to_reg" },
-  { id: 7, label: "Reports", path: "/reports/dean", icon: "assessment" },
-  { id: 8, label: "Profile", path: "/profile/dean", icon: "person" },
+   { id: "dean-my-requests-menu", type: "section", label: "My Requests", icon: "fact_check" },
+  {
+    id: "dean-request-items",
+    type: "item",
+    label: "Request Items",
+    path: "/inventory/requests/new/dean",
+    icon: "add_circle",
+    nested: true,
+  },
+  {
+    id: "dean-my-requests-track",
+    type: "item",
+    label: "My Requests",
+    path: "/requests/my/dean",
+    icon: "receipt_long",
+    nested: true,
+  },
+   {
+    id: "dean-my-issued-items",
+    type: "item",
+    label: "My Issued Items",
+    path: "/inventory/list/dean",
+    icon: "inventory_2",
+    nested: true,
+  },
+  { id: 3, label: "All Inventory Items", path: "/dean/inventory", icon: "inventory_2" },
+  { id: 4, label: "Pending Approvals", path: "/requests/approval/dean", icon: "how_to_reg" },
+  { id: 5, label: "Reports", path: "/reports/dean", icon: "assessment" },
+  { id: 6, label: "Profile", path: "/profile/dean", icon: "person" },
 ];
 
 // Mock data structure

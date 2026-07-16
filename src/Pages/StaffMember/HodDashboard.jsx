@@ -1,37 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import MainLayout from '../../Components/Layouts/MainLayout';
-import { Badge, Button, Card, Modal, PageHeader, SummaryCard, SummaryCardsGrid, Table } from '../../Components/UI';
+import { PageHeader, SummaryCard, SummaryCardsGrid } from '../../Components/UI';
 import {
   ACCOUNT_REQUEST_STATUS,
-  ACCOUNT_REQUEST_STATUS_META,
-  INVENTORY_REQUEST_STATUS_META,
-  INVENTORY_REQUEST_TYPE_LABELS,
   ITEM_REQUEST_PENDING_REQUESTER_STATUSES,
   ITEM_REQUEST_STATUS,
-  ITEM_REQUEST_STATUS_META,
-  ROLE_HIERARCHY,
 } from '../../utils/constants';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
-
-const ACCOUNT_REQUEST_LABELS = {
-  account_creation: 'New account',
-  deactivation: 'Deactivation',
-};
-
 const HOD_PENDING_INVENTORY_STATUSES = new Set(['pending_hod', 'pending_staff']);
-
-const HISTORY_VIEW_KEYS = new Set(['forwarded', 'rejected']);
-
-const INVENTORY_DOWNSTREAM_STATUSES = new Set([
-  'approved_by_hod',
-  'pending_registrar',
-  'approved_by_registrar',
-  'pending_admin',
-  'approved_by_admin',
-  'completed',
-]);
 
 const getStoredUser = () => {
   try {
@@ -41,612 +19,188 @@ const getStoredUser = () => {
   }
 };
 
-const getDepartmentName = (user) => user.departmentName || user.department || 'Department';
-
-const mapPendingRows = (rows) =>
-  [...rows].sort(
-    (a, b) => String(b.requestedDate).localeCompare(String(a.requestedDate)) || a.queueKey.localeCompare(b.queueKey)
-  );
-
-const formatDetailValue = (value) => {
-  if (value === 0) {
-    return '0';
-  }
-  return value || '—';
-};
+const getDepartmentName = (user) => user.departmentName || user.department || '';
 
 const HodDashboard = () => {
   const navigate = useNavigate();
-  const [currentUser, setCurrentUser] = useState(getStoredUser);
-  const [accountRequests, setAccountRequests] = useState([]);
-  const [inventoryRequests, setInventoryRequests] = useState([]);
-  const [itemRecommendRequests, setItemRecommendRequests] = useState([]);
-  const [itemLabRequests, setItemLabRequests] = useState([]);
+  const [inventoryCount, setInventoryCount] = useState(0);
+  const [myIssuedCount, setMyIssuedCount] = useState(0);
+  const [pendingTasksCount, setPendingTasksCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [inventoryLoadError, setInventoryLoadError] = useState('');
-  const [itemLoadError, setItemLoadError] = useState('');
-  const [activeReviewTab, setActiveReviewTab] = useState('forwarded');
-  const [selectedReviewRow, setSelectedReviewRow] = useState(null);
-  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
-
-  const departmentName = getDepartmentName(currentUser);
-
-  const loadRequests = async () => {
-    try {
-      setLoading(true);
-      setError('');
-      setInventoryLoadError('');
-      setItemLoadError('');
-      const storedUser = getStoredUser();
-      setCurrentUser(storedUser);
-
-      const hodUserId = Number(storedUser.id ?? 0);
-      const accountUrl = `${API_BASE_URL}/api/account-requests?requestType=account_creation,deactivation`;
-      const inventoryUrl = Number.isInteger(hodUserId) && hodUserId > 0
-        ? `${API_BASE_URL}/api/inventory-creation-requests?hodUserId=${hodUserId}`
-        : null;
-      const itemRecommendUrl = Number.isInteger(hodUserId) && hodUserId > 0
-        ? `${API_BASE_URL}/api/item-requests?requesterHodUserId=${hodUserId}`
-        : null;
-      const itemLabUrl = Number.isInteger(hodUserId) && hodUserId > 0
-        ? `${API_BASE_URL}/api/item-requests?labHodUserId=${hodUserId}`
-        : null;
-
-      const accountResponse = await fetch(accountUrl);
-      const accountData = await accountResponse.json().catch(() => ({}));
-
-      if (!accountResponse.ok || !accountData.success) {
-        throw new Error(accountData.message || accountData.error || 'Failed to load account requests.');
-      }
-
-      setAccountRequests(accountData.requests || []);
-
-      if (inventoryUrl) {
-        try {
-          const inventoryResponse = await fetch(inventoryUrl);
-          const inventoryData = await inventoryResponse.json().catch(() => ({}));
-
-          if (!inventoryResponse.ok || !inventoryData.success) {
-            setInventoryRequests([]);
-            setInventoryLoadError(inventoryData.message || inventoryData.error || 'Failed to load inventory creation requests.');
-          } else {
-            setInventoryRequests(inventoryData.requests || []);
-          }
-        } catch (invErr) {
-          setInventoryRequests([]);
-          setInventoryLoadError(invErr.message || 'Failed to load inventory creation requests.');
-        }
-      } else {
-        setInventoryRequests([]);
-        if (!hodUserId) {
-          setInventoryLoadError('Your profile is missing a user id, so inventory requests assigned to you cannot be loaded.');
-        }
-      }
-
-      if (itemRecommendUrl || itemLabUrl) {
-        try {
-          const [itemRecommendResponse, itemLabResponse] = await Promise.all([
-            itemRecommendUrl ? fetch(itemRecommendUrl) : Promise.resolve(null),
-            itemLabUrl ? fetch(itemLabUrl) : Promise.resolve(null),
-          ]);
-
-          const itemRecommendData = itemRecommendResponse
-            ? await itemRecommendResponse.json().catch(() => ({}))
-            : { success: true, requests: [] };
-          const itemLabData = itemLabResponse
-            ? await itemLabResponse.json().catch(() => ({}))
-            : { success: true, requests: [] };
-
-          if (itemRecommendResponse && (!itemRecommendResponse.ok || !itemRecommendData.success)) {
-            setItemRecommendRequests([]);
-            setItemLoadError(itemRecommendData.message || itemRecommendData.error || 'Failed to load staff item requests.');
-          } else {
-            setItemRecommendRequests(itemRecommendData.requests || []);
-          }
-
-          if (itemLabResponse && (!itemLabResponse.ok || !itemLabData.success)) {
-            setItemLabRequests([]);
-            if (!itemLoadError) {
-              setItemLoadError(itemLabData.message || itemLabData.error || 'Failed to load lab item requests.');
-            }
-          } else {
-            setItemLabRequests(itemLabData.requests || []);
-          }
-        } catch (itemErr) {
-          setItemRecommendRequests([]);
-          setItemLabRequests([]);
-          setItemLoadError(itemErr.message || 'Failed to load item requests.');
-        }
-      } else {
-        setItemRecommendRequests([]);
-        setItemLabRequests([]);
-        if (!hodUserId) {
-          setItemLoadError('Your profile is missing a user id, so item requests assigned to you cannot be loaded.');
-        }
-      }
-    } catch (loadError) {
-      setAccountRequests([]);
-      setInventoryRequests([]);
-      setItemRecommendRequests([]);
-      setItemLabRequests([]);
-      setError(loadError.message || 'Failed to load requests.');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   useEffect(() => {
-    loadRequests();
+    let isMounted = true;
+
+    const loadDashboard = async () => {
+      try {
+        setLoading(true);
+        setError('');
+
+        const storedUser = getStoredUser();
+        const hodUserId = Number(storedUser.id ?? 0);
+        const departmentKey = String(getDepartmentName(storedUser)).trim().toLowerCase();
+        const hasHodUserId = Number.isInteger(hodUserId) && hodUserId > 0;
+
+        const [
+          accountResponse,
+          inventoryRequestResponse,
+          itemRecommendResponse,
+          itemLabResponse,
+          inventoriesResponse,
+          issuedResponse,
+        ] = await Promise.all([
+          fetch(`${API_BASE_URL}/api/account-requests?requestType=account_creation,deactivation`),
+          hasHodUserId
+            ? fetch(`${API_BASE_URL}/api/inventory-creation-requests?hodUserId=${hodUserId}`)
+            : Promise.resolve(null),
+          hasHodUserId
+            ? fetch(`${API_BASE_URL}/api/item-requests?requesterHodUserId=${hodUserId}`)
+            : Promise.resolve(null),
+          hasHodUserId
+            ? fetch(`${API_BASE_URL}/api/item-requests?labHodUserId=${hodUserId}`)
+            : Promise.resolve(null),
+          fetch(`${API_BASE_URL}/api/inventories`),
+          hasHodUserId
+            ? fetch(`${API_BASE_URL}/api/item-requests?requestedById=${hodUserId}&requesterScope=issued`)
+            : Promise.resolve(null),
+        ]);
+
+        const [
+          accountData,
+          inventoryRequestData,
+          itemRecommendData,
+          itemLabData,
+          inventoriesData,
+          issuedData,
+        ] = await Promise.all([
+          accountResponse.json().catch(() => ({})),
+          inventoryRequestResponse ? inventoryRequestResponse.json().catch(() => ({})) : Promise.resolve({ success: true, requests: [] }),
+          itemRecommendResponse ? itemRecommendResponse.json().catch(() => ({})) : Promise.resolve({ success: true, requests: [] }),
+          itemLabResponse ? itemLabResponse.json().catch(() => ({})) : Promise.resolve({ success: true, requests: [] }),
+          inventoriesResponse.json().catch(() => ({})),
+          issuedResponse ? issuedResponse.json().catch(() => ({})) : Promise.resolve({ success: true, requests: [] }),
+        ]);
+
+        if (!accountResponse.ok || !accountData.success) {
+          throw new Error(accountData.message || accountData.error || 'Failed to load account requests.');
+        }
+
+        if (!inventoriesResponse.ok || !inventoriesData.success) {
+          throw new Error(inventoriesData.message || inventoriesData.error || 'Failed to load inventories.');
+        }
+
+        const accountRequests = accountData.requests || [];
+        const inventoryRequests = (inventoryRequestResponse && inventoryRequestResponse.ok && inventoryRequestData.success)
+          ? (inventoryRequestData.requests || [])
+          : [];
+        const itemRecommendRequests = (itemRecommendResponse && itemRecommendResponse.ok && itemRecommendData.success)
+          ? (itemRecommendData.requests || [])
+          : [];
+        const itemLabRequests = (itemLabResponse && itemLabResponse.ok && itemLabData.success)
+          ? (itemLabData.requests || [])
+          : [];
+
+        const departmentAccountRequests = departmentKey
+          ? accountRequests.filter(
+            (request) => String(request.department || '').trim().toLowerCase() === departmentKey
+          )
+          : [];
+
+        const departmentInventoryRequests = departmentKey
+          ? inventoryRequests.filter(
+            (request) => String(request.department || '').trim().toLowerCase() === departmentKey
+          )
+          : [];
+
+        const pendingAccounts = departmentAccountRequests.filter(
+          (request) => request.approvalStatus === ACCOUNT_REQUEST_STATUS.PENDING_DEPT_HEAD
+        ).length;
+
+        const pendingInventories = departmentInventoryRequests.filter(
+          (request) => HOD_PENDING_INVENTORY_STATUSES.has(String(request.approvalStatus || '').toLowerCase())
+        ).length;
+
+        const pendingRecommendItems = itemRecommendRequests.filter(
+          (request) => ITEM_REQUEST_PENDING_REQUESTER_STATUSES.has(String(request.approvalStatus || '').toLowerCase())
+        ).length;
+
+        const pendingLabItems = itemLabRequests.filter(
+          (request) => String(request.approvalStatus || '').toLowerCase() === ITEM_REQUEST_STATUS.PENDING_LAB_HOD
+        ).length;
+
+        const allInventories = inventoriesData.inventories || [];
+        const departmentInventories = departmentKey
+          ? allInventories.filter(
+            (inventory) => String(inventory.department || '').trim().toLowerCase() === departmentKey
+          )
+          : allInventories;
+
+        const issuedCount = (issuedResponse && issuedResponse.ok && issuedData.success)
+          ? (issuedData.requests || []).length
+          : 0;
+
+        if (!isMounted) {
+          return;
+        }
+
+        setInventoryCount(departmentInventories.length);
+        setMyIssuedCount(issuedCount);
+        setPendingTasksCount(pendingAccounts + pendingInventories + pendingRecommendItems + pendingLabItems);
+      } catch (loadError) {
+        if (!isMounted) {
+          return;
+        }
+        setInventoryCount(0);
+        setMyIssuedCount(0);
+        setPendingTasksCount(0);
+        setError(loadError.message || 'Failed to load dashboard data.');
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    loadDashboard();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
-  const departmentKey = String(departmentName).trim().toLowerCase();
-
-  const departmentAccountRequests = useMemo(() => {
-    if (!departmentKey || departmentKey === 'department') {
-      return [];
-    }
-
-    return accountRequests.filter(
-      (request) => String(request.department || '').trim().toLowerCase() === departmentKey
-    );
-  }, [accountRequests, departmentKey]);
-
-  const departmentInventoryRequests = useMemo(() => {
-    if (!departmentKey || departmentKey === 'department') {
-      return [];
-    }
-
-    return inventoryRequests.filter(
-      (request) => String(request.department || '').trim().toLowerCase() === departmentKey
-    );
-  }, [inventoryRequests, departmentKey]);
-
-  const pendingAccountRows = useMemo(() => {
-    const rows = departmentAccountRequests
-      .filter((r) => r.approvalStatus === ACCOUNT_REQUEST_STATUS.PENDING_DEPT_HEAD)
-      .map((r) => ({
-        queueKey: `acc:${r.id}`,
-        source: 'account',
-        id: r.id,
-        requestLabel: ACCOUNT_REQUEST_LABELS[r.requestType] || r.requestType || 'Account',
-        requestedBy: r.name || '—',
-        location: '—',
-        requestedDate: r.requestedDate || '',
-        statusKey: r.approvalStatus,
-        statusKind: 'account',
-        _account: r,
-      }));
-
-    return mapPendingRows(rows);
-  }, [departmentAccountRequests]);
-
-  const pendingInventoryRows = useMemo(() => {
-    const rows = departmentInventoryRequests
-      .filter((r) => HOD_PENDING_INVENTORY_STATUSES.has(String(r.approvalStatus || '').toLowerCase()))
-      .map((r) => {
-        const typeLabel = INVENTORY_REQUEST_TYPE_LABELS[r.requestType] || r.requestType || 'Inventory';
-        return {
-          queueKey: `inv:${r.id}`,
-          source: 'inventory',
-          id: r.id,
-          requestLabel: typeLabel,
-          requestedBy: r.requestedByName || '—',
-          location: r.location || '—',
-          requestedDate: r.requestedDate || '',
-          statusKey: r.approvalStatus,
-          statusKind: 'inventory',
-          _inventory: r,
-        };
-      });
-
-    return mapPendingRows(rows);
-  }, [departmentInventoryRequests]);
-
-  const pendingItemRecommendRows = useMemo(() => {
-    const rows = itemRecommendRequests
-      .filter((r) => ITEM_REQUEST_PENDING_REQUESTER_STATUSES.has(String(r.approvalStatus || '').toLowerCase()))
-      .map((r) => ({
-        queueKey: `item-rec:${r.id}`,
-        source: 'item',
-        itemActionType: 'recommend',
-        id: r.id,
-        requestLabel: 'Staff item request',
-        requestedBy: r.requestedByName || '—',
-        itemName: r.itemName || '—',
-        location: r.inventoryLocation || '—',
-        requestedDate: r.requestedDate || '',
-        statusKey: r.approvalStatus,
-        statusKind: 'item',
-        _item: r,
-      }));
-
-    return mapPendingRows(rows);
-  }, [itemRecommendRequests]);
-
-  const pendingItemLabRows = useMemo(() => {
-    const rows = itemLabRequests
-      .filter((r) => String(r.approvalStatus || '').toLowerCase() === ITEM_REQUEST_STATUS.PENDING_LAB_HOD)
-      .map((r) => ({
-        queueKey: `item-lab:${r.id}`,
-        source: 'item',
-        itemActionType: 'approveLab',
-        id: r.id,
-        requestLabel: 'Lab item request',
-        requestedBy: r.requestedByName || '—',
-        itemName: r.itemName || '—',
-        location: r.inventoryLocation || '—',
-        requestedDate: r.requestedDate || '',
-        statusKey: r.approvalStatus,
-        statusKind: 'item',
-        _item: r,
-      }));
-
-    return mapPendingRows(rows);
-  }, [itemLabRequests]);
-
-  const allItemRequests = useMemo(() => {
-    const byId = new Map();
-    [...itemRecommendRequests, ...itemLabRequests].forEach((request) => byId.set(request.id, request));
-    return [...byId.values()];
-  }, [itemRecommendRequests, itemLabRequests]);
-
-  const isForwardedAccount = (request) => {
-    const status = String(request.approvalStatus || '').toLowerCase();
-    return status !== ACCOUNT_REQUEST_STATUS.PENDING_DEPT_HEAD
-      && status !== ACCOUNT_REQUEST_STATUS.REJECTED;
-  };
-
-  const isForwardedItem = (request) => {
-    const status = String(request.approvalStatus || '').toLowerCase();
-    return !ITEM_REQUEST_PENDING_REQUESTER_STATUSES.has(status)
-      && status !== ITEM_REQUEST_STATUS.REJECTED
-      && status !== ITEM_REQUEST_STATUS.CANCELLED;
-  };
-
-  const forwardedRows = useMemo(() => {
-    const accountRows = departmentAccountRequests
-      .filter(isForwardedAccount)
-      .map((r) => ({
-        queueKey: `acc:${r.id}`,
-        source: 'account',
-        category: 'Account',
-        requestLabel: ACCOUNT_REQUEST_LABELS[r.requestType] || r.requestType || 'Account',
-        subjectName: r.name || '—',
-        requestedBy: r.name || '—',
-        location: '—',
-        requestedDate: r.requestedDate || '',
-        statusKey: r.approvalStatus,
-        statusKind: 'account',
-        _account: r,
-      }));
-
-    const inventoryRows = departmentInventoryRequests
-      .filter((r) => INVENTORY_DOWNSTREAM_STATUSES.has(String(r.approvalStatus || '').toLowerCase()))
-      .map((r) => {
-        const typeLabel = INVENTORY_REQUEST_TYPE_LABELS[r.requestType] || r.requestType || 'Inventory';
-        return {
-          queueKey: `inv:${r.id}`,
-          source: 'inventory',
-          category: 'Inventory',
-          requestLabel: typeLabel,
-          subjectName: r.name || '—',
-          requestedBy: r.requestedByName || '—',
-          location: r.location || '—',
-          requestedDate: r.requestedDate || '',
-          statusKey: r.approvalStatus,
-          statusKind: 'inventory',
-          _inventory: r,
-        };
-      });
-
-    const itemRows = allItemRequests
-      .filter(isForwardedItem)
-      .map((r) => ({
-        queueKey: `item:${r.id}`,
-        source: 'item',
-        category: 'Item',
-        requestLabel: 'Item request',
-        subjectName: r.itemName || '—',
-        requestedBy: r.requestedByName || '—',
-        location: r.inventoryLocation || '—',
-        requestedDate: r.requestedDate || '',
-        statusKey: r.approvalStatus,
-        statusKind: 'item',
-        _item: r,
-      }));
-
-    return mapPendingRows([...accountRows, ...inventoryRows, ...itemRows]);
-  }, [departmentAccountRequests, departmentInventoryRequests, allItemRequests]);
-
-  const rejectedRows = useMemo(() => {
-    const accountRows = departmentAccountRequests
-      .filter((r) => r.approvalStatus === ACCOUNT_REQUEST_STATUS.REJECTED)
-      .map((r) => ({
-        queueKey: `acc:${r.id}`,
-        source: 'account',
-        category: 'Account',
-        requestLabel: ACCOUNT_REQUEST_LABELS[r.requestType] || r.requestType || 'Account',
-        subjectName: r.name || '—',
-        requestedBy: r.name || '—',
-        location: '—',
-        requestedDate: r.requestedDate || '',
-        statusKey: r.approvalStatus,
-        statusKind: 'account',
-        _account: r,
-      }));
-
-    const inventoryRows = departmentInventoryRequests
-      .filter((r) => String(r.approvalStatus || '').toLowerCase() === 'rejected')
-      .map((r) => {
-        const typeLabel = INVENTORY_REQUEST_TYPE_LABELS[r.requestType] || r.requestType || 'Inventory';
-        return {
-          queueKey: `inv:${r.id}`,
-          source: 'inventory',
-          category: 'Inventory',
-          requestLabel: typeLabel,
-          subjectName: r.name || '—',
-          requestedBy: r.requestedByName || '—',
-          location: r.location || '—',
-          requestedDate: r.requestedDate || '',
-          statusKey: r.approvalStatus,
-          statusKind: 'inventory',
-          _inventory: r,
-        };
-      });
-
-    const itemRows = allItemRequests
-      .filter((r) => String(r.approvalStatus || '').toLowerCase() === ITEM_REQUEST_STATUS.REJECTED)
-      .map((r) => ({
-        queueKey: `item:${r.id}`,
-        source: 'item',
-        category: 'Item',
-        requestLabel: 'Item request',
-        subjectName: r.itemName || '—',
-        requestedBy: r.requestedByName || '—',
-        location: r.inventoryLocation || '—',
-        requestedDate: r.requestedDate || '',
-        statusKey: r.approvalStatus,
-        statusKind: 'item',
-        _item: r,
-      }));
-
-    return mapPendingRows([...accountRows, ...inventoryRows, ...itemRows]);
-  }, [departmentAccountRequests, departmentInventoryRequests, allItemRequests]);
-
-  const forwardedCount = useMemo(() => forwardedRows.length, [forwardedRows]);
-
-  const rejectedCount = useMemo(() => rejectedRows.length, [rejectedRows]);
-
-  const pendingTasksCount = useMemo(
-    () => pendingAccountRows.length
-      + pendingInventoryRows.length
-      + pendingItemRecommendRows.length
-      + pendingItemLabRows.length,
-    [pendingAccountRows, pendingInventoryRows, pendingItemRecommendRows, pendingItemLabRows]
-  );
-
-  const statusBadge = (row) => {
-    if (row.statusKind === 'account') {
-      const config = ACCOUNT_REQUEST_STATUS_META[row.statusKey] || { label: row.statusKey, variant: 'secondary' };
-      return <Badge label={config.label} variant={config.variant} size="sm" />;
-    }
-    if (row.statusKind === 'item') {
-      const config = ITEM_REQUEST_STATUS_META[row.statusKey] || { label: row.statusKey, variant: 'secondary' };
-      return <Badge label={config.label} variant={config.variant} size="sm" />;
-    }
-    const config = INVENTORY_REQUEST_STATUS_META[row.statusKey] || { label: row.statusKey, variant: 'secondary' };
-    return <Badge label={config.label} variant={config.variant} size="sm" />;
-  };
-
-  const historyColumns = [
+  const stats = useMemo(() => ([
     {
-      field: 'category',
-      label: 'Category',
-      sortable: true,
-      render: (value) => <Badge label={value} variant="secondary" size="sm" />,
+      key: 'inventories',
+      title: 'Inventories',
+      count: inventoryCount,
+      description: 'View department inventories and item details.',
+      icon: 'inventory_2',
+      onClick: () => navigate('/hod/inventory'),
     },
     {
-      field: 'requestLabel',
-      label: 'Request type',
-      sortable: true,
-      render: (value) => <Badge label={value} variant="info" size="sm" />,
+      key: 'issued',
+      title: 'My Issued items',
+      count: myIssuedCount,
+      description: 'Items currently issued to your account.',
+      icon: 'inventory',
+      onClick: () => navigate('/inventory/list/hod'),
     },
-    { field: 'subjectName', label: 'Subject', sortable: true },
-    { field: 'requestedBy', label: 'Requested by', sortable: true },
-    { field: 'location', label: 'Location', sortable: true },
-    { field: 'requestedDate', label: 'Requested date', sortable: true },
     {
-      field: 'statusKey',
-      label: 'Status',
-      sortable: true,
-      render: (_value, row) => statusBadge(row),
-    },
-  ];
-
-  const closeDetailModal = () => {
-    setIsDetailModalOpen(false);
-    setSelectedReviewRow(null);
-  };
-
-  const handleViewRowDetails = (row) => {
-    setSelectedReviewRow(row);
-    setIsDetailModalOpen(true);
-  };
-
-  const buildAccountDetailFields = (request) => {
-    const isDeactivation = request.requestType === 'deactivation';
-    const statusConfig = ACCOUNT_REQUEST_STATUS_META[request.approvalStatus] || {
-      label: request.approvalStatus,
-    };
-
-    return [
-      {
-        label: 'Request type',
-        value: ACCOUNT_REQUEST_LABELS[request.requestType] || request.requestType,
-      },
-      { label: 'Name', value: request.name },
-      { label: 'Email', value: request.email },
-      {
-        label: isDeactivation ? 'Current role' : 'Requested role',
-        value: ROLE_HIERARCHY[request.requestedRole]?.label || request.requestedRole,
-      },
-      { label: 'Department', value: request.department },
-      { label: 'Designation', value: request.designation },
-      { label: 'Mobile number', value: request.mobileNo },
-      { label: 'Office extension', value: request.officeExtNo },
-      ...(isDeactivation
-        ? [{
-          label: 'Current account status',
-          value: request.userStatus
-            ? request.userStatus.charAt(0).toUpperCase() + request.userStatus.slice(1)
-            : '—',
-        }]
-        : []),
-      { label: 'Requested date', value: request.requestedDate },
-      { label: 'Status', value: statusConfig.label },
-    ];
-  };
-
-  const buildInventoryDetailFields = (request) => {
-    const statusConfig = INVENTORY_REQUEST_STATUS_META[request.approvalStatus] || {
-      label: request.approvalStatus,
-    };
-    const typeLabel = INVENTORY_REQUEST_TYPE_LABELS[request.requestType] || request.requestType;
-
-    const officerFields = request.requestType === 'change_incharge'
-      ? [
-        { label: 'Current officer', value: request.previousInchargeName || request.requestedByName },
-        { label: 'Proposed officer', value: request.inchargeName },
-      ]
-      : [{ label: 'Inventory officer', value: request.inchargeName }];
-
-    return [
-      { label: 'Request type', value: typeLabel },
-      { label: 'Inventory name', value: request.name },
-      { label: 'Department', value: request.department },
-      { label: 'Location', value: request.location },
-      { label: 'Requested by', value: request.requestedByName },
-      ...officerFields,
-      { label: 'Requested date', value: request.requestedDate },
-      { label: 'Status', value: statusConfig.label },
-      { label: 'Reason', value: request.reason, fullWidth: true },
-    ];
-  };
-
-  const buildItemDetailFields = (request) => {
-    const statusConfig = ITEM_REQUEST_STATUS_META[request.approvalStatus] || {
-      label: request.approvalStatus,
-    };
-
-    return [
-      { label: 'Request type', value: 'Item request' },
-      { label: 'Item requested', value: request.itemName },
-      { label: 'Inventory location', value: request.inventoryLocation },
-      { label: 'Inventory name', value: request.inventoryName },
-      { label: 'Lab department', value: request.inventoryDepartmentName },
-      { label: 'Quantity', value: request.quantity },
-      { label: 'Priority', value: request.priority },
-      { label: 'Requested by', value: request.requestedByName },
-      { label: 'Requester department', value: request.departmentName },
-      { label: 'Requested date', value: request.requestedDate },
-      { label: 'Required by date', value: request.requiredByDate },
-      { label: 'Recommended date', value: request.requesterHodRecommendedDate },
-      { label: 'Status', value: statusConfig.label },
-      { label: 'Specifications', value: request.specification, fullWidth: true },
-      { label: 'Justification', value: request.reason, fullWidth: true },
-    ];
-  };
-
-  const detailModalTitle = selectedReviewRow
-    ? (
-      selectedReviewRow.source === 'account'
-        ? `${ACCOUNT_REQUEST_LABELS[selectedReviewRow._account?.requestType] || 'Account'} request`
-        : selectedReviewRow.source === 'item'
-          ? 'Item request'
-          : `${INVENTORY_REQUEST_TYPE_LABELS[selectedReviewRow._inventory?.requestType] || 'Inventory'} request`
-    )
-    : 'Request details';
-
-  const detailModalSelectedName = selectedReviewRow
-    ? (
-      selectedReviewRow.source === 'account'
-        ? selectedReviewRow._account?.name
-        : selectedReviewRow.source === 'item'
-          ? selectedReviewRow._item?.itemName
-          : selectedReviewRow._inventory?.name
-    )
-    : null;
-
-  const detailFields = selectedReviewRow
-    ? (
-      selectedReviewRow.source === 'account'
-        ? buildAccountDetailFields(selectedReviewRow._account)
-        : selectedReviewRow.source === 'item'
-          ? buildItemDetailFields(selectedReviewRow._item)
-          : buildInventoryDetailFields(selectedReviewRow._inventory)
-    )
-    : [];
-
-  const isHistoryView = HISTORY_VIEW_KEYS.has(activeReviewTab);
-
-  const summaryCards = [
-    {
-      key: 'pending-tasks',
+      key: 'pending',
       title: 'Pending Tasks',
-      description: 'Account, inventory, and item requests awaiting your approval or recommendation.',
       count: pendingTasksCount,
+      description: 'Requests waiting for your approval or recommendation.',
       icon: 'pending_actions',
-      navigates: true,
+      onClick: () => navigate('/hod/pending-tasks'),
     },
-    {
-      key: 'forwarded',
-      title: 'Approved / Recommended',
-      description: 'Requests you approved, recommended, or forwarded to the next step.',
-      count: forwardedCount,
-      icon: 'forward',
-    },
-    {
-      key: 'rejected',
-      title: 'Rejected Requests',
-      description: 'Requests you declined or rejected.',
-      count: rejectedCount,
-      icon: 'cancel',
-    },
-  ];
-
-  const activeViewSummary = summaryCards.find((card) => card.key === activeReviewTab)
-    || summaryCards[1];
-
-  const handleSelectSummary = (card) => {
-    if (card.navigates) {
-      navigate('/hod/pending-tasks');
-      return;
-    }
-    setActiveReviewTab(card.key);
-    closeDetailModal();
-  };
-
-  const tableSubtitle = () => {
-    if (loading) {
-      return 'Loading requests for your department…';
-    }
-    if (activeTabRows.length === 0) {
-      return `No ${activeViewSummary.title.toLowerCase()} yet.`;
-    }
-    return `${activeTabRows.length} request${activeTabRows.length === 1 ? '' : 's'} in this list.`;
-  };
-
-  const activeTabRows = activeReviewTab === 'forwarded'
-    ? forwardedRows
-    : rejectedRows;
-  const activeTabColumns = historyColumns;
+  ]), [inventoryCount, myIssuedCount, pendingTasksCount, navigate]);
 
   return (
     <MainLayout variant="hod">
       <PageHeader
         title="Dashboard"
-        subtitle="Overview of pending tasks and your recent approval decisions."
+        subtitle="Track inventories, issued items, and pending approvals at a glance."
       />
 
       <div className="p-6 space-y-6">
@@ -656,72 +210,19 @@ const HodDashboard = () => {
           </div>
         ) : null}
 
-        <SummaryCardsGrid columns={3}>
-          {summaryCards.map((card) => (
+        <SummaryCardsGrid showTitle={false} columns={3}>
+          {stats.map((stat) => (
             <SummaryCard
-              key={card.key}
-              title={card.title}
-              count={card.count}
-              description={card.description}
-              icon={card.icon}
+              key={stat.key}
+              title={stat.title}
+              count={stat.count}
+              description={stat.description}
+              icon={stat.icon}
               loading={loading}
-              active={!card.navigates && activeReviewTab === card.key}
-              onClick={() => handleSelectSummary(card)}
+              onClick={stat.onClick}
             />
           ))}
         </SummaryCardsGrid>
-
-        {isHistoryView ? (
-          <Card title={activeViewSummary.title} subtitle={tableSubtitle()} icon={activeViewSummary.icon}>
-            <Table
-              key={activeReviewTab}
-              columns={activeTabColumns}
-              data={activeTabRows}
-              onRowClick={handleViewRowDetails}
-              searchable
-              loading={loading}
-              paginated={activeTabRows.length > 10}
-              itemsPerPage={10}
-            />
-          </Card>
-        ) : null}
-
-        <Modal
-          isOpen={isDetailModalOpen}
-          onClose={closeDetailModal}
-          title={detailModalTitle}
-          size="lg"
-          footer={(
-            <div className="flex flex-wrap justify-end gap-3">
-              <Button variant="secondary" onClick={closeDetailModal}>
-                Close
-              </Button>
-            </div>
-          )}
-        >
-          <div className="space-y-4">
-            <div className="bg-background-light p-4 rounded-lg">
-              <p className="text-sm text-text-light">
-                {selectedReviewRow?.source === 'inventory'
-                  ? 'Inventory'
-                  : selectedReviewRow?.source === 'item'
-                    ? 'Item'
-                    : 'Applicant'}
-              </p>
-              <p className="text-lg font-semibold text-text-dark">{formatDetailValue(detailModalSelectedName)}</p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-              {detailFields.map((detail) => (
-                <div key={detail.label} className={detail.fullWidth ? 'md:col-span-2' : ''}>
-                  <p className="text-text-light">{detail.label}</p>
-                  <p className="font-semibold text-text-dark whitespace-pre-wrap">{formatDetailValue(detail.value)}</p>
-                </div>
-              ))}
-            </div>
-
-          </div>
-        </Modal>
       </div>
     </MainLayout>
   );

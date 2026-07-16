@@ -8,8 +8,6 @@ import {
   INVENTORY_REQUEST_TYPE,
   INVENTORY_REQUEST_TYPE_LABELS,
 } from "../../utils/constants";
-
-const ALLOWED_INCHARGE_DESIGNATIONS = new Set(["Technical Officer", "Management Assistant"]);
 import { resolveSidebarVariant } from "../../utils/helpers";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
@@ -35,12 +33,9 @@ const InventoryListView = () => {
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [assignModalOpen, setAssignModalOpen] = useState(false);
   const [assignTargetInventory, setAssignTargetInventory] = useState(null);
-  const [officerCandidates, setOfficerCandidates] = useState([]);
-  const [proposedOfficerId, setProposedOfficerId] = useState("");
   const [assignReason, setAssignReason] = useState("");
   const [assignSubmitting, setAssignSubmitting] = useState(false);
   const [assignError, setAssignError] = useState("");
-  const [assignOptionsLoading, setAssignOptionsLoading] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const { role } = useParams();
@@ -312,47 +307,6 @@ const InventoryListView = () => {
     [pendingRequests]
   );
 
-  const loadOfficerCandidates = async (inventory) => {
-    setAssignOptionsLoading(true);
-    setAssignError("");
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/users`);
-      const data = await response.json();
-
-      if (!response.ok || !data.success) {
-        throw new Error(data.error || data.message || "Failed to load staff members.");
-      }
-
-      const departmentKey = String(inventory.department || "").trim().toLowerCase();
-      const assignedInchargeIds = new Set(
-        (inventories || [])
-          .map((entry) => Number(entry.inchargeId))
-          .filter((id) => Number.isInteger(id) && id > 0)
-      );
-
-      const candidates = (data.users || []).filter((user) => {
-        const userDepartment = String(user.department || user.departmentName || "").trim().toLowerCase();
-        const designation = String(user.designation || "").trim();
-        const userId = resolveUserId(user);
-
-        return user.status === "active"
-          && ["staff", "inventory_incharge"].includes(String(user.role || "").toLowerCase())
-          && ALLOWED_INCHARGE_DESIGNATIONS.has(designation)
-          && userDepartment === departmentKey
-          && userId !== currentUserId
-          && !assignedInchargeIds.has(userId);
-      });
-
-      setOfficerCandidates(candidates);
-    } catch (loadError) {
-      setOfficerCandidates([]);
-      setAssignError(loadError.message || "Failed to load officer candidates.");
-    } finally {
-      setAssignOptionsLoading(false);
-    }
-  };
-
   const openAssignOfficerModal = (row) => {
     const inventory = inventories.find((entry) => Number(entry.id) === Number(row.id));
 
@@ -366,20 +320,16 @@ const InventoryListView = () => {
     }
 
     setAssignTargetInventory(inventory);
-    setProposedOfficerId("");
     setAssignReason("");
     setAssignError("");
     setAssignModalOpen(true);
-    loadOfficerCandidates(inventory);
   };
 
   const resetAssignOfficerModal = () => {
     setAssignModalOpen(false);
     setAssignTargetInventory(null);
-    setProposedOfficerId("");
     setAssignReason("");
     setAssignError("");
-    setOfficerCandidates([]);
   };
 
   const closeAssignOfficerModal = () => {
@@ -391,13 +341,6 @@ const InventoryListView = () => {
 
   const submitAssignOfficerRequest = async () => {
     if (!assignTargetInventory || !currentUserId) {
-      return;
-    }
-
-    const nextOfficerId = Number(proposedOfficerId);
-
-    if (!Number.isInteger(nextOfficerId) || nextOfficerId <= 0) {
-      setAssignError("Select a new inventory officer.");
       return;
     }
 
@@ -417,7 +360,6 @@ const InventoryListView = () => {
           requestType: INVENTORY_REQUEST_TYPE.CHANGE_INCHARGE,
           requestedById: currentUserId,
           targetInventoryId: assignTargetInventory.id,
-          inchargeId: nextOfficerId,
           reason: assignReason.trim(),
         }),
       });
@@ -437,6 +379,8 @@ const InventoryListView = () => {
     }
   };
 
+  const hasAssignReason = Boolean(assignReason.trim());
+
   const inventoryActions = [
     {
       label: "Open Items",
@@ -449,7 +393,7 @@ const InventoryListView = () => {
       onClick: (row) => navigate(`/inventory/add/incharge?inventoryId=${row.id}`),
     },
     {
-      label: "Assign Officer",
+      label: "Request Officer Change",
       icon: "person_add",
       onClick: (row) => openAssignOfficerModal(row),
     },
@@ -493,7 +437,7 @@ const InventoryListView = () => {
       ...(selectedPendingRequest.requestType === INVENTORY_REQUEST_TYPE.CHANGE_INCHARGE
         ? [
           { label: "Current officer", value: selectedPendingRequest.previousInchargeName || currentUser.name || "—" },
-          { label: "Proposed officer", value: selectedPendingRequest.inchargeName || "—" },
+          { label: "New officer", value: selectedPendingRequest.inchargeName || "To be selected by HOD" },
         ]
         : []),
       { label: "Requested date", value: selectedPendingRequest.requestedDate },
@@ -533,7 +477,7 @@ const InventoryListView = () => {
         }
         subtitle={
           isInchargeView && !viewingInventoryItems
-            ? "Pending requests stay here until approved. Use Assign Officer to request a new inventory officer (HOD recommendation, then administrator approval)."
+            ? "Pending requests stay here until approved. Use Request Officer Change to ask your HOD for a new inventory officer assignment."
             : viewingInventoryItems
               ? selectedInventory
                 ? `Items in ${selectedInventory.name} at ${selectedInventory.location || "your assigned location"}.`
@@ -681,7 +625,7 @@ const InventoryListView = () => {
       <Modal
         isOpen={assignModalOpen}
         onClose={closeAssignOfficerModal}
-        title="Assign new inventory officer"
+        title="Request inventory officer change"
         size="md"
         footer={(
           <div className="flex justify-end gap-2">
@@ -691,7 +635,7 @@ const InventoryListView = () => {
             <Button
               variant="primary"
               onClick={submitAssignOfficerRequest}
-              disabled={assignSubmitting || assignOptionsLoading || officerCandidates.length === 0}
+              disabled={assignSubmitting || !hasAssignReason}
             >
               {assignSubmitting ? "Submitting..." : "Submit Request"}
             </Button>
@@ -716,37 +660,8 @@ const InventoryListView = () => {
             )}
 
             <div>
-              <label className="block text-sm font-medium text-text-dark mb-1" htmlFor="proposed-officer">
-                New inventory officer
-              </label>
-              <select
-                id="proposed-officer"
-                className="w-full rounded border border-border-lighter px-3 py-2 text-sm"
-                value={proposedOfficerId}
-                onChange={(event) => setProposedOfficerId(event.target.value)}
-                disabled={assignOptionsLoading || assignSubmitting}
-              >
-                <option value="">Select staff member</option>
-                {officerCandidates.map((user) => (
-                  <option key={resolveUserId(user)} value={resolveUserId(user)}>
-                    {user.name}
-                    {user.designation ? ` (${user.designation})` : ""}
-                  </option>
-                ))}
-              </select>
-              {assignOptionsLoading && (
-                <p className="text-xs text-text-light mt-1">Loading eligible staff...</p>
-              )}
-              {!assignOptionsLoading && officerCandidates.length === 0 && (
-                <p className="text-xs text-text-light mt-1">
-                  No eligible staff in this department. Only active Technical Officers or Management Assistants who are not already inventory officers can be selected.
-                </p>
-              )}
-            </div>
-
-            <div>
               <label className="block text-sm font-medium text-text-dark mb-1" htmlFor="assign-reason">
-                Reason
+                Reason <span className="text-red-700">*</span>
               </label>
               <textarea
                 id="assign-reason"
@@ -755,11 +670,12 @@ const InventoryListView = () => {
                 onChange={(event) => setAssignReason(event.target.value)}
                 placeholder="Explain why a new inventory officer is needed"
                 disabled={assignSubmitting}
+                required
               />
             </div>
 
             <p className="rounded bg-yellow-100 px-4 py-3 text-sm text-text-dark border border-red-200 text-justify">
-              Your Head of Department will review and recommend this change. The administrator will then update the inventory officer. You will lose access to this inventory after approval.
+              Your Head of Department will review this request and select the new inventory officer. After approval, you will lose access to this inventory.
             </p>
           </div>
         )}

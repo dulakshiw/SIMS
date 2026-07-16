@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import MainLayout from '../../Components/Layouts/MainLayout';
-import { Badge, Button, Card, PageHeader, SummaryCard, SummaryCardsGrid, Table } from '../../Components/UI';
+import { Badge, Card, PageHeader, SummaryCard, SummaryCardsGrid, Table } from '../../Components/UI';
 import { ACCOUNT_REQUEST_STATUS, ACCOUNT_REQUEST_STATUS_META, ROLE_HIERARCHY } from '../../utils/constants';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
+const DEAN_APPROVAL_ROLES = new Set(['head_of_department', 'admin']);
 
 const getStoredUser = () => {
   try {
@@ -14,12 +14,9 @@ const getStoredUser = () => {
   }
 };
 
-const DeanDashboard = () => {
-  const navigate = useNavigate();
+const DeanPendingApprovals = () => {
   const [currentUser, setCurrentUser] = useState(getStoredUser);
   const [accountRequests, setAccountRequests] = useState([]);
-  const [inventoryCount, setInventoryCount] = useState(0);
-  const [myIssuedCount, setMyIssuedCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [actionLoadingId, setActionLoadingId] = useState(null);
   const [error, setError] = useState('');
@@ -28,35 +25,18 @@ const DeanDashboard = () => {
     try {
       setLoading(true);
       setError('');
-      const storedUser = getStoredUser();
-      setCurrentUser(storedUser);
-      const requestedById = Number(storedUser.id ?? 0);
+      setCurrentUser(getStoredUser());
 
-      const [response, inventoriesResponse, issuedResponse] = await Promise.all([
-        fetch(`${API_BASE_URL}/api/account-requests?requestType=account_creation`),
-        fetch(`${API_BASE_URL}/api/inventories`),
-        Number.isInteger(requestedById) && requestedById > 0
-          ? fetch(`${API_BASE_URL}/api/item-requests?requestedById=${requestedById}&requesterScope=issued`)
-          : Promise.resolve(null),
-      ]);
-
-      const [data, inventoriesData, issuedData] = await Promise.all([
-        response.json().catch(() => ({})),
-        inventoriesResponse.json().catch(() => ({})),
-        issuedResponse ? issuedResponse.json().catch(() => ({})) : Promise.resolve({}),
-      ]);
+      const response = await fetch(`${API_BASE_URL}/api/account-requests?requestType=account_creation`);
+      const data = await response.json().catch(() => ({}));
 
       if (!response.ok || !data.success) {
         throw new Error(data.message || data.error || 'Failed to load account requests.');
       }
 
       setAccountRequests(data.requests || []);
-      setInventoryCount(inventoriesResponse.ok && inventoriesData.success ? (inventoriesData.inventories || []).length : 0);
-      setMyIssuedCount(issuedResponse && issuedResponse.ok && issuedData.success ? (issuedData.requests || []).length : 0);
     } catch (loadError) {
       setAccountRequests([]);
-      setInventoryCount(0);
-      setMyIssuedCount(0);
       setError(loadError.message || 'Failed to load account requests.');
     } finally {
       setLoading(false);
@@ -68,7 +48,11 @@ const DeanDashboard = () => {
   }, []);
 
   const pendingDeanRequests = useMemo(
-    () => accountRequests.filter((request) => request.approvalStatus === ACCOUNT_REQUEST_STATUS.PENDING_DEAN),
+    () => accountRequests.filter(
+      (request) =>
+        request.approvalStatus === ACCOUNT_REQUEST_STATUS.PENDING_DEAN
+        && DEAN_APPROVAL_ROLES.has(String(request.requestedRole || '').toLowerCase())
+    ),
     [accountRequests]
   );
 
@@ -151,25 +135,16 @@ const DeanDashboard = () => {
 
   const stats = [
     {
-      title: 'Inventories',
-      value: inventoryCount,
-      description: 'View all inventories and item details.',
-      icon: 'inventory_2',
-      onClick: () => navigate('/dean/inventory'),
+      title: 'Pending HOD Requests',
+      value: pendingDeanRequests.filter((request) => request.requestedRole === 'head_of_department').length,
+      description: 'Head of Department account requests awaiting review.',
+      icon: 'school',
     },
     {
-      title: 'My Issued items',
-      value: myIssuedCount,
-      description: 'Items currently issued to your account.',
-      icon: 'inventory',
-      onClick: () => navigate('/inventory/list/dean'),
-    },
-    {
-      title: 'Pending Tasks',
-      value: pendingDeanRequests.length,
-      description: 'Account requests waiting for dean approval.',
-      icon: 'pending_actions',
-      onClick: () => navigate('/requests/approval/dean'),
+      title: 'Pending Admin Requests',
+      value: pendingDeanRequests.filter((request) => request.requestedRole === 'admin').length,
+      description: 'Admin account requests awaiting review.',
+      icon: 'admin_panel_settings',
     },
   ];
 
@@ -189,12 +164,12 @@ const DeanDashboard = () => {
   return (
     <MainLayout variant="dean">
       <PageHeader
-        title="Dashboard"
-        subtitle="Review HOD, registrar, and admin account requests and activate approved accounts."
+        title="Pending Approvals"
+        subtitle="Review Head of Department and Admin account requests and activate approved accounts."
       />
 
       <div className="p-6 space-y-6">
-        <SummaryCardsGrid showTitle={false} columns={3}>
+        <SummaryCardsGrid showTitle={false} columns={2}>
           {stats.map((stat) => (
             <SummaryCard
               key={stat.title}
@@ -202,12 +177,12 @@ const DeanDashboard = () => {
               count={stat.value}
               description={stat.description}
               icon={stat.icon}
-              onClick={stat.onClick}
+              hover={false}
             />
           ))}
         </SummaryCardsGrid>
 
-        <Card title="Pending Dean Approvals" subtitle="Requests shown here are blocked until the dean approves or rejects them.">
+        <Card title="Pending Dean Approvals" subtitle="Only Head of Department and Admin account requests are shown here.">
           {error ? <p className="text-sm text-error">{error}</p> : null}
           {!error && actionLoadingId !== null ? (
             <p className="mb-4 text-sm text-text-light">Updating request...</p>
@@ -227,4 +202,4 @@ const DeanDashboard = () => {
   );
 };
 
-export default DeanDashboard;
+export default DeanPendingApprovals;

@@ -15,10 +15,13 @@ const resolveUploadUrl = (filePath) => {
   if (!filePath) {
     return "";
   }
-  if (/^https?:\/\//i.test(filePath)) {
-    return filePath;
+  const normalized = String(filePath).trim().replace(/\\/g, "/");
+  if (/^https?:\/\//i.test(normalized)) {
+    return normalized;
   }
-  return `${API_BASE_URL}${filePath.startsWith("/") ? filePath : `/${filePath}`}`;
+  const uploadsIndex = normalized.toLowerCase().indexOf("/uploads/");
+  const relativePath = uploadsIndex >= 0 ? normalized.slice(uploadsIndex) : normalized;
+  return `${API_BASE_URL}${relativePath.startsWith("/") ? relativePath : `/${relativePath}`}`;
 };
 
 const pickField = (item, ...keys) => {
@@ -178,7 +181,7 @@ const ItemDetail = () => {
   const qrCode2 = pickField(item, "QRCode2", "qr_code2", "qrcode2");
   const qrCodeUrl = pickField(item, "qrcodeUrl", "qrcode_url");
   const qrCode2Url = pickField(item, "qrcode2Url", "qrcode2_url");
-  const itemImage = pickField(item, "itemImage", "item_image", "image");
+  const itemImage = pickField(item, "itemImage", "item_image", "itemimage", "image", "image_path");
   const value = pickField(item, "value");
   const purchaseDate = pickField(item, "purchaseDate", "purchase_date", "purchased_date");
   const ginNo = pickField(item, "ginNo", "gin_no");
@@ -400,17 +403,19 @@ const ItemDetail = () => {
           </div>
             </div>
 
-          <div className="no-print mt-8 flex flex-wrap justify-end gap-3 border-t border-border-lighter pt-6">
-            <Button variant="secondary" icon="compare_arrows" onClick={() => navigate(transferPath)}>
-              Transfer
-            </Button>
-            <Button variant="secondary" icon="delete_sweep" onClick={() => navigate(disposePath)}>
-              Dispose
-            </Button>
-            <Button variant="primary" icon="edit" onClick={() => navigate(updatePath)}>
-              Update
-            </Button>
-          </div>
+          {!(["registrar", "dean"].includes(rolePath)) && (
+            <div className="no-print mt-8 flex flex-wrap justify-end gap-3 border-t border-border-lighter pt-6">
+              <Button variant="secondary" icon="compare_arrows" onClick={() => navigate(transferPath)}>
+                Transfer
+              </Button>
+              <Button variant="secondary" icon="delete_sweep" onClick={() => navigate(disposePath)}>
+                Dispose
+              </Button>
+              <Button variant="primary" icon="edit" onClick={() => navigate(updatePath)}>
+                Update
+              </Button>
+            </div>
+          )}
         </Card>
 
         <footer className="item-detail-print-page-footer" aria-hidden="true">

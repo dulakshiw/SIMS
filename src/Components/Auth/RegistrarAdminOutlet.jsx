@@ -1,6 +1,6 @@
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 
-const REGISTRAR_ALLOWED_PATHS = ["/admin/dashboard", "/admin/pending-tasks", "/admin/profile"];
+const REGISTRAR_ALLOWED_PATHS = ["/admin/dashboard", "/admin/pending-tasks", "/admin/profile", "/admin/inventory"];
 
 const RegistrarAdminOutlet = () => {
   const location = useLocation();

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useSearchParams, useNavigate, Link } from "react-router-dom";
-import { Card, Button } from "../../Components/UI";
+import { Card, Button, Modal } from "../../Components/UI";
 import {
   getPasswordStrength,
   getPasswordStrengthColorClass,
@@ -26,6 +26,7 @@ const ResetPassword = () => {
   const [messageType, setMessageType] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [showPasswordChangedModal, setShowPasswordChangedModal] = useState(false);
 
   const email = searchParams.get("email");
   const otp = searchParams.get("otp");
@@ -85,11 +86,9 @@ const ResetPassword = () => {
         throw new Error(data.error || data.message || "Unable to reset password.");
       }
 
-      setMessage(data.message || "Password reset successfully! Redirecting to login...");
+      setMessage(data.message || "Password changed successfully. Please login again.");
       setMessageType("success");
-      setTimeout(() => {
-        navigate("/");
-      }, 2000);
+      setShowPasswordChangedModal(true);
     } catch (error) {
       setMessage(error.message || "Unable to reset password.");
       setMessageType("error");
@@ -290,6 +289,32 @@ const ResetPassword = () => {
           </div>
         </Card>
       </div>
+
+      <Modal
+        isOpen={showPasswordChangedModal}
+        onClose={() => {
+          setShowPasswordChangedModal(false);
+          navigate("/");
+        }}
+        title="Password Changed"
+        size="sm"
+        footer={(
+          <div className="flex justify-end">
+            <Button
+              variant="primary"
+              onClick={() => {
+                setShowPasswordChangedModal(false);
+                navigate("/");
+              }}
+            >
+              Login Again
+            </Button>
+          </div>
+        )}
+      >
+        <p className="text-sm text-text-dark">Password changed successfully.</p>
+        <p className="mt-2 text-sm text-text-light">Please login again with your new password.</p>
+      </Modal>
     </div>
   );
 };

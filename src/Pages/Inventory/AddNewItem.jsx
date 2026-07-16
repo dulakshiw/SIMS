@@ -282,6 +282,32 @@ const AddNewItem = () => {
     [selectedLocationUserId, systemUsers]
   );
 
+  const resolveBulkLocationValue = (item) => {
+    const locationType = String(item?.bulkLocationType || "csv");
+    if (locationType === "csv") {
+      return pickBulkField(item, "location");
+    }
+
+    if (locationType === "person") {
+      const selectedUserId = String(item?.bulkLocationUserId || "");
+      if (selectedUserId === LOCATION_OTHER_VALUE) {
+        return String(item?.bulkLocationOtherDetail || "").trim();
+      }
+      const selectedUser = systemUsers.find((user) => String(user.id) === selectedUserId);
+      return selectedUser?.name || "";
+    }
+
+    if (locationType === "place") {
+      const selectedPlace = String(item?.bulkLocationPlace || "");
+      if (selectedPlace === LOCATION_OTHER_VALUE) {
+        return String(item?.bulkLocationOtherDetail || "").trim();
+      }
+      return selectedPlace;
+    }
+
+    return "";
+  };
+
   const applyLocationFromValue = (locationValue, users) => {
     const normalizedLocation = String(locationValue || "").trim();
     if (!normalizedLocation) {
@@ -1141,7 +1167,12 @@ const AddNewItem = () => {
     }
 
     return items.findIndex(
-      (row) => getBulkImageGroupKey(row) === groupKey && row.itemImage instanceof File
+      (row) =>
+        getBulkImageGroupKey(row) === groupKey &&
+        (
+          row.itemImage instanceof File ||
+          (typeof row.existingItemImage === "string" && row.existingItemImage.trim().startsWith("/uploads/"))
+        )
     );
   };
 
@@ -1172,6 +1203,10 @@ const AddNewItem = () => {
 
     if (!groupKey.replace(/::/g, "").trim()) {
       return item.itemImage instanceof File ? "Image attached" : "Optional";
+    }
+
+    if (typeof item.existingItemImage === "string" && item.existingItemImage.trim().startsWith("/uploads/")) {
+      return "Reuses linked image";
     }
 
     const sourceIndex = getBulkImageSourceIndex(groupKey, items);
@@ -1226,7 +1261,7 @@ const AddNewItem = () => {
       return;
     }
 
-    updateBulkItemAt(index, { itemImage: file });
+    updateBulkItemAt(index, { itemImage: file, existingItemImage: "" });
   };
 
   const resolveBulkGinSource = (item, items = bulkItems) => {
@@ -1254,7 +1289,15 @@ const AddNewItem = () => {
     return item;
   };
 
-  const resolveBulkImageSource = (item, items = bulkItems) => {
+  const resolveBulkImageSource = (item, items = bulkItems, linkedImagePath = "") => {
+    if (typeof linkedImagePath === "string" && linkedImagePath.trim().startsWith("/uploads/")) {
+      return { ...item, existingItemImage: linkedImagePath, itemImage: null };
+    }
+
+    if (typeof item.existingItemImage === "string" && item.existingItemImage.trim().startsWith("/uploads/")) {
+      return item;
+    }
+
     const groupKey = getBulkImageGroupKey(item);
     const sourceIndex = getBulkImageSourceIndex(groupKey, items);
 
@@ -1266,9 +1309,9 @@ const AddNewItem = () => {
     return firstIndex >= 0 ? items[firstIndex] : item;
   };
 
-  const buildBulkItemFormData = (item, items = bulkItems, index = 0) => {
+  const buildBulkItemFormData = (item, items = bulkItems, index = 0, linkedImagePath = "") => {
     const ginSource = resolveBulkGinSource(item, items);
-    const imageSource = resolveBulkImageSource(item, items);
+    const imageSource = resolveBulkImageSource(item, items, linkedImagePath);
     const qr = buildBulkQrPayload(item, index);
     const fundingOtherValue = pickBulkField(item, "fundingOther", "fundingother");
     const warrantyOtherValue = pickBulkField(item, "warrantyOther", "warrantyother");
@@ -1299,10 +1342,12 @@ const AddNewItem = () => {
     form.append("funding", normalizedFunding || fundingOtherValue);
     form.append("receivedfrom", pickBulkField(item, "receivedfrom", "receivedFrom"));
     form.append("warranty", normalizedWarranty || warrantyOtherValue);
-    form.append("location", pickBulkField(item, "location"));
+    form.append("location", resolveBulkLocationValue(item));
     form.append("remarks", pickBulkField(item, "remarks"));
 
-    if (imageSource.itemImage instanceof File) {
+    if (typeof imageSource.existingItemImage === "string" && imageSource.existingItemImage.trim().startsWith("/uploads/")) {
+      form.append("existingItemImage", imageSource.existingItemImage.trim());
+    } else if (imageSource.itemImage instanceof File) {
       form.append("itemImage", imageSource.itemImage);
     }
 
@@ -1363,6 +1408,11 @@ const AddNewItem = () => {
             qrcodeUrl: qr.qrcodeUrl,
             qrcode2: qr.qrcode2,
             qrcode2Url: qr.qrcode2Url,
+            existingItemImage: "",
+            bulkLocationType: "csv",
+            bulkLocationUserId: "",
+            bulkLocationPlace: "",
+            bulkLocationOtherDetail: "",
           };
         });
 
@@ -1406,14 +1456,47 @@ const AddNewItem = () => {
       alert('No items to upload. Please select a CSV file.');
       return;
     }
+
+    for (let index = 0; index < bulkItems.length; index += 1) {
+      const item = bulkItems[index];
+      const locationType = String(item?.bulkLocationType || "csv");
+
+      if (locationType === "person" && !String(item?.bulkLocationUserId || "").trim()) {
+        alert(`Row ${index + 1}: Select a staff member.`);
+        return;
+      }
+
+      if (locationType === "place" && !String(item?.bulkLocationPlace || "").trim()) {
+        alert(`Row ${index + 1}: Select a place.`);
+        return;
+      }
+
+      const needsOtherInput =
+        (locationType === "person" && item?.bulkLocationUserId === LOCATION_OTHER_VALUE) ||
+        (locationType === "place" && item?.bulkLocationPlace === LOCATION_OTHER_VALUE);
+
+      if (needsOtherInput && !String(item?.bulkLocationOtherDetail || "").trim()) {
+        alert(`Row ${index + 1}: Enter details for Other location.`);
+        return;
+      }
+
+      if (!resolveBulkLocationValue(item)) {
+        alert(`Row ${index + 1}: Select a valid location.`);
+        return;
+      }
+    }
+
     (async () => {
       try {
         setBulkSubmitting(true);
         let createdCount = 0;
+        const linkedImageByGroup = {};
 
         for (let index = 0; index < bulkItems.length; index += 1) {
           const item = bulkItems[index];
-          const form = buildBulkItemFormData(item, bulkItems, index);
+          const groupKey = getBulkImageGroupKey(item);
+          const linkedImagePath = groupKey ? linkedImageByGroup[groupKey] || "" : "";
+          const form = buildBulkItemFormData(item, bulkItems, index, linkedImagePath);
           const res = await fetch(`${API_BASE_URL}/api/items`, {
             method: "POST",
             body: form,
@@ -1423,6 +1506,14 @@ const AddNewItem = () => {
           if (!res.ok || !data.success) {
             const rowLabel = pickBulkField(item, "itemName", "itemname") || `Row ${index + 1}`;
             throw new Error(`Row ${index + 1} (${rowLabel}): ${data.error || data.message || "Upload failed"}`);
+          }
+
+          const createdImagePath = String(
+            data?.item?.itemImage || data?.item?.item_image || ""
+          ).trim();
+
+          if (groupKey && createdImagePath.startsWith("/uploads/")) {
+            linkedImageByGroup[groupKey] = createdImagePath;
           }
 
           createdCount += 1;
@@ -2529,7 +2620,89 @@ const AddNewItem = () => {
                                 <p className="text-xs text-text-light">{imageStatus}</p>
                               </div>
                             </td>
-                            <td className="px-3 py-2">{pickBulkField(item, "location") || "-"}</td>
+                            <td className="px-3 py-2 min-w-[280px]">
+                              <div className="space-y-2">
+                                <select
+                                  value={item.bulkLocationType || "csv"}
+                                  onChange={(e) => {
+                                    const nextType = e.target.value;
+                                    updateBulkItemAt(index, {
+                                      bulkLocationType: nextType,
+                                      bulkLocationOtherDetail: "",
+                                      bulkLocationUserId: nextType === "person" ? (item.bulkLocationUserId || "") : "",
+                                      bulkLocationPlace: nextType === "place" ? (item.bulkLocationPlace || "") : "",
+                                    });
+                                  }}
+                                  style={{ backgroundColor: "#F2F0F0" }}
+                                  className="w-full px-2 py-1 border border-border rounded focus:outline-none focus:ring-2 focus:ring-primary-500"
+                                >
+                                  <option value="person">Staff Member</option>
+                                  <option value="place">Place</option>
+                                </select>
+
+                                {(item.bulkLocationType || "csv") === "person" && (
+                                  <select
+                                    value={item.bulkLocationUserId || ""}
+                                    onChange={(e) => {
+                                      const value = e.target.value;
+                                      updateBulkItemAt(index, {
+                                        bulkLocationUserId: value,
+                                        bulkLocationOtherDetail:
+                                          value === LOCATION_OTHER_VALUE
+                                            ? item.bulkLocationOtherDetail || ""
+                                            : "",
+                                      });
+                                    }}
+                                    style={{ backgroundColor: "#F2F0F0" }}
+                                    className="w-full px-2 py-1 border border-border rounded focus:outline-none focus:ring-2 focus:ring-primary-500"
+                                  >
+                                    <option value="">Select staff member</option>
+                                    {userLocationOptions.map((option) => (
+                                      <option key={option.value} value={option.value}>{option.label}</option>
+                                    ))}
+                                  </select>
+                                )}
+
+                                {(item.bulkLocationType || "csv") === "place" && (
+                                  <select
+                                    value={item.bulkLocationPlace || ""}
+                                    onChange={(e) => {
+                                      const value = e.target.value;
+                                      updateBulkItemAt(index, {
+                                        bulkLocationPlace: value,
+                                        bulkLocationOtherDetail:
+                                          value === LOCATION_OTHER_VALUE
+                                            ? item.bulkLocationOtherDetail || ""
+                                            : "",
+                                      });
+                                    }}
+                                    style={{ backgroundColor: "#F2F0F0" }}
+                                    className="w-full px-2 py-1 border border-border rounded focus:outline-none focus:ring-2 focus:ring-primary-500"
+                                  >
+                                    <option value="">Select place</option>
+                                    {commonPlaceOptions.map((option) => (
+                                      <option key={option.value} value={option.value}>{option.label}</option>
+                                    ))}
+                                  </select>
+                                )}
+
+                                {(((item.bulkLocationType || "csv") === "person" && item.bulkLocationUserId === LOCATION_OTHER_VALUE) ||
+                                  ((item.bulkLocationType || "csv") === "place" && item.bulkLocationPlace === LOCATION_OTHER_VALUE)) && (
+                                  <input
+                                    type="text"
+                                    value={item.bulkLocationOtherDetail || ""}
+                                    onChange={(e) => updateBulkItemAt(index, { bulkLocationOtherDetail: e.target.value })}
+                                    placeholder="Enter other location"
+                                    style={{ backgroundColor: "#F2F0F0" }}
+                                    className="w-full px-2 py-1 border border-border rounded focus:outline-none focus:ring-2 focus:ring-primary-500"
+                                  />
+                                )}
+
+                                <p className="text-xs text-text-light">
+                                  Final: {resolveBulkLocationValue(item) || "Not selected"}
+                                </p>
+                              </div>
+                            </td>
                           </tr>
                         );
                       })}

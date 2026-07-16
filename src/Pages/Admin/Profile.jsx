@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { useLocation, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import MainLayout from '../../Components/Layouts/MainLayout'
 import AdminLayout from '../../Components/Layouts/AdminLayout'
-import { PageHeader } from '../../Components/UI'
+import { Button, Modal, PageHeader } from '../../Components/UI'
 import { ROLE_HIERARCHY } from '../../utils/constants'
 import { resolveSidebarVariant } from '../../utils/helpers'
 import {
@@ -19,6 +19,7 @@ const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 const Profile = () => {
   const location = useLocation()
+  const navigate = useNavigate()
   const { role } = useParams()
   const isAdminRoute = location.pathname.startsWith('/admin')
   const sidebarVariant = resolveSidebarVariant(location.pathname, role)
@@ -35,6 +36,10 @@ const Profile = () => {
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [currentPassword, setCurrentPassword] = useState('')
+  const [passwordOtp, setPasswordOtp] = useState('')
+  const [passwordOtpSent, setPasswordOtpSent] = useState(false)
+  const [passwordOtpLoading, setPasswordOtpLoading] = useState(false)
+  const [showPasswordChangedModal, setShowPasswordChangedModal] = useState(false)
 
   const [loading, setLoading] = useState(false)
   const [deactivationLoading, setDeactivationLoading] = useState(false)
@@ -128,6 +133,58 @@ const Profile = () => {
 
   const canSave = (mobileNoChanged || passwordAttempt) && passwordValid && !loading
 
+  const handleSendPasswordOtp = async () => {
+    setMessage(null)
+    setError(null)
+
+    if (!passwordAttempt) {
+      setError('Enter your current password and new password first')
+      return
+    }
+
+    if (!isCurrentProvided) {
+      setError('Enter your current password')
+      return
+    }
+
+    if (!isNewPasswordValid) {
+      setError(PASSWORD_REQUIREMENTS_MESSAGE)
+      return
+    }
+
+    if (!isConfirmMatch) {
+      setError('Passwords do not match')
+      return
+    }
+
+    setPasswordOtpLoading(true)
+    try {
+      const storedUser = JSON.parse(localStorage.getItem('currentUser') || '{}')
+      const response = await fetch(`${API_BASE_URL}/api/profile/request-password-reset-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: storedUser.id,
+          email: storedUser.email || email,
+          currentPassword,
+          password,
+        }),
+      })
+      const data = await response.json().catch(() => ({}))
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || data.error || 'Failed to send verification code')
+      }
+
+      setPasswordOtpSent(true)
+      setMessage(data.message || 'Verification code sent to your email.')
+    } catch (err) {
+      setError(err.message || 'Failed to send verification code')
+    } finally {
+      setPasswordOtpLoading(false)
+    }
+  }
+
   const handleSave = async (e) => {
     e.preventDefault()
     setMessage(null)
@@ -137,35 +194,54 @@ const Profile = () => {
       if (!isCurrentProvided) return setError('Enter your current password')
       if (!isNewPasswordValid) return setError(PASSWORD_REQUIREMENTS_MESSAGE)
       if (!isConfirmMatch) return setError('Passwords do not match')
+      if (!passwordOtpSent) return setError('Send the verification code to your email first')
+      if (passwordOtp.length !== 6) return setError('Enter the 6-digit verification code sent to your email')
     }
 
     setLoading(true)
     try {
-      // Send currentPassword + new password for verification/update
       const storedUser = JSON.parse(localStorage.getItem('currentUser') || '{}')
       const payload = {
         userId: storedUser.id,
         email: storedUser.email || email,
         ...(mobileNoChanged ? { mobileNo } : {}),
-        ...(passwordAttempt ? { currentPassword, password } : {}),
       }
 
-      const res = await fetch(`${API_BASE_URL}/api/profile`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
+      const res = passwordAttempt
+        ? await fetch(`${API_BASE_URL}/api/profile/confirm-password-reset-otp`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...payload,
+            currentPassword,
+            password,
+            otp: passwordOtp,
+          }),
+        })
+        : await fetch(`${API_BASE_URL}/api/profile`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
         throw new Error(err.message || 'Failed to save profile')
       }
 
-      setMessage('Profile updated successfully')
+      if (passwordAttempt) {
+        setMessage('OTP matched successfully. Password changed successfully. Please login again.')
+        setShowPasswordChangedModal(true)
+      } else {
+        setMessage('Profile updated successfully')
+      }
       setOriginalMobileNo(mobileNo)
       setPassword('')
       setConfirmPassword('')
       setCurrentPassword('')
+      setPasswordOtp('')
+      setPasswordOtpSent(false)
+
     } catch (err) {
       setError(err.message || 'Failed to save profile')
     } finally {
@@ -209,7 +285,7 @@ const Profile = () => {
       const data = await response.json().catch(() => ({}))
 
       if (!response.ok || !data.success) {
-        if (data.code === 'OUTSTANDING_ITEM_RETURNS' && data.message) {
+        if ((data.code === 'OUTSTANDING_ITEM_RETURNS' || data.code === 'MANAGED_INVENTORIES_EXIST') && data.message) {
           window.alert(data.message)
         }
         throw new Error(data.message || 'Failed to submit deactivation request')
@@ -360,6 +436,37 @@ const Profile = () => {
                 <p className="text-sm text-red-600 mt-1">Passwords do not match</p>
               )}
             </div>
+
+            {passwordAttempt ? (
+              <div className="md:col-span-2 rounded-lg border border-border bg-gray-50 p-4 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium text-gray-700">Email verification for password change</p>
+                    <p className="text-xs text-gray-500 mt-1">Send a 6-digit OTP to your registered email, then enter it below to confirm the password update.</p>
+                  </div>
+                  <button
+                    type="button"
+                    className={`px-4 py-2 rounded-md text-white ${passwordOtpLoading ? 'bg-gray-400 cursor-not-allowed' : 'bg-primary-600'}`}
+                    onClick={handleSendPasswordOtp}
+                    disabled={passwordOtpLoading}
+                  >
+                    {passwordOtpLoading ? 'Sending OTP...' : (passwordOtpSent ? 'Resend OTP' : 'Send OTP')}
+                  </button>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Verification Code</label>
+                  <input
+                    type="text"
+                    className="w-full px-4 py-2.5 border border-border rounded-lg mt-1"
+                    value={passwordOtp}
+                    onChange={(e) => setPasswordOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    placeholder="Enter 6-digit OTP"
+                    maxLength={6}
+                  />
+                </div>
+              </div>
+            ) : null}
           </div>
 
           <div className="mt-6 flex flex-wrap gap-3">
@@ -379,6 +486,8 @@ const Profile = () => {
                 setPassword('')
                 setConfirmPassword('')
                 setCurrentPassword('')
+                setPasswordOtp('')
+                setPasswordOtpSent(false)
                 setMessage(null)
                 setError(null)
               }}
@@ -398,6 +507,40 @@ const Profile = () => {
           </div>
         </form>
       </div>
+
+      <Modal
+        isOpen={showPasswordChangedModal}
+        onClose={() => {
+          setShowPasswordChangedModal(false)
+          localStorage.removeItem('currentUser')
+          localStorage.removeItem('userRole')
+          localStorage.removeItem('username')
+          window.currentUser = null
+          navigate('/')
+        }}
+        title="Password Changed"
+        size="sm"
+        footer={(
+          <div className="flex justify-end">
+            <Button
+              variant="primary"
+              onClick={() => {
+                setShowPasswordChangedModal(false)
+                localStorage.removeItem('currentUser')
+                localStorage.removeItem('userRole')
+                localStorage.removeItem('username')
+                window.currentUser = null
+                navigate('/')
+              }}
+            >
+              Login Again
+            </Button>
+          </div>
+        )}
+      >
+        <p className="text-sm text-text-dark">OTP matched successfully.</p>
+        <p className="mt-2 text-sm text-text-light">Password changed successfully. Please login again.</p>
+      </Modal>
     </Layout>
   )
 }

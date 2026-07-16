@@ -52,6 +52,7 @@ const Reports = ({ layoutVariant = "admin", sidebarVariant }) => {
   const [userDetailsData, setUserDetailsData] = useState([]);
   const [userLoginData, setUserLoginData] = useState([]);
   const [inventoryDetailsData, setInventoryDetailsData] = useState([]);
+  const [inventoryItemsData, setInventoryItemsData] = useState([]);
   const [departmentDetailsData, setDepartmentDetailsData] = useState([]);
 
   const loadReports = useCallback(async () => {
@@ -59,17 +60,19 @@ const Reports = ({ layoutVariant = "admin", sidebarVariant }) => {
       setLoading(true);
       setError("");
 
-      const [summaryRes, usersRes, inventoriesRes, departmentsRes] = await Promise.all([
+      const [summaryRes, usersRes, inventoriesRes, inventoryItemsRes, departmentsRes] = await Promise.all([
         fetch(`${API_BASE_URL}/api/dashboard/summary`),
         fetch(`${API_BASE_URL}/api/users`),
         fetch(`${API_BASE_URL}/api/inventories`),
+        fetch(`${API_BASE_URL}/api/items`),
         fetch(`${API_BASE_URL}/api/departments?includeInactive=true`),
       ]);
 
-      const [summaryJson, usersJson, inventoriesJson, departmentsJson] = await Promise.all([
+      const [summaryJson, usersJson, inventoriesJson, inventoryItemsJson, departmentsJson] = await Promise.all([
         summaryRes.json().catch(() => ({})),
         usersRes.json().catch(() => ({})),
         inventoriesRes.json().catch(() => ({})),
+        inventoryItemsRes.json().catch(() => ({})),
         departmentsRes.json().catch(() => ({})),
       ]);
 
@@ -81,6 +84,9 @@ const Reports = ({ layoutVariant = "admin", sidebarVariant }) => {
       }
       if (!inventoriesRes.ok || !inventoriesJson.success) {
         throw new Error(inventoriesJson.error || inventoriesJson.message || "Failed to load inventories report.");
+      }
+      if (!inventoryItemsRes.ok || !inventoryItemsJson.success) {
+        throw new Error(inventoryItemsJson.error || inventoryItemsJson.message || "Failed to load inventory items report.");
       }
       if (!departmentsRes.ok || !departmentsJson.success) {
         throw new Error(departmentsJson.error || departmentsJson.message || "Failed to load departments report.");
@@ -134,6 +140,20 @@ const Reports = ({ layoutVariant = "admin", sidebarVariant }) => {
           createdDate: inventory.createdDate || "—",
           lastUpdated: inventory.lastUpdated || "—",
           status: String(inventory.status || "active").toLowerCase(),
+        }))
+      );
+
+      setInventoryItemsData(
+        (inventoryItemsJson.items || []).map((item) => ({
+          id: item.id ?? item.item_id ?? "—",
+          itemName: item.itemName || item.item_name || item.name || "—",
+          itemCode: item.itemCode || item.item_code || "—",
+          serialNo: item.serialNo || item.serial_no || "—",
+          inventory: item.inventoryName || item.inventory_name || "—",
+          location: item.locationLabel || item.location || "—",
+          status: String(item.displayStatus || item.status || "available").toLowerCase(),
+          value: item.value ?? item.price ?? "—",
+          createdDate: item.createdDate || item.created_date || "—",
         }))
       );
 
@@ -279,6 +299,28 @@ const Reports = ({ layoutVariant = "admin", sidebarVariant }) => {
     { field: "createdDate", label: "Created Date" },
   ];
 
+  const inventoryItemsColumns = [
+    { field: "id", label: "Item ID", sortable: true },
+    { field: "itemName", label: "Item Name", sortable: true },
+    { field: "itemCode", label: "Item Code", sortable: true },
+    { field: "serialNo", label: "Serial No", sortable: true },
+    { field: "inventory", label: "Inventory", sortable: true },
+    { field: "location", label: "Location", sortable: true },
+    {
+      field: "status",
+      label: "Status",
+      render: (value) => (
+        <Badge
+          label={String(value || "unknown").charAt(0).toUpperCase() + String(value || "unknown").slice(1)}
+          variant={value === "available" ? "success" : value === "maintenance" ? "warning" : "info"}
+          size="sm"
+        />
+      ),
+    },
+    { field: "value", label: "Value (LKR)", sortable: true },
+    { field: "createdDate", label: "Created Date" },
+  ];
+
   const getReportConfig = (reportType) => {
     const reportConfig = {
       "user-details": {
@@ -322,6 +364,22 @@ const Reports = ({ layoutVariant = "admin", sidebarVariant }) => {
           inventory.status,
           inventory.createdDate,
           inventory.lastUpdated,
+        ]),
+      },
+      "inventory-items": {
+        title: "Inventory Items Report",
+        fileName: "inventory-items-report",
+        headers: ["Item ID", "Item Name", "Item Code", "Serial No", "Inventory", "Location", "Status", "Value (LKR)", "Created Date"],
+        rows: inventoryItemsData.map((item) => [
+          item.id,
+          item.itemName,
+          item.itemCode,
+          item.serialNo,
+          item.inventory,
+          item.location,
+          item.status,
+          item.value,
+          item.createdDate,
         ]),
       },
       "user-login": {
@@ -490,6 +548,7 @@ const Reports = ({ layoutVariant = "admin", sidebarVariant }) => {
               { id: "user-details", label: "User Details" },
               { id: "user-login", label: "User Login Details" },
               { id: "inventory-details", label: "Inventory Details" },
+              { id: "inventory-items", label: "Inventory Items" },
               { id: "department-details", label: "Department Details" },
             ].map((tab) => (
               <button
@@ -544,6 +603,16 @@ const Reports = ({ layoutVariant = "admin", sidebarVariant }) => {
                 <p className="text-sm text-text-light p-4">No inventories found.</p>
               ) : (
                 <Table columns={inventoryDetailsColumns} data={inventoryDetailsData} itemsPerPage={10} />
+              )}
+            </Card>
+          ) : null}
+
+          {!loading && activeTab === "inventory-items" ? (
+            <Card title="Inventory Items Report" icon="inventory">
+              {inventoryItemsData.length === 0 ? (
+                <p className="text-sm text-text-light p-4">No inventory items found.</p>
+              ) : (
+                <Table columns={inventoryItemsColumns} data={inventoryItemsData} itemsPerPage={10} />
               )}
             </Card>
           ) : null}

@@ -21,12 +21,30 @@ const ACCOUNT_REQUEST_LABELS = {
 };
 
 const HOD_PENDING_INVENTORY_STATUSES = new Set(['pending_hod', 'pending_staff']);
+const ALLOWED_INCHARGE_DESIGNATIONS = new Set(['Technical Officer', 'Management Assistant']);
+const HISTORY_VIEW_KEYS = new Set(['forwarded', 'rejected']);
+const INVENTORY_DOWNSTREAM_STATUSES = new Set([
+  'approved_by_hod',
+  'pending_registrar',
+  'approved_by_registrar',
+  'pending_admin',
+  'approved_by_admin',
+  'completed',
+]);
 
-const PENDING_TAB_KEYS = new Set(['accounts', 'inventory', 'movements', 'item-recommend', 'item-lab']);
+const PENDING_TAB_KEYS = new Set(['accounts', 'inventory', 'movements', 'item-recommend', 'item-lab', 'forwarded', 'rejected']);
 
-const resolveInitialTab = (stateTab) => (
-  PENDING_TAB_KEYS.has(stateTab) ? stateTab : 'accounts'
-);
+const resolveInitialTab = (stateTab, pathname) => {
+  if (PENDING_TAB_KEYS.has(stateTab)) {
+    return stateTab;
+  }
+
+  if (String(pathname || '').startsWith('/hod/approval-history')) {
+    return 'forwarded';
+  }
+
+  return 'accounts';
+};
 
 const getStoredUser = () => {
   try {
@@ -50,8 +68,11 @@ const formatDetailValue = (value) => {
   return value || '—';
 };
 
+const resolveUserId = (user = {}) => Number(user.id ?? user.user_id ?? user.userId ?? 0);
+
 const HodPendingTasks = () => {
   const location = useLocation();
+  const isApprovalHistoryPath = location.pathname.startsWith('/hod/approval-history');
   const [currentUser, setCurrentUser] = useState(getStoredUser);
   const [accountRequests, setAccountRequests] = useState([]);
   const [inventoryRequests, setInventoryRequests] = useState([]);
@@ -68,10 +89,14 @@ const HodPendingTasks = () => {
   const [disposalLoadError, setDisposalLoadError] = useState('');
   const [repairLoadError, setRepairLoadError] = useState('');
   const [itemLoadError, setItemLoadError] = useState('');
-  const [activeReviewTab, setActiveReviewTab] = useState(() => resolveInitialTab(location.state?.activeTab));
+  const [activeReviewTab, setActiveReviewTab] = useState(() => resolveInitialTab(location.state?.activeTab, location.pathname));
   const [activeMovementTabIndex, setActiveMovementTabIndex] = useState(0);
   const [selectedReviewRow, setSelectedReviewRow] = useState(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [officerCandidates, setOfficerCandidates] = useState([]);
+  const [officerCandidatesLoading, setOfficerCandidatesLoading] = useState(false);
+  const [selectedOfficerId, setSelectedOfficerId] = useState('');
+  const [officerSelectionError, setOfficerSelectionError] = useState('');
 
   const departmentName = getDepartmentName(currentUser);
 
@@ -265,10 +290,22 @@ const HodPendingTasks = () => {
   }, []);
 
   useEffect(() => {
+    if (isApprovalHistoryPath) {
+      if (!HISTORY_VIEW_KEYS.has(activeReviewTab)) {
+        setActiveReviewTab('forwarded');
+      }
+      return;
+    }
+
+    if (HISTORY_VIEW_KEYS.has(activeReviewTab)) {
+      setActiveReviewTab('accounts');
+      return;
+    }
+
     if (location.state?.activeTab && PENDING_TAB_KEYS.has(location.state.activeTab)) {
       setActiveReviewTab(location.state.activeTab);
     }
-  }, [location.state?.activeTab]);
+  }, [activeReviewTab, isApprovalHistoryPath, location.state?.activeTab]);
 
   const departmentKey = String(departmentName).trim().toLowerCase();
 
@@ -431,6 +468,135 @@ const HodPendingTasks = () => {
     return mapPendingRows(rows);
   }, [itemLabRequests]);
 
+  const allItemRequests = useMemo(() => {
+    const byId = new Map();
+    [...itemRecommendRequests, ...itemLabRequests].forEach((request) => byId.set(request.id, request));
+    return [...byId.values()];
+  }, [itemRecommendRequests, itemLabRequests]);
+
+  const isForwardedAccount = (request) => {
+    const status = String(request.approvalStatus || '').toLowerCase();
+    return status !== ACCOUNT_REQUEST_STATUS.PENDING_DEPT_HEAD
+      && status !== ACCOUNT_REQUEST_STATUS.REJECTED;
+  };
+
+  const isForwardedItem = (request) => {
+    const status = String(request.approvalStatus || '').toLowerCase();
+    return !ITEM_REQUEST_PENDING_REQUESTER_STATUSES.has(status)
+      && status !== ITEM_REQUEST_STATUS.REJECTED
+      && status !== ITEM_REQUEST_STATUS.CANCELLED;
+  };
+
+  const forwardedRows = useMemo(() => {
+    const accountRows = departmentAccountRequests
+      .filter(isForwardedAccount)
+      .map((r) => ({
+        queueKey: `acc:${r.id}`,
+        source: 'account',
+        category: 'Account',
+        requestLabel: ACCOUNT_REQUEST_LABELS[r.requestType] || r.requestType || 'Account',
+        subjectName: r.name || '—',
+        requestedBy: r.name || '—',
+        location: '—',
+        requestedDate: r.requestedDate || '',
+        statusKey: r.approvalStatus,
+        statusKind: 'account',
+        _account: r,
+      }));
+
+    const inventoryRows = departmentInventoryRequests
+      .filter((r) => INVENTORY_DOWNSTREAM_STATUSES.has(String(r.approvalStatus || '').toLowerCase()))
+      .map((r) => {
+        const typeLabel = INVENTORY_REQUEST_TYPE_LABELS[r.requestType] || r.requestType || 'Inventory';
+        return {
+          queueKey: `inv:${r.id}`,
+          source: 'inventory',
+          category: 'Inventory',
+          requestLabel: typeLabel,
+          subjectName: r.name || '—',
+          requestedBy: r.requestedByName || '—',
+          location: r.location || '—',
+          requestedDate: r.requestedDate || '',
+          statusKey: r.approvalStatus,
+          statusKind: 'inventory',
+          _inventory: r,
+        };
+      });
+
+    const itemRows = allItemRequests
+      .filter(isForwardedItem)
+      .map((r) => ({
+        queueKey: `item:${r.id}`,
+        source: 'item',
+        category: 'Item',
+        requestLabel: 'Item request',
+        subjectName: r.itemName || '—',
+        requestedBy: r.requestedByName || '—',
+        location: r.inventoryLocation || '—',
+        requestedDate: r.requestedDate || '',
+        statusKey: r.approvalStatus,
+        statusKind: 'item',
+        _item: r,
+      }));
+
+    return mapPendingRows([...accountRows, ...inventoryRows, ...itemRows]);
+  }, [departmentAccountRequests, departmentInventoryRequests, allItemRequests]);
+
+  const rejectedRows = useMemo(() => {
+    const accountRows = departmentAccountRequests
+      .filter((r) => r.approvalStatus === ACCOUNT_REQUEST_STATUS.REJECTED)
+      .map((r) => ({
+        queueKey: `acc:${r.id}`,
+        source: 'account',
+        category: 'Account',
+        requestLabel: ACCOUNT_REQUEST_LABELS[r.requestType] || r.requestType || 'Account',
+        subjectName: r.name || '—',
+        requestedBy: r.name || '—',
+        location: '—',
+        requestedDate: r.requestedDate || '',
+        statusKey: r.approvalStatus,
+        statusKind: 'account',
+        _account: r,
+      }));
+
+    const inventoryRows = departmentInventoryRequests
+      .filter((r) => String(r.approvalStatus || '').toLowerCase() === 'rejected')
+      .map((r) => {
+        const typeLabel = INVENTORY_REQUEST_TYPE_LABELS[r.requestType] || r.requestType || 'Inventory';
+        return {
+          queueKey: `inv:${r.id}`,
+          source: 'inventory',
+          category: 'Inventory',
+          requestLabel: typeLabel,
+          subjectName: r.name || '—',
+          requestedBy: r.requestedByName || '—',
+          location: r.location || '—',
+          requestedDate: r.requestedDate || '',
+          statusKey: r.approvalStatus,
+          statusKind: 'inventory',
+          _inventory: r,
+        };
+      });
+
+    const itemRows = allItemRequests
+      .filter((r) => String(r.approvalStatus || '').toLowerCase() === ITEM_REQUEST_STATUS.REJECTED)
+      .map((r) => ({
+        queueKey: `item:${r.id}`,
+        source: 'item',
+        category: 'Item',
+        requestLabel: 'Item request',
+        subjectName: r.itemName || '—',
+        requestedBy: r.requestedByName || '—',
+        location: r.inventoryLocation || '—',
+        requestedDate: r.requestedDate || '',
+        statusKey: r.approvalStatus,
+        statusKind: 'item',
+        _item: r,
+      }));
+
+    return mapPendingRows([...accountRows, ...inventoryRows, ...itemRows]);
+  }, [departmentAccountRequests, departmentInventoryRequests, allItemRequests]);
+
   const statusBadge = (row) => {
     if (row.statusKind === 'account') {
       const config = ACCOUNT_REQUEST_STATUS_META[row.statusKey] || { label: row.statusKey, variant: 'secondary' };
@@ -551,6 +717,31 @@ const HodPendingTasks = () => {
     { field: 'requestedBy', label: 'Requested by', sortable: true },
     { field: 'itemName', label: 'Item', sortable: true },
     { field: 'location', label: 'Inventory location', sortable: true },
+    { field: 'requestedDate', label: 'Requested date', sortable: true },
+    {
+      field: 'statusKey',
+      label: 'Status',
+      sortable: true,
+      render: (_value, row) => statusBadge(row),
+    },
+  ];
+
+  const historyColumns = [
+    {
+      field: 'category',
+      label: 'Category',
+      sortable: true,
+      render: (value) => <Badge label={value} variant="secondary" size="sm" />,
+    },
+    {
+      field: 'requestLabel',
+      label: 'Request type',
+      sortable: true,
+      render: (value) => <Badge label={value} variant="info" size="sm" />,
+    },
+    { field: 'subjectName', label: 'Subject', sortable: true },
+    { field: 'requestedBy', label: 'Requested by', sortable: true },
+    { field: 'location', label: 'Location', sortable: true },
     { field: 'requestedDate', label: 'Requested date', sortable: true },
     {
       field: 'statusKey',
@@ -807,9 +998,18 @@ const HodPendingTasks = () => {
       return;
     }
 
+    if (isApprove && isChangeIncharge) {
+      const nextOfficerId = Number(selectedOfficerId);
+      if (!Number.isInteger(nextOfficerId) || nextOfficerId <= 0) {
+        setOfficerSelectionError('Select the new inventory officer before approving this request.');
+        return;
+      }
+    }
+
     try {
       setActionLoadingKey(`inv:${request.id}`);
       const hodUserId = Number(currentUser.id ?? 0);
+      const nextOfficerId = Number(selectedOfficerId);
       const url = isApprove
         ? `${API_BASE_URL}/api/inventory-creation-requests/${request.id}/approve-hod`
         : `${API_BASE_URL}/api/inventory-creation-requests/${request.id}/reject`;
@@ -818,7 +1018,12 @@ const HodPendingTasks = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(
           isApprove
-            ? { approverUserId: hodUserId }
+            ? {
+              approverUserId: hodUserId,
+              ...(isChangeIncharge && Number.isInteger(nextOfficerId) && nextOfficerId > 0
+                ? { inchargeId: nextOfficerId }
+                : {}),
+            }
             : { approverUserId: hodUserId, reason: 'Rejected by Head of Department' }
         ),
       });
@@ -939,12 +1144,80 @@ const HodPendingTasks = () => {
     }
     setIsDetailModalOpen(false);
     setSelectedReviewRow(null);
+    setOfficerCandidates([]);
+    setSelectedOfficerId('');
+    setOfficerSelectionError('');
   };
 
   const handleViewRowDetails = (row) => {
     setSelectedReviewRow(row);
     setIsDetailModalOpen(true);
+    setOfficerSelectionError('');
+    if (row?.source === 'inventory' && row?._inventory?.requestType === 'change_incharge') {
+      setSelectedOfficerId(String(row._inventory.inchargeUserId || ''));
+    } else {
+      setSelectedOfficerId('');
+    }
   };
+
+  useEffect(() => {
+    const request = selectedReviewRow?._inventory;
+    const shouldLoadCandidates = isDetailModalOpen
+      && selectedReviewRow?.source === 'inventory'
+      && request?.requestType === 'change_incharge';
+
+    if (!shouldLoadCandidates) {
+      setOfficerCandidates([]);
+      setOfficerCandidatesLoading(false);
+      return;
+    }
+
+    const loadOfficerCandidates = async () => {
+      try {
+        setOfficerCandidatesLoading(true);
+        setOfficerSelectionError('');
+
+        const response = await fetch(`${API_BASE_URL}/api/users`);
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok || !data.success) {
+          throw new Error(data.message || data.error || 'Failed to load eligible staff members.');
+        }
+
+        const departmentKey = String(request.department || '').trim().toLowerCase();
+        const currentOfficerId = Number(request.requestedById ?? request.previousInchargeUserId ?? 0);
+
+        const candidates = (data.users || []).filter((user) => {
+          const userId = resolveUserId(user);
+          const designation = String(user.designation || '').trim();
+          const userDepartment = String(user.department || user.departmentName || '').trim().toLowerCase();
+
+          return user.status === 'active'
+            && ['staff', 'inventory_incharge'].includes(String(user.role || '').toLowerCase())
+            && ALLOWED_INCHARGE_DESIGNATIONS.has(designation)
+            && userDepartment === departmentKey
+            && userId > 0
+            && userId !== currentOfficerId;
+        });
+
+        setOfficerCandidates(candidates);
+        setSelectedOfficerId((previous) => {
+          if (candidates.length === 0) {
+            return '';
+          }
+          const previousMatch = candidates.some((user) => String(resolveUserId(user)) === String(previous || ''));
+          return previousMatch ? previous : String(resolveUserId(candidates[0]));
+        });
+      } catch (loadError) {
+        setOfficerCandidates([]);
+        setOfficerSelectionError(loadError.message || 'Failed to load eligible staff members.');
+      } finally {
+        setOfficerCandidatesLoading(false);
+      }
+    };
+
+    loadOfficerCandidates();
+  }, [isDetailModalOpen, selectedReviewRow]);
 
   const buildAccountDetailFields = (request) => {
     const isDeactivation = request.requestType === 'deactivation';
@@ -989,7 +1262,7 @@ const HodPendingTasks = () => {
     const officerFields = request.requestType === 'change_incharge'
       ? [
         { label: 'Current officer', value: request.previousInchargeName || request.requestedByName },
-        { label: 'Proposed officer', value: request.inchargeName },
+        { label: 'New officer', value: request.inchargeName || 'To be selected by HOD' },
       ]
       : [{ label: 'Inventory officer', value: request.inchargeName }];
 
@@ -1129,6 +1402,8 @@ const HodPendingTasks = () => {
   const isSelectedRowLoading = selectedReviewRow
     ? actionLoadingKey === selectedReviewRow.queueKey
     : false;
+  const isSelectedChangeIncharge = selectedReviewRow?.source === 'inventory'
+    && selectedReviewRow?._inventory?.requestType === 'change_incharge';
 
   const movementTabs = [
     { id: 'transfers', label: `Transfers (${pendingTransferRows.length})` },
@@ -1172,10 +1447,28 @@ const HodPendingTasks = () => {
       count: pendingItemLabRows.length,
       icon: 'science',
     },
+    {
+      key: 'forwarded',
+      title: 'Approved / Recommended',
+      description: 'Requests you approved or forwarded to the next step.',
+      count: forwardedRows.length,
+      icon: 'forward',
+    },
+    {
+      key: 'rejected',
+      title: 'Rejected Requests',
+      description: 'Requests you declined or rejected.',
+      count: rejectedRows.length,
+      icon: 'cancel',
+    },
   ];
 
-  const activePendingSummary = pendingSummaryCards.find((card) => card.key === activeReviewTab)
-    || pendingSummaryCards[0];
+  const displayedSummaryCards = isApprovalHistoryPath
+    ? pendingSummaryCards.filter((card) => HISTORY_VIEW_KEYS.has(card.key))
+    : pendingSummaryCards.filter((card) => !HISTORY_VIEW_KEYS.has(card.key));
+
+  const activePendingSummary = displayedSummaryCards.find((card) => card.key === activeReviewTab)
+    || displayedSummaryCards[0];
 
   const handleSelectPendingTab = (tabKey) => {
     setActiveReviewTab(tabKey);
@@ -1221,7 +1514,13 @@ const HodPendingTasks = () => {
       return 'Your profile needs a department name to filter requests for your department.';
     }
     if (activeTabRows.length === 0) {
+      if (HISTORY_VIEW_KEYS.has(activeReviewTab)) {
+        return `No ${activePendingSummary.title.toLowerCase()} yet.`;
+      }
       return `No pending requests in ${activePendingSummary.title.toLowerCase()}.`;
+    }
+    if (HISTORY_VIEW_KEYS.has(activeReviewTab)) {
+      return `${activeTabRows.length} request${activeTabRows.length === 1 ? '' : 's'} in this list.`;
     }
     return `${activeTabRows.length} request${activeTabRows.length === 1 ? '' : 's'} awaiting your action.`;
   };
@@ -1239,7 +1538,11 @@ const HodPendingTasks = () => {
             : pendingTransferRows)
         : activeReviewTab === 'item-recommend'
           ? pendingItemRecommendRows
-          : pendingItemLabRows;
+          : activeReviewTab === 'item-lab'
+            ? pendingItemLabRows
+            : activeReviewTab === 'forwarded'
+              ? forwardedRows
+              : rejectedRows;
   const activeTabColumns = activeReviewTab === 'accounts'
     ? accountColumns
     : activeReviewTab === 'inventory'
@@ -1248,13 +1551,19 @@ const HodPendingTasks = () => {
         ? movementColumns
         : activeReviewTab === 'item-recommend'
           ? itemColumns
-          : itemColumns;
+          : activeReviewTab === 'item-lab'
+            ? itemColumns
+            : historyColumns;
 
   return (
     <MainLayout variant="hod">
       <PageHeader
-        title="Pending Approvals / Recommendations"
-        subtitle="Review account, inventory, transfer, disposal, and staff item requests awaiting your action."
+        title={isApprovalHistoryPath ? 'Approval History' : 'Pending Approvals / Recommendations'}
+        subtitle={
+          isApprovalHistoryPath
+            ? 'View requests you already approved/recommended or rejected.'
+            : 'Review account, inventory, transfer, disposal, and staff item requests awaiting your action.'
+        }
       />
 
       <div className="p-6 space-y-6">
@@ -1265,7 +1574,7 @@ const HodPendingTasks = () => {
         ) : null}
 
         <SummaryCardsGrid showTitle={false} gridClassName="md:grid-cols-2 xl:grid-cols-3">
-          {pendingSummaryCards.map((card) => (
+          {displayedSummaryCards.map((card) => (
             <SummaryCard
               key={card.key}
               title={card.title}
@@ -1317,24 +1626,28 @@ const HodPendingTasks = () => {
               <Button variant="secondary" onClick={closeDetailModal} disabled={isSelectedRowLoading}>
                 Close
               </Button>
-              <Button
-                variant="danger"
-                icon="cancel"
-                onClick={() => handleAction(selectedReviewRow, 'reject')}
-                disabled={isSelectedRowLoading}
-                loading={isSelectedRowLoading}
-              >
-                Reject
-              </Button>
-              <Button
-                variant="primary"
-                icon="check_circle"
-                onClick={() => handleAction(selectedReviewRow, 'approve')}
-                disabled={isSelectedRowLoading}
-                loading={isSelectedRowLoading}
-              >
-                {selectedPrimaryActionLabel}
-              </Button>
+              {!HISTORY_VIEW_KEYS.has(activeReviewTab) ? (
+                <>
+                  <Button
+                    variant="danger"
+                    icon="cancel"
+                    onClick={() => handleAction(selectedReviewRow, 'reject')}
+                    disabled={isSelectedRowLoading}
+                    loading={isSelectedRowLoading}
+                  >
+                    Reject
+                  </Button>
+                  <Button
+                    variant="primary"
+                    icon="check_circle"
+                    onClick={() => handleAction(selectedReviewRow, 'approve')}
+                    disabled={isSelectedRowLoading}
+                    loading={isSelectedRowLoading}
+                  >
+                    {selectedPrimaryActionLabel}
+                  </Button>
+                </>
+              ) : null}
             </div>
           )}
         >
@@ -1363,16 +1676,55 @@ const HodPendingTasks = () => {
               ))}
             </div>
 
+            {isSelectedChangeIncharge ? (
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-text-dark" htmlFor="hod-selected-officer">
+                  New inventory officer (HOD selection)
+                </label>
+                <select
+                  id="hod-selected-officer"
+                  className="w-full rounded border border-border-lighter px-3 py-2 text-sm"
+                  value={selectedOfficerId}
+                  onChange={(event) => {
+                    setSelectedOfficerId(event.target.value);
+                    setOfficerSelectionError('');
+                  }}
+                  disabled={officerCandidatesLoading || isSelectedRowLoading}
+                >
+                  <option value="">Select staff member</option>
+                  {officerCandidates.map((user) => (
+                    <option key={resolveUserId(user)} value={resolveUserId(user)}>
+                      {user.name}
+                      {user.designation ? ` (${user.designation})` : ''}
+                    </option>
+                  ))}
+                </select>
+                {officerCandidatesLoading ? (
+                  <p className="text-xs text-text-light">Loading eligible staff...</p>
+                ) : null}
+                {!officerCandidatesLoading && officerCandidates.length === 0 ? (
+                  <p className="text-xs text-text-light">
+                    No eligible staff found in this department. Add an active Technical Officer or Management Assistant to continue.
+                  </p>
+                ) : null}
+                {officerSelectionError ? (
+                  <p className="text-xs text-red-700">{officerSelectionError}</p>
+                ) : null}
+              </div>
+            ) : null}
+
             <p className="text-xs text-text-light">
-              {selectedReviewRow?.source === 'transfer'
-                ? 'Recommend to forward this transfer to the registrar, or reject to decline it.'
-                : selectedReviewRow?.source === 'disposal'
-                  ? 'Recommend to forward this disposal to the registrar, or reject to decline it.'
-                  : selectedReviewRow?.source === 'item' && selectedItemActionType === 'recommend'
-                ? 'Recommend to forward this request to the lab Head of Department, or reject to decline it.'
-                : selectedReviewRow?.source === 'item' && selectedItemActionType === 'approveLab'
-                  ? 'Approve to accept this lab inventory request, or reject to decline it.'
-                  : 'Accept to forward this request to the next step, or reject to decline it.'}
+              {HISTORY_VIEW_KEYS.has(activeReviewTab)
+                ? 'This is a history record. Use this dialog to review details.'
+                : selectedReviewRow?.source === 'transfer'
+                  ? 'Recommend to forward this transfer to the registrar, or reject to decline it.'
+                  : selectedReviewRow?.source === 'disposal'
+                    ? 'Recommend to forward this disposal to the registrar, or reject to decline it.'
+                    : selectedReviewRow?.source === 'item' && selectedItemActionType === 'recommend'
+                      ? 'Recommend to forward this request to the lab Head of Department, or reject to decline it.'
+                      : selectedReviewRow?.source === 'item' && selectedItemActionType === 'approveLab'
+                        ? 'Approve to accept this lab inventory request, or reject to decline it.'
+                        : 'Accept to forward this request to the next step, or reject to decline it.'}
             </p>
           </div>
         </Modal>

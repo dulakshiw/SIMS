@@ -1,12 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import AdminLayout from "../../Components/Layouts/AdminLayout";
-import { Card, Button, SearchBox, Table, Badge, Modal, FormInput, Select, EntityDetailsModal, PageHeader } from "../../Components/UI";
+import MainLayout from "../../Components/Layouts/MainLayout";
+import { Card, Button, SearchBox, Table, Badge, Modal, FormInput, Select, EntityDetailsModal, PageHeader, SummaryCard, SummaryCardsGrid } from "../../Components/UI";
 import {
   INVENTORY_REQUEST_STATUS,
   INVENTORY_REQUEST_STATUS_META,
   INVENTORY_REQUEST_TYPE,
   INVENTORY_REQUEST_TYPE_LABELS,
+  ITEM_STATUS,
 } from "../../utils/constants";
 import { canCreateInventory } from "../../utils/permissionUtils";
 
@@ -27,6 +29,12 @@ const InventoryManagement = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const currentUserRole = localStorage.getItem("userRole") || "admin";
+  const currentUser = getStoredUser();
+  const isDeanView = location.pathname.startsWith("/dean") || currentUserRole === "dean";
+  const isHodView = location.pathname.startsWith("/hod") || currentUserRole === "head_of_department" || currentUserRole === "hod";
+  const isReadOnlyInventoryViewer = currentUserRole === "registrar" || isDeanView || isHodView;
+  const canViewCreationRequests = !isDeanView && !isHodView;
+  const Layout = (isDeanView || isHodView) ? MainLayout : AdminLayout;
   const [searchTerm, setSearchTerm] = useState("");
   const [activeTab, setActiveTab] = useState("inventories"); // inventories or requests
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -61,6 +69,11 @@ const InventoryManagement = () => {
   const [requestActionLoadingId, setRequestActionLoadingId] = useState(null);
   const [selectedRequestDetails, setSelectedRequestDetails] = useState(null);
   const [isRequestDetailModalOpen, setIsRequestDetailModalOpen] = useState(false);
+
+  const [inventoryItems, setInventoryItems] = useState([]);
+  const [inventoryItemsLoading, setInventoryItemsLoading] = useState(false);
+  const [inventoryItemsError, setInventoryItemsError] = useState("");
+  const [browsingInventory, setBrowsingInventory] = useState(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -168,10 +181,15 @@ const InventoryManagement = () => {
   }, []);
 
   useEffect(() => {
+    if (!canViewCreationRequests) {
+      setActiveTab("inventories");
+      return;
+    }
+
     if (location.state?.activeTab === "requests") {
       setActiveTab("requests");
     }
-  }, [location.state?.activeTab]);
+  }, [canViewCreationRequests, location.state?.activeTab]);
 
   useEffect(() => {
     loadInventoryRequests();
@@ -252,9 +270,8 @@ const InventoryManagement = () => {
   const columns = [
     { field: "name", label: "Inventory Name", sortable: true },
     { field: "location", label: "Location", sortable: true },
-    { field: "department", label: "Department", sortable: true },
-    { field: "hod", label: "HOD", sortable: true },
     { field: "incharge", label: "Inventory Officer", sortable: true },
+    { field: "createdDate", label: "Created Date", sortable: true },
     { field: "itemCount", label: "Items", sortable: true },
     {
       field: "status",
@@ -267,6 +284,22 @@ const InventoryManagement = () => {
         />
       ),
     },
+  ];
+
+  const inventoryItemColumns = [
+    { field: "itemName", label: "Item Name", sortable: true },
+    { field: "itemCode", label: "Item Code", sortable: true },
+    { field: "serialNo", label: "Serial No", sortable: true },
+    { field: "location", label: "Location", sortable: true },
+    {
+      field: "status",
+      label: "Status",
+      render: (value) => {
+        const statusObj = ITEM_STATUS.find((s) => s.value === String(value || "").toLowerCase());
+        return <Badge label={statusObj?.label || value || "-"} variant={statusObj?.color || "primary"} size="sm" />;
+      },
+    },
+    { field: "value", label: "Value (LKR)", sortable: true },
   ];
 
   const requestColumns = [
@@ -298,8 +331,12 @@ const InventoryManagement = () => {
   ];
 
   const filteredInventories = inventories.filter((inv) =>
-    inv.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    inv.department.toLowerCase().includes(searchTerm.toLowerCase())
+    (!isHodView
+      || String(inv.department || "").trim().toLowerCase() === String(currentUser.department || currentUser.departmentName || "").trim().toLowerCase())
+    && (
+      inv.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      inv.department.toLowerCase().includes(searchTerm.toLowerCase())
+    )
   );
 
   const filteredRequests = inventoryRequests.filter(
@@ -541,11 +578,32 @@ const InventoryManagement = () => {
   const closeInventoryDetails = () => {
     setIsInventoryDetailsModalOpen(false);
     setSelectedInventoryDetails(null);
+    setInventoryItems([]);
+    setInventoryItemsError("");
   };
 
-  const handleViewInventoryDetails = (inventory) => {
-    setSelectedInventoryDetails(inventory);
-    setIsInventoryDetailsModalOpen(true);
+  const handleViewInventoryDetails = async (inventory) => {
+    if (isReadOnlyInventoryViewer) {
+      setBrowsingInventory(inventory);
+    } else {
+      setSelectedInventoryDetails(inventory);
+      setIsInventoryDetailsModalOpen(true);
+    }
+    setInventoryItems([]);
+    setInventoryItemsLoading(true);
+    setInventoryItemsError("");
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/items?inventoryId=${inventory.id}`);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || data.message || "Failed to load inventory items.");
+      }
+      setInventoryItems(data.items || []);
+    } catch (err) {
+      setInventoryItemsError(err.message || "Failed to load inventory items.");
+    } finally {
+      setInventoryItemsLoading(false);
+    }
   };
 
   const handleDeactivateInventory = async (inventory) => {
@@ -613,12 +671,32 @@ const InventoryManagement = () => {
   const selectedInventoryIsInactive =
     normalizeStatus(selectedInventoryDetails?.status) === "inactive";
 
+  const normalizedInventoryItems = useMemo(
+    () => inventoryItems.map((item) => ({
+      id: item.id || item.item_id,
+      itemName: item.itemName || item.item_name || item.name || "—",
+      itemCode: item.itemCode || item.item_code || "—",
+      serialNo: item.serialNo || item.serial_no || item.serialNumber || "—",
+      location: item.locationLabel || item.location || "—",
+      status: item.displayStatus || item.status || "available",
+      value: item.value || item.price || "—",
+    })),
+    [inventoryItems]
+  );
+
+  const itemStats = useMemo(() => ({
+    total: normalizedInventoryItems.length,
+    available: normalizedInventoryItems.filter((item) => item.status === "available").length,
+    inUse: normalizedInventoryItems.filter((item) => ["in-use", "issued"].includes(item.status)).length,
+    maintenance: normalizedInventoryItems.filter((item) => item.status === "maintenance").length,
+  }), [normalizedInventoryItems]);
+
   const inventoryDetailsFooter = (
     <div className="flex flex-wrap justify-end gap-3">
       <Button variant="secondary" onClick={closeInventoryDetails}>
         Close
       </Button>
-      {selectedInventoryDetails ? (
+      {selectedInventoryDetails && !isReadOnlyInventoryViewer ? (
         selectedInventoryIsInactive ? (
           <Button
             variant="primary"
@@ -680,10 +758,56 @@ const InventoryManagement = () => {
   );
 
   return (
-    <AdminLayout>
+    <Layout {...(isDeanView ? { variant: "dean" } : isHodView ? { variant: "hod" } : {})}>
+      {browsingInventory ? (
+        <>
+          <PageHeader
+            title={browsingInventory.name}
+            subtitle={`${browsingInventory.department || "—"} · ${browsingInventory.location || "—"} · Officer: ${browsingInventory.incharge || "—"}`}
+            actions={
+              <Button
+                variant="secondary"
+                icon="arrow_back"
+                onClick={() => {
+                  setBrowsingInventory(null);
+                  setInventoryItems([]);
+                  setInventoryItemsError("");
+                }}
+              >
+                Back to Inventories
+              </Button>
+            }
+          />
+          <div className="p-6 space-y-6">
+            {inventoryItemsError && (
+              <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+                {inventoryItemsError}
+              </div>
+            )}
+            <SummaryCardsGrid showTitle={false} columns="4-lg">
+              <SummaryCard title="Total Items" count={itemStats.total} description="All items in this inventory." icon="inventory_2" loading={inventoryItemsLoading} hover={false} />
+              <SummaryCard title="Available" count={itemStats.available} description="Items ready for use." icon="check_circle" loading={inventoryItemsLoading} countClassName="text-success" hover={false} />
+              <SummaryCard title="In Use" count={itemStats.inUse} description="Items currently allocated." icon="assignment" loading={inventoryItemsLoading} countClassName="text-info" hover={false} />
+              <SummaryCard title="Maintenance" count={itemStats.maintenance} description="Items under maintenance." icon="build" loading={inventoryItemsLoading} countClassName="text-warning" hover={false} />
+            </SummaryCardsGrid>
+            <Card>
+              <Table
+                columns={inventoryItemColumns}
+                data={normalizedInventoryItems}
+                onRowClick={(row) => navigate(`/inventory/item/${row.id}/${isDeanView ? "dean" : isHodView ? "hod" : "registrar"}`)}
+                searchable
+                paginated
+                itemsPerPage={10}
+                loading={inventoryItemsLoading}
+              />
+            </Card>
+          </div>
+        </>
+      ) : (
+        <>
       <PageHeader
         title="Inventory Management"
-        subtitle="Manage inventories, approve creation requests, and assign inventory officers"
+        subtitle={isHodView ? "View your department inventories and their items." : isReadOnlyInventoryViewer ? "Click any inventory to view its items." : "Manage inventories, approve creation requests, and assign inventory officers"}
         actions={canCreateInventory(currentUserRole) ? (
           <Button
             icon="add_circle"
@@ -717,19 +841,21 @@ const InventoryManagement = () => {
             >
               All Inventories
             </button>
-            <button
-              onClick={() => {
-                setActiveTab("requests");
-                closeRequestDetailModal();
-              }}
-              className={`px-6 py-3 border-b-2 font-medium transition-colors ${
-                activeTab === "requests"
-                  ? "border-primary-600 text-primary-600"
-                  : "border-transparent text-text-light hover:text-text-dark"
-              }`}
-            >
-              Creation Requests {inventoryRequests.length > 0 && `(${inventoryRequests.length})`}
-            </button>
+            {canViewCreationRequests ? (
+              <button
+                onClick={() => {
+                  setActiveTab("requests");
+                  closeRequestDetailModal();
+                }}
+                className={`px-6 py-3 border-b-2 font-medium transition-colors ${
+                  activeTab === "requests"
+                    ? "border-primary-600 text-primary-600"
+                    : "border-transparent text-text-light hover:text-text-dark"
+                }`}
+              >
+                Creation Requests {inventoryRequests.length > 0 && `(${inventoryRequests.length})`}
+              </button>
+            ) : null}
           </div>
         </div>
 
@@ -742,11 +868,13 @@ const InventoryManagement = () => {
         />
 
         {/* Inventories Table or Requests Table */}
-        {activeTab === "inventories" ? (
+        {activeTab === "inventories" || !canViewCreationRequests ? (
           <Card title="All Inventories" icon="inventory_2">
             {inventoryError && <p className="mb-4 rounded bg-error/10 px-3 py-2 text-sm text-error">{inventoryError}</p>}
             <p className="mb-4 text-sm text-text-light bg-background-light p-3 rounded">
-              Click an inventory row to open details. Assign an officer or deactivate from the detail view only.
+              {isReadOnlyInventoryViewer
+                ? "Click an inventory row to browse its items."
+                : "Click an inventory row to open details. Assign an officer or deactivate from the detail view only."}
             </p>
             <Table
               columns={columns}
@@ -809,7 +937,7 @@ const InventoryManagement = () => {
           title={`Inventory Details${selectedInventoryDetails?.name ? ` - ${selectedInventoryDetails.name}` : ""}`}
           selectedLabel="Selected Inventory"
           selectedName={selectedInventoryDetails?.name}
-          size="lg"
+          size="full"
           footer={inventoryDetailsFooter}
           details={[
             { label: "Department", value: selectedInventoryDetails?.department },
@@ -830,10 +958,27 @@ const InventoryManagement = () => {
           ]}
         >
           {selectedInventoryIsInactive ? (
-            <p className="border-t border-border-lighter pt-4 text-sm text-text-light">
+            <p className="text-sm text-text-light">
               Reactivate this inventory to restore use. Assigning an inventory officer is available when the inventory is active.
             </p>
           ) : null}
+          <div className="mt-6 border-t border-border-lighter pt-4">
+            <h3 className="text-base font-semibold text-text-dark mb-3">Items in this Inventory</h3>
+            {inventoryItemsLoading ? (
+              <p className="text-sm text-text-light">Loading items...</p>
+            ) : inventoryItemsError ? (
+              <p className="text-sm text-error">{inventoryItemsError}</p>
+            ) : normalizedInventoryItems.length === 0 ? (
+              <p className="text-sm text-text-light">No items found in this inventory.</p>
+            ) : (
+              <Table
+                columns={inventoryItemColumns}
+                data={normalizedInventoryItems}
+                paginated
+                itemsPerPage={10}
+              />
+            )}
+          </div>
         </EntityDetailsModal>
 
         {/* Create/Edit Inventory Modal */}
@@ -952,7 +1097,9 @@ const InventoryManagement = () => {
           </div>
         </Modal>
       </div>
-    </AdminLayout>
+        </>
+      )}
+    </Layout>
   );
 };
 

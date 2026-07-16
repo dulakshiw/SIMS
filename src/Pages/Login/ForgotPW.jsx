@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Card, Button } from "../../Components/UI";
+import { Card, Button, Modal } from "../../Components/UI";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
 const OTP_EXPIRY_SECONDS = 600;
@@ -14,6 +14,7 @@ const ForgotPW = () => {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState("");
+  const [showOtpMatchedModal, setShowOtpMatchedModal] = useState(false);
 
   const handleSendOTP = async (e) => {
     e.preventDefault();
@@ -76,11 +77,9 @@ const ForgotPW = () => {
         throw new Error(data.error || data.message || "Invalid verification code.");
       }
 
-      setMessage("Verification code accepted. Redirecting...");
+      setMessage("OTP matched successfully. Continue to set a new password.");
       setMessageType("success");
-      setTimeout(() => {
-        navigate(`/resetPassword?email=${encodeURIComponent(email.trim().toLowerCase())}&otp=${encodeURIComponent(otp)}`);
-      }, 800);
+      setShowOtpMatchedModal(true);
     } catch (error) {
       setMessage(error.message || "Invalid verification code.");
       setMessageType("error");
@@ -234,6 +233,32 @@ const ForgotPW = () => {
           </div>
         </Card>
       </div>
+
+      <Modal
+        isOpen={showOtpMatchedModal}
+        onClose={() => {
+          setShowOtpMatchedModal(false);
+          navigate(`/resetPassword?email=${encodeURIComponent(email.trim().toLowerCase())}&otp=${encodeURIComponent(otp)}`);
+        }}
+        title="OTP Matched"
+        size="sm"
+        footer={(
+          <div className="flex justify-end">
+            <Button
+              variant="primary"
+              onClick={() => {
+                setShowOtpMatchedModal(false);
+                navigate(`/resetPassword?email=${encodeURIComponent(email.trim().toLowerCase())}&otp=${encodeURIComponent(otp)}`);
+              }}
+            >
+              Continue
+            </Button>
+          </div>
+        )}
+      >
+        <p className="text-sm text-text-dark">OTP matched successfully.</p>
+        <p className="mt-2 text-sm text-text-light">You can now set a new password for your account.</p>
+      </Modal>
     </div>
   );
 };

@@ -25,6 +25,8 @@ const UserManagement = () => {
   const [selectedUserId, setSelectedUserId] = useState(null);
   const [selectedUserName, setSelectedUserName] = useState("");
   const [selectedUserDetails, setSelectedUserDetails] = useState(null);
+  const [resetOtp, setResetOtp] = useState("");
+  const [resetOtpSent, setResetOtpSent] = useState(false);
   const [resetPassword, setResetPassword] = useState("");
   const [resetConfirmPassword, setResetConfirmPassword] = useState("");
   const [resetPasswordStrength, setResetPasswordStrength] = useState(0);
@@ -397,6 +399,8 @@ const UserManagement = () => {
   const closeUserDetails = () => {
     setIsUserDetailsModalOpen(false);
     setSelectedUserDetails(null);
+    setResetOtp("");
+    setResetOtpSent(false);
     setResetPassword("");
     setResetConfirmPassword("");
     setResetPasswordStrength(0);
@@ -405,6 +409,8 @@ const UserManagement = () => {
 
   const handleViewUserDetails = (user) => {
     setSelectedUserDetails(user);
+    setResetOtp("");
+    setResetOtpSent(false);
     setResetPassword("");
     setResetConfirmPassword("");
     setResetPasswordStrength(0);
@@ -414,19 +420,87 @@ const UserManagement = () => {
 
   const handleResetPasswordChange = (e) => {
     const { name, value } = e.target;
-    if (name === "resetPassword") {
+    if (name === "resetOtp") {
+      setResetOtp(value.replace(/\D/g, "").slice(0, 6));
+    } else if (name === "resetPassword") {
+      if (resetOtpSent) {
+        setResetOtpSent(false);
+        setResetOtp("");
+      }
       setResetPassword(value);
       setResetPasswordStrength(getPasswordStrength(value));
     } else if (name === "resetConfirmPassword") {
+      if (resetOtpSent) {
+        setResetOtpSent(false);
+        setResetOtp("");
+      }
       setResetConfirmPassword(value);
     }
     setResetPasswordError("");
+  };
+
+  const handleAdminSendResetOtp = async () => {
+    if (!selectedUserDetails?.id) return;
+
+    setResetPasswordError("");
+
+    if (!resetPassword) {
+      setResetPasswordError("Enter the new password before sending OTP.");
+      return;
+    }
+
+    if (!isPasswordValid(resetPassword)) {
+      setResetPasswordError(PASSWORD_REQUIREMENTS_MESSAGE);
+      return;
+    }
+
+    if (resetPassword !== resetConfirmPassword) {
+      setResetPasswordError("Passwords do not match.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Send a password reset OTP email to ${selectedUserDetails.name}? Confirm this was requested by the user.`
+    );
+    if (!confirmed) return;
+
+    try {
+      setResetPasswordLoading(true);
+      const response = await fetch(`${API_BASE_URL}/api/users/${selectedUserDetails.id}/password-reset-otp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: resetPassword }),
+      });
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || data.error || "Failed to send password reset OTP.");
+      }
+
+      setResetOtpSent(true);
+      setResetOtp("");
+      window.alert(data.message || "Password reset OTP sent successfully.");
+    } catch (error) {
+      setResetPasswordError(error.message || "Failed to send password reset OTP.");
+    } finally {
+      setResetPasswordLoading(false);
+    }
   };
 
   const handleAdminResetPassword = async () => {
     if (!selectedUserDetails?.id) return;
 
     setResetPasswordError("");
+
+    if (!resetOtpSent) {
+      setResetPasswordError("Send the reset OTP to the user's email first.");
+      return;
+    }
+
+    if (resetOtp.length !== 6) {
+      setResetPasswordError("Enter the 6-digit verification code sent to the user.");
+      return;
+    }
 
     if (!resetPassword) {
       setResetPasswordError("Enter a new password.");
@@ -444,16 +518,19 @@ const UserManagement = () => {
     }
 
     const confirmed = window.confirm(
-      `Reset the password for ${selectedUserDetails.name}? Confirm this was requested by the user.`
+      `Reset the password for ${selectedUserDetails.name} using the verified OTP?`
     );
     if (!confirmed) return;
 
     try {
       setResetPasswordLoading(true);
-      const response = await fetch(`${API_BASE_URL}/api/users/${selectedUserDetails.id}/password`, {
-        method: "PATCH",
+      const response = await fetch(`${API_BASE_URL}/api/users/${selectedUserDetails.id}/password-reset-with-otp`, {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password: resetPassword }),
+        body: JSON.stringify({
+          otp: resetOtp,
+          password: resetPassword,
+        }),
       });
       const data = await response.json().catch(() => ({}));
 
@@ -461,6 +538,8 @@ const UserManagement = () => {
         throw new Error(data.message || data.error || "Failed to reset password.");
       }
 
+      setResetOtp("");
+      setResetOtpSent(false);
       setResetPassword("");
       setResetConfirmPassword("");
       setResetPasswordStrength(0);
@@ -868,13 +947,27 @@ const UserManagement = () => {
             <div>
               <h4 className="text-sm font-semibold text-text-dark">Reset password (on user request)</h4>
               <p className="text-xs text-text-light mt-1">
-                Set a new password when an active user requests a reset.
+                First enter the new password, then send the OTP to the user's registered email address. After the user verifies the email code, enter that OTP here to apply the password change.
               </p>
             </div>
 
             {resetPasswordError ? (
               <p className="rounded bg-error/10 px-3 py-2 text-sm text-error">{resetPasswordError}</p>
             ) : null}
+
+            <p className="text-sm text-text-dark rounded bg-background-light px-3 py-3">
+              Step 1: enter the new password. Step 2: send OTP to the user's email. Step 3: after the user shares the verified OTP, enter it here and reset the password.
+            </p>
+
+            <FormInput
+              label="Verified OTP"
+              name="resetOtp"
+              type="text"
+              placeholder="Enter 6-digit OTP"
+              value={resetOtp}
+              onChange={handleResetPasswordChange}
+              maxLength={6}
+            />
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <FormInput
@@ -915,12 +1008,20 @@ const UserManagement = () => {
               </div>
             ) : null}
 
-            <div className="flex justify-end">
+            <div className="flex justify-end gap-3">
+              <Button
+                variant="secondary"
+                icon="lock_reset"
+                onClick={handleAdminSendResetOtp}
+                disabled={resetPasswordLoading || !resetPassword || !resetConfirmPassword}
+              >
+                {resetPasswordLoading ? "Sending OTP..." : "Send Reset OTP"}
+              </Button>
               <Button
                 variant="primary"
-                icon="lock_reset"
+                icon="verified"
                 onClick={handleAdminResetPassword}
-                disabled={resetPasswordLoading || !resetPassword || !resetConfirmPassword}
+                disabled={resetPasswordLoading || !resetOtp || !resetPassword || !resetConfirmPassword}
               >
                 {resetPasswordLoading ? "Resetting..." : "Reset Password"}
               </Button>

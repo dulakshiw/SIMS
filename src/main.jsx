@@ -59,6 +59,7 @@ import HodDashboard from './Pages/StaffMember/HodDashboard'
 import HodPendingTasks from './Pages/StaffMember/HodPendingTasks'
 import HodReports from './Pages/StaffMember/HodReports'
 import DeanDashboard from './Pages/StaffMember/DeanDashboard'
+import DeanPendingApprovals from './Pages/StaffMember/DeanPendingApprovals'
 import DepartmentManagement from './Pages/Admin/DepartmentManagement'
 import InventoryManagement from './Pages/Admin/InventoryManagement'
 import RegistrarAdminOutlet from './Components/Auth/RegistrarAdminOutlet'
@@ -160,6 +161,14 @@ const router = createBrowserRouter([
       },
       {
         path: "list/staff",
+        element: <MyIssuedItems />
+      },
+      {
+        path: "list/hod",
+        element: <MyIssuedItems />
+      },
+      {
+        path: "list/dean",
         element: <MyIssuedItems />
       },
       {
@@ -359,6 +368,10 @@ const router = createBrowserRouter([
         element: <ItemRequest />
       },
       {
+        path: "approval/dean",
+        element: <DeanPendingApprovals />
+      },
+      {
         path: "approval/:role",
         element: <ItemRequest />
       },
@@ -393,6 +406,14 @@ const router = createBrowserRouter([
     path: "/hod/pending-tasks",
     element: <HodPendingTasks />
   },
+  {
+    path: "/hod/approval-history",
+    element: <HodPendingTasks />
+  },
+  {
+    path: "/hod/inventory",
+    element: <InventoryManagement />
+  },
 
   // ==================== Dean Routes ====================
   {
@@ -401,6 +422,10 @@ const router = createBrowserRouter([
       {
         path: "dashboard",
         element: <DeanDashboard />
+      },
+      {
+        path: "inventory",
+        element: <InventoryManagement />
       }
     ]
   },

@@ -62,6 +62,25 @@ const formatDateLabel = (value) => {
 const uniquePositiveIds = (values = []) =>
   [...new Set(values.map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0))];
 
+let notificationsSchemaCache = null;
+
+const getNotificationsSchema = async (pool) => {
+  if (notificationsSchemaCache) {
+    return notificationsSchemaCache;
+  }
+
+  const [columnRows] = await pool.query("SHOW COLUMNS FROM notifications");
+  const columns = new Set(columnRows.map((row) => row.Field));
+  const idColumn = columns.has("id")
+    ? "id"
+    : columns.has("notification_id")
+      ? "notification_id"
+      : null;
+
+  notificationsSchemaCache = { columns, idColumn };
+  return notificationsSchemaCache;
+};
+
 export const ensureNotificationsTable = async (pool) => {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS notifications (
@@ -279,14 +298,19 @@ export const getNotificationsForUser = async (pool, userId, { limit = 50 } = {})
     return { notifications: [], unreadCount: 0 };
   }
 
+  const { idColumn } = await getNotificationsSchema(pool);
+  if (!idColumn) {
+    return { notifications: [], unreadCount: 0 };
+  }
+
   const maxRows = Math.min(Math.max(Number(limit) || 50, 1), 100);
 
   const [rows] = await pool.execute(
     `
-      SELECT id, type, title, message, link, is_read, created_at
+      SELECT ${idColumn} AS id, type, title, message, link, is_read, created_at
       FROM notifications
       WHERE user_id = ?
-      ORDER BY created_at DESC, id DESC
+      ORDER BY created_at DESC, ${idColumn} DESC
       LIMIT ${maxRows}
     `,
     [normalizedUserId]
@@ -323,8 +347,13 @@ export const markNotificationRead = async (pool, { notificationId, userId }) => 
     return false;
   }
 
+  const { idColumn } = await getNotificationsSchema(pool);
+  if (!idColumn) {
+    return false;
+  }
+
   const [result] = await pool.execute(
-    `UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?`,
+    `UPDATE notifications SET is_read = 1 WHERE ${idColumn} = ? AND user_id = ?`,
     [normalizedNotificationId, normalizedUserId]
   );
 

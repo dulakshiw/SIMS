@@ -17,6 +17,7 @@ import {
   verifyPasswordResetOtp,
 } from "./passwordResetService.js";
 import {
+  createNotificationsForUsers,
   ensureNotificationsTable,
   getNotificationsForUser,
   markAllNotificationsRead,
@@ -47,6 +48,65 @@ const notifyAccountDeactivated = async ({ email, name }) => {
   } catch (error) {
     console.error("[email] Account deactivation notification failed:", error.message);
   }
+};
+
+const dispatchPasswordResetOtp = async ({
+  email,
+  name,
+  successMessage,
+  smtpMissingMessage = "Email service is not configured. Please contact your system administrator.",
+  emailFailureMessage = "Unable to send the verification email right now. Please try again later.",
+}) => {
+  const { otp } = await issuePasswordResetOtp(pool, email);
+  const emailResult = await sendPasswordResetOtpEmail({
+    email,
+    name,
+    otp,
+    expiresMinutes: PASSWORD_RESET_OTP_EXPIRY_MINUTES,
+  });
+
+  if (!emailResult.sent && emailResult.reason === "smtp_not_configured" && isDevOtpFallbackEnabled()) {
+    console.warn(`[email] DEV MODE: Password reset OTP for ${email}: ${otp}`);
+    return {
+      status: 200,
+      body: {
+        success: true,
+        message: "Email is not configured. Use the development verification code shown below.",
+        expiresInSeconds: PASSWORD_RESET_OTP_EXPIRY_MINUTES * 60,
+        devMode: true,
+        devOtp: otp,
+      },
+    };
+  }
+
+  if (!emailResult.sent && emailResult.reason === "smtp_not_configured") {
+    return {
+      status: 503,
+      body: {
+        success: false,
+        error: smtpMissingMessage,
+      },
+    };
+  }
+
+  if (!emailResult.sent) {
+    return {
+      status: 500,
+      body: {
+        success: false,
+        error: emailFailureMessage,
+      },
+    };
+  }
+
+  return {
+    status: 200,
+    body: {
+      success: true,
+      message: successMessage,
+      expiresInSeconds: PASSWORD_RESET_OTP_EXPIRY_MINUTES * 60,
+    },
+  };
 };
 
 const app = express();
@@ -377,6 +437,10 @@ const normalizeItemRow = (row = {}) => ({
   model: row.model ?? "",
   QRCode: row.QRCode ?? row.qr_code ?? row.qrcode ?? "",
   QRCode2: row.QRCode2 ?? row.qr_code2 ?? row.qrcode2 ?? "",
+  qrcodeUrl: row.qrcodeUrl ?? row.qrcode_url ?? "",
+  qrcode2Url: row.qrcode2Url ?? row.qrcode2_url ?? "",
+  pageno: row.pageno ?? row.page_no ?? "",
+  itemImage: row.itemImage ?? row.item_image ?? row.image ?? "",
   location: row.location ?? "",
   status: row.status ?? "",
   ginNo: row.ginNo ?? row.gin_no ?? "",
@@ -391,6 +455,8 @@ const normalizeItemRow = (row = {}) => ({
   warranty: row.warranty ?? "",
   supplier: row.supplier ?? "",
   funding: row.funding ?? "",
+  receivedfrom: row.receivedfrom ?? row.received_from ?? "",
+  remarks: row.remarks ?? "",
   updated_at: row.updated_at ?? null,
   created_at: row.created_at ?? null,
 });
@@ -1835,6 +1901,197 @@ const resolveDeanUserId = async (schema) => {
   return matchedDean?.id ?? null;
 };
 
+const getActiveUserIdsByRole = async (schema, targetRole, { departmentId = null } = {}) => {
+  const normalizedTargetRole = normalizeUserRole(targetRole);
+  if (!normalizedTargetRole) {
+    return [];
+  }
+
+  const userIdColumn = schema.userColumns.has("id") ? "u.id" : "u.user_id";
+  const roleSelection = schema.userColumns.has("role")
+    ? "u.role AS role"
+    : schema.hasUserRolesTable
+      ? "ur.user_role AS role"
+      : "NULL AS role";
+  const roleJoin = !schema.userColumns.has("role") && schema.hasUserRolesTable
+    ? "LEFT JOIN user_roles ur ON ur.role_id = u.role_id"
+    : "";
+
+  const whereParts = ["LOWER(COALESCE(u.status, '')) = 'active'"];
+  const params = [];
+
+  if (Number.isInteger(Number(departmentId)) && Number(departmentId) > 0) {
+    whereParts.push("u.department_id = ?");
+    params.push(Number(departmentId));
+  }
+
+  const [rows] = await pool.execute(
+    `
+      SELECT ${userIdColumn} AS id, ${roleSelection}
+      FROM users u
+      ${roleJoin}
+      WHERE ${whereParts.join(" AND ")}
+      ORDER BY ${userIdColumn} ASC
+    `,
+    params
+  );
+
+  return rows
+    .filter((row) => normalizeUserRole(row.role) === normalizedTargetRole)
+    .map((row) => Number(row.id))
+    .filter((id) => Number.isInteger(id) && id > 0);
+};
+
+const notifyAccountWorkflowActors = async ({
+  requestId,
+  requestType = "account_creation",
+  requestedRole = "staff",
+  requestedByName = "User",
+  departmentId = null,
+}) => {
+  const normalizedRequestType = String(requestType || "account_creation").trim().toLowerCase();
+  const normalizedRole = normalizeRoleForStorage(requestedRole || "staff");
+  const roleLabel = normalizedRole ? normalizedRole.replace(/_/g, " ") : "staff";
+  const requesterLabel = String(requestedByName || "User").trim() || "User";
+  const requestLabel = normalizedRequestType === "deactivation"
+    ? `deactivation request from ${requesterLabel}`
+    : `new ${roleLabel} account request for ${requesterLabel}`;
+
+  const schema = await getAuthSchema();
+  const explicitDepartmentHodUserId = Number.isInteger(Number(departmentId)) && Number(departmentId) > 0
+    ? await resolveDepartmentHeadUserId(schema, Number(departmentId))
+    : null;
+  const [hodIds, deanIds, registrarIds] = await Promise.all([
+    getActiveUserIdsByRole(schema, "head_of_department", { departmentId }),
+    getActiveUserIdsByRole(schema, "dean"),
+    getActiveUserIdsByRole(schema, "registrar"),
+  ]);
+  const hodRecipientIds = [
+    ...(Array.isArray(hodIds) ? hodIds : []),
+    Number(explicitDepartmentHodUserId) > 0 ? Number(explicitDepartmentHodUserId) : null,
+  ].filter((id) => Number.isInteger(id) && id > 0);
+
+  await Promise.all([
+    createNotificationsForUsers(pool, hodRecipientIds, {
+      type: "account_request_submitted_hod",
+      title: "Account request needs review",
+      message: `A ${requestLabel} has been submitted and may need HOD action.`,
+      link: "/admin/users",
+      dedupeKey: `account_request_${requestId}_hod_submitted`,
+    }),
+    createNotificationsForUsers(pool, deanIds, {
+      type: "account_request_submitted_dean",
+      title: "Account request submitted",
+      message: `A ${requestLabel} has been submitted and may require dean approval.`,
+      link: "/admin/users",
+      dedupeKey: `account_request_${requestId}_dean_submitted`,
+    }),
+    createNotificationsForUsers(pool, registrarIds, {
+      type: "account_request_submitted_registrar",
+      title: "Account request submitted",
+      message: `A ${requestLabel} has been submitted and may require registrar/admin follow-up.`,
+      link: "/admin/users",
+      dedupeKey: `account_request_${requestId}_registrar_submitted`,
+    }),
+  ]);
+};
+
+const notifyAccountRequestProgress = async ({
+  requestId,
+  requestType = "account_creation",
+  requesterUserId = null,
+  requestedByName = "User",
+  requestedRole = "staff",
+  status = "approved",
+}) => {
+  const normalizedRequesterId = Number(requesterUserId);
+  if (!Number.isInteger(normalizedRequesterId) || normalizedRequesterId <= 0) {
+    return;
+  }
+
+  const normalizedRequestType = String(requestType || "account_creation").trim().toLowerCase();
+  const normalizedStatus = String(status || "approved").trim().toLowerCase();
+  const requesterLabel = String(requestedByName || "User").trim() || "User";
+  const normalizedRole = normalizeRoleForStorage(requestedRole || "staff");
+  const roleLabel = normalizedRole ? normalizedRole.replace(/_/g, " ") : "staff";
+
+  let title = "Account request update";
+  let message = "Your account request status was updated.";
+
+  if (normalizedRequestType === "deactivation") {
+    if (normalizedStatus === "approved") {
+      title = "Deactivation approved";
+      message = `Your account deactivation request has been approved for ${requesterLabel}.`;
+    } else if (normalizedStatus === "rejected") {
+      title = "Deactivation rejected";
+      message = `Your account deactivation request was rejected for ${requesterLabel}.`;
+    }
+  } else if (normalizedStatus === "approved") {
+    title = "Account request approved";
+    message = `Your ${roleLabel} account request has been approved and activated.`;
+  } else if (normalizedStatus === "rejected") {
+    title = "Account request rejected";
+    message = `Your ${roleLabel} account request was rejected.`;
+  }
+
+  await createNotificationsForUsers(pool, [normalizedRequesterId], {
+    type: `account_request_${normalizedStatus}`,
+    title,
+    message,
+    link: "/login",
+    dedupeKey: `account_request_${requestId}_${normalizedStatus}_requester`,
+  });
+};
+
+const notifyItemRequestProgress = async ({
+  requestId,
+  requestedById,
+  itemName,
+  stage,
+  reason = "",
+}) => {
+  const requesterUserId = Number(requestedById);
+  if (!Number.isInteger(requesterUserId) || requesterUserId <= 0) {
+    return;
+  }
+
+  const label = String(itemName || "Item").trim() || "Item";
+  const normalizedStage = String(stage || "updated").trim().toLowerCase();
+  const trimmedReason = String(reason || "").trim();
+  let title = "Item request updated";
+  let message = `Your request for "${label}" was updated.`;
+
+  if (normalizedStage === "submitted") {
+    title = "Item request submitted";
+    message = `Your request for "${label}" was submitted and sent for HOD recommendation.`;
+  } else if (normalizedStage === "recommended") {
+    title = "Request recommended";
+    message = `Your request for "${label}" was recommended by your Head of Department.`;
+  } else if (normalizedStage === "approved_to_issue") {
+    title = "Request approved";
+    message = `Your request for "${label}" was approved and forwarded for item issue.`;
+  } else if (normalizedStage === "issued") {
+    title = "Item issued";
+    message = `Your requested item "${label}" has been issued.`;
+  } else if (normalizedStage === "returned") {
+    title = "Item return completed";
+    message = `Return processing for "${label}" has been completed.`;
+  } else if (normalizedStage === "rejected") {
+    title = "Request rejected";
+    message = trimmedReason
+      ? `Your request for "${label}" was rejected. Reason: ${trimmedReason}`
+      : `Your request for "${label}" was rejected.`;
+  }
+
+  await createNotificationsForUsers(pool, [requesterUserId], {
+    type: `item_request_${normalizedStage}`,
+    title,
+    message,
+    link: "/inventory/requests/list",
+    dedupeKey: `item_request_${requestId}_${normalizedStage}`,
+  });
+};
+
 const findExistingRoleAccount = async (schema, roleValue, departmentId = null) => {
   const normalizedRole = normalizeRoleForStorage(roleValue);
 
@@ -2553,6 +2810,52 @@ const getOutstandingReturnSummary = async (userId) => {
   return {
     count: Number(countRows[0]?.count ?? 0),
     sampleItems: rows.map((row) => String(row.item_name ?? row.id ?? "Item")).filter(Boolean),
+  };
+};
+
+const getManagedInventorySummary = async (userId) => {
+  if (!Number.isInteger(userId) || userId <= 0) {
+    return { count: 0, sampleInventories: [] };
+  }
+
+  const inventoryColumns = await ensureInventoriesLocationColumn();
+  if (inventoryColumns.size === 0) {
+    return { count: 0, sampleInventories: [] };
+  }
+
+  const inventoryIdColumn = getInventoryIdColumn(inventoryColumns);
+  const inventoryNameColumn = getInventoryNameColumn(inventoryColumns);
+  const inventoryInchargeColumn = getInventoryInchargeColumn(inventoryColumns);
+
+  if (!inventoryIdColumn || !inventoryNameColumn || !inventoryInchargeColumn) {
+    return { count: 0, sampleInventories: [] };
+  }
+
+  const [countRows] = await pool.execute(
+    `
+      SELECT COUNT(*) AS count
+      FROM inventories
+      WHERE ${inventoryInchargeColumn} = ?
+    `,
+    [userId]
+  );
+
+  const [rows] = await pool.execute(
+    `
+      SELECT ${inventoryIdColumn} AS id, ${inventoryNameColumn} AS name
+      FROM inventories
+      WHERE ${inventoryInchargeColumn} = ?
+      ORDER BY ${inventoryIdColumn} DESC
+      LIMIT 5
+    `,
+    [userId]
+  );
+
+  return {
+    count: Number(countRows[0]?.count ?? 0),
+    sampleInventories: rows
+      .map((row) => String(row.name ?? row.id ?? "Inventory"))
+      .filter(Boolean),
   };
 };
 
@@ -3381,6 +3684,15 @@ const finalizeAccountRequestApproval = async ({
       });
     }
 
+    await notifyAccountRequestProgress({
+      requestId,
+      requestType,
+      requesterUserId: userToDeactivate,
+      requestedByName: request.requested_by_name || request.email || "User",
+      requestedRole: request.requested_role || "staff",
+      status: "approved",
+    });
+
     return {
       status: 200,
       body: { success: true, message: "Deactivation approved and the user account has been deactivated." },
@@ -3473,6 +3785,15 @@ const finalizeAccountRequestApproval = async ({
   const activatedEmail = String(request.email || "").trim().toLowerCase();
   const activatedName = String(request.requested_by_name || request.email || "").trim();
   await notifyAccountActivated({ email: activatedEmail, name: activatedName });
+
+  await notifyAccountRequestProgress({
+    requestId,
+    requestType,
+    requesterUserId: resolvedUserId,
+    requestedByName: activatedName,
+    requestedRole: appliedRole,
+    status: "approved",
+  });
 
   return {
     status: 200,
@@ -3598,8 +3919,27 @@ app.post(
       return res.status(400).json({ success: false, message: "A valid account request id is required." });
     }
 
+    const accountRequestColumns = await ensureAccountRequestsTable();
+    const requestedUserIdSelect = accountRequestColumns.has("user_id") ? "user_id" : "NULL AS user_id";
+    const requestedByNameSelect = accountRequestColumns.has("requested_by_name")
+      ? "requested_by_name"
+      : "NULL AS requested_by_name";
+    const requestedRoleSelect = accountRequestColumns.has("requested_role")
+      ? "requested_role"
+      : "NULL AS requested_role";
+
     const [requestRows] = await pool.execute(
-      `SELECT id, request_type FROM account_requests WHERE id = ? LIMIT 1`,
+      `
+        SELECT
+          id,
+          request_type,
+          ${requestedUserIdSelect},
+          ${requestedByNameSelect},
+          ${requestedRoleSelect}
+        FROM account_requests
+        WHERE id = ?
+        LIMIT 1
+      `,
       [requestId]
     );
 
@@ -3617,6 +3957,15 @@ app.post(
       `UPDATE account_requests SET approval_status = 'rejected', rejection_date = CURRENT_TIMESTAMP, rejection_reason = ? WHERE id = ?`,
       [String(req.body?.reason || "Rejected during approval workflow"), requestId]
     );
+
+    await notifyAccountRequestProgress({
+      requestId,
+      requestType: rejectRequestType,
+      requesterUserId: Number(requestRows[0].user_id ?? 0),
+      requestedByName: requestRows[0].requested_by_name || "User",
+      requestedRole: requestRows[0].requested_role || "staff",
+      status: "rejected",
+    });
 
     return res.json({ success: true, message: "Request rejected." });
   })
@@ -3891,6 +4240,135 @@ app.patch(
     return res.json({
       success: true,
       message: `Password reset successfully for ${userRows[0].name || "the user"}.`,
+    });
+  })
+);
+
+app.post(
+  "/api/users/:id/password-reset-otp",
+  withDatabase(async (req, res) => {
+    const userId = Number(req.params.id);
+    const nextPassword = String(req.body?.password ?? "");
+    const schema = await getAuthSchema();
+
+    if (!Number.isInteger(userId) || userId <= 0) {
+      return res.status(400).json({ success: false, message: "A valid user id is required." });
+    }
+
+    if (!nextPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "Enter the new password before sending OTP.",
+      });
+    }
+
+    const passwordCheck = validatePassword(nextPassword);
+    if (!passwordCheck.valid) {
+      return res.status(400).json({
+        success: false,
+        message: passwordCheck.message || PASSWORD_REQUIREMENTS_MESSAGE,
+      });
+    }
+
+    const userIdColumn = schema.userColumns.has("id") ? "id" : "user_id";
+    const userNameColumn = schema.userColumns.has("name") ? "name" : "full_name";
+    const [userRows] = await pool.execute(
+      `SELECT ${userNameColumn} AS name, email, status FROM users WHERE ${userIdColumn} = ? LIMIT 1`,
+      [userId]
+    );
+
+    if (userRows.length === 0) {
+      return res.status(404).json({ success: false, message: "User not found." });
+    }
+
+    const user = userRows[0];
+    if (String(user.status || "").toLowerCase() !== "active") {
+      return res.status(409).json({
+        success: false,
+        message: "Password reset OTP can only be sent to active users.",
+      });
+    }
+
+    const otpDispatch = await dispatchPasswordResetOtp({
+      email: String(user.email || "").trim().toLowerCase(),
+      name: user.name,
+      successMessage: `A password reset verification code has been emailed to ${user.name || "the user"}.`,
+    });
+
+    return res.status(otpDispatch.status).json(otpDispatch.body);
+  })
+);
+
+app.post(
+  "/api/users/:id/password-reset-with-otp",
+  withDatabase(async (req, res) => {
+    const userId = Number(req.params.id);
+    const otp = String(req.body?.otp ?? "").trim();
+    const nextPassword = String(req.body?.password ?? "");
+    const schema = await getAuthSchema();
+
+    if (!Number.isInteger(userId) || userId <= 0) {
+      return res.status(400).json({ success: false, message: "A valid user id is required." });
+    }
+
+    if (!otp || !nextPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "Verification code and new password are required.",
+      });
+    }
+
+    const passwordCheck = validatePassword(nextPassword);
+    if (!passwordCheck.valid) {
+      return res.status(400).json({
+        success: false,
+        message: passwordCheck.message || PASSWORD_REQUIREMENTS_MESSAGE,
+      });
+    }
+
+    const userIdColumn = schema.userColumns.has("id") ? "id" : "user_id";
+    const userNameColumn = schema.userColumns.has("name") ? "name" : "full_name";
+    const [userRows] = await pool.execute(
+      `SELECT ${userNameColumn} AS name, email, status FROM users WHERE ${userIdColumn} = ? LIMIT 1`,
+      [userId]
+    );
+
+    if (userRows.length === 0) {
+      return res.status(404).json({ success: false, message: "User not found." });
+    }
+
+    const user = userRows[0];
+    if (String(user.status || "").toLowerCase() !== "active") {
+      return res.status(409).json({
+        success: false,
+        message: "Password can only be reset for active users.",
+      });
+    }
+
+    const normalizedEmail = String(user.email || "").trim().toLowerCase();
+    const otpVerification = await consumePasswordResetOtp(pool, normalizedEmail, otp);
+    if (!otpVerification.valid) {
+      const errorMessages = {
+        expired: "This verification code has expired. Please request a new one.",
+        invalid_otp: "Invalid verification code.",
+        already_used: "This verification code has already been used.",
+        not_found: "Invalid verification code.",
+      };
+
+      return res.status(400).json({
+        success: false,
+        message: errorMessages[otpVerification.reason] || "Invalid verification code.",
+      });
+    }
+
+    await pool.execute(`UPDATE users SET password = ? WHERE ${userIdColumn} = ?`, [
+      await hashPasswordForStorage(nextPassword),
+      userId,
+    ]);
+
+    return res.json({
+      success: true,
+      message: `Password reset successfully for ${user.name || "the user"}. The user can now log in with the new password.`,
     });
   })
 );
@@ -6039,6 +6517,14 @@ app.post(
         requestInsertValues
       );
 
+      await notifyAccountWorkflowActors({
+        requestId: requestResult.insertId,
+        requestType: "account_creation",
+        requestedRole,
+        requestedByName: fullName,
+        departmentId,
+      });
+
       return res.status(201).json({
         success: true,
         message: requestedRole === "admin"
@@ -6102,44 +6588,13 @@ app.post(
       });
     }
 
-    const { otp } = await issuePasswordResetOtp(pool, email);
-    const emailResult = await sendPasswordResetOtpEmail({
+    const otpDispatch = await dispatchPasswordResetOtp({
       email,
       name: user.name,
-      otp,
-      expiresMinutes: PASSWORD_RESET_OTP_EXPIRY_MINUTES,
+      successMessage: genericMessage,
     });
 
-    if (!emailResult.sent && emailResult.reason === "smtp_not_configured" && isDevOtpFallbackEnabled()) {
-      console.warn(`[email] DEV MODE: Password reset OTP for ${email}: ${otp}`);
-      return res.json({
-        success: true,
-        message: "Email is not configured. Use the development verification code shown below.",
-        expiresInSeconds: PASSWORD_RESET_OTP_EXPIRY_MINUTES * 60,
-        devMode: true,
-        devOtp: otp,
-      });
-    }
-
-    if (!emailResult.sent && emailResult.reason === "smtp_not_configured") {
-      return res.status(503).json({
-        success: false,
-        error: "Email service is not configured. Please contact your system administrator.",
-      });
-    }
-
-    if (!emailResult.sent) {
-      return res.status(500).json({
-        success: false,
-        error: "Unable to send the verification email right now. Please try again later.",
-      });
-    }
-
-    return res.json({
-      success: true,
-      message: genericMessage,
-      expiresInSeconds: PASSWORD_RESET_OTP_EXPIRY_MINUTES * 60,
-    });
+    return res.status(otpDispatch.status).json(otpDispatch.body);
   })
 );
 
@@ -6229,6 +6684,146 @@ app.post(
     return res.json({
       success: true,
       message: "Password reset successfully. You can now sign in with your new password.",
+    });
+  })
+);
+
+app.post(
+  "/api/profile/request-password-reset-otp",
+  withDatabase(async (req, res) => {
+    const email = String(req.body?.email ?? "").trim().toLowerCase();
+    const userId = Number(req.body?.userId ?? 0);
+    const currentPassword = String(req.body?.currentPassword ?? "");
+    const nextPassword = String(req.body?.password ?? "");
+
+    if (!email && (!Number.isInteger(userId) || userId <= 0)) {
+      return res.status(400).json({ success: false, message: "A valid email or userId is required." });
+    }
+
+    if (!currentPassword || !nextPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "Current password and new password are required to send a verification code.",
+      });
+    }
+
+    const passwordCheck = validatePassword(nextPassword);
+    if (!passwordCheck.valid) {
+      return res.status(400).json({
+        success: false,
+        message: passwordCheck.message || PASSWORD_REQUIREMENTS_MESSAGE,
+      });
+    }
+
+    const schema = await getAuthSchema();
+    const idColumnName = schema.userColumns.has("id") ? "id" : "user_id";
+    const nameColumnName = schema.userColumns.has("name") ? "name" : "full_name";
+    const whereClause = email ? "LOWER(email) = ?" : `${idColumnName} = ?`;
+    const whereValue = email || userId;
+
+    const [rows] = await pool.execute(
+      `SELECT ${idColumnName} AS id, ${nameColumnName} AS name, email, password FROM users WHERE ${whereClause} LIMIT 1`,
+      [whereValue]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ success: false, message: "Profile not found." });
+    }
+
+    const currentPasswordValid = await verifyPassword(currentPassword, rows[0].password);
+    if (!currentPasswordValid) {
+      return res.status(401).json({ success: false, message: "Current password is incorrect." });
+    }
+
+    const otpDispatch = await dispatchPasswordResetOtp({
+      email: String(rows[0].email || email).trim().toLowerCase(),
+      name: rows[0].name,
+      successMessage: "A verification code has been sent to your email. Enter it below to confirm the password change.",
+    });
+
+    return res.status(otpDispatch.status).json(otpDispatch.body);
+  })
+);
+
+app.post(
+  "/api/profile/confirm-password-reset-otp",
+  withDatabase(async (req, res) => {
+    const email = String(req.body?.email ?? "").trim().toLowerCase();
+    const userId = Number(req.body?.userId ?? 0);
+    const currentPassword = String(req.body?.currentPassword ?? "");
+    const nextPassword = String(req.body?.password ?? "");
+    const otp = String(req.body?.otp ?? "").trim();
+    const mobileNo = req.body?.mobileNo !== undefined ? String(req.body.mobileNo).trim() : null;
+
+    if (!email && (!Number.isInteger(userId) || userId <= 0)) {
+      return res.status(400).json({ success: false, message: "A valid email or userId is required." });
+    }
+
+    if (!currentPassword || !nextPassword || !otp) {
+      return res.status(400).json({
+        success: false,
+        message: "Current password, new password, and verification code are required.",
+      });
+    }
+
+    const passwordCheck = validatePassword(nextPassword);
+    if (!passwordCheck.valid) {
+      return res.status(400).json({
+        success: false,
+        message: passwordCheck.message || PASSWORD_REQUIREMENTS_MESSAGE,
+      });
+    }
+
+    const schema = await getAuthSchema();
+    const idColumnName = schema.userColumns.has("id") ? "id" : "user_id";
+    const whereClause = email ? "LOWER(email) = ?" : `${idColumnName} = ?`;
+    const whereValue = email || userId;
+
+    const [rows] = await pool.execute(
+      `SELECT ${idColumnName} AS id, email, password FROM users WHERE ${whereClause} LIMIT 1`,
+      [whereValue]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ success: false, message: "Profile not found." });
+    }
+
+    const currentPasswordValid = await verifyPassword(currentPassword, rows[0].password);
+    if (!currentPasswordValid) {
+      return res.status(401).json({ success: false, message: "Current password is incorrect." });
+    }
+
+    const normalizedEmail = String(rows[0].email || email).trim().toLowerCase();
+    const otpVerification = await consumePasswordResetOtp(pool, normalizedEmail, otp);
+    if (!otpVerification.valid) {
+      const errorMessages = {
+        expired: "This verification code has expired. Please request a new one.",
+        invalid_otp: "Invalid verification code.",
+        already_used: "This verification code has already been used.",
+        not_found: "Invalid verification code.",
+      };
+
+      return res.status(400).json({
+        success: false,
+        message: errorMessages[otpVerification.reason] || "Invalid verification code.",
+      });
+    }
+
+    await pool.execute(`UPDATE users SET password = ? WHERE ${idColumnName} = ?`, [
+      await hashPassword(nextPassword),
+      rows[0].id,
+    ]);
+
+    if (mobileNo !== null) {
+      const mobileColumn = schema.userColumns.has("mobile_no") ? "mobile_no" : null;
+      if (mobileColumn) {
+        await pool.execute(`UPDATE users SET ${mobileColumn} = ? WHERE ${idColumnName} = ?`, [mobileNo || null, rows[0].id]);
+      }
+    }
+
+    return res.json({
+      success: true,
+      message: "Profile updated successfully.",
     });
   })
 );
@@ -6748,13 +7343,10 @@ app.put(
     }
 
     if (updatingPassword) {
-      const passwordCheck = validatePassword(nextPassword);
-      if (!passwordCheck.valid) {
-        return res.status(400).json({
-          success: false,
-          message: passwordCheck.message || PASSWORD_REQUIREMENTS_MESSAGE,
-        });
-      }
+      return res.status(400).json({
+        success: false,
+        message: "Use the password verification code flow to update your password.",
+      });
     }
 
     const schema = await getAuthSchema();
@@ -6772,20 +7364,6 @@ app.put(
         success: false,
         message: "Profile not found.",
       });
-    }
-
-    if (updatingPassword) {
-      const currentPasswordValid = await verifyPassword(currentPassword, rows[0].password);
-      if (!currentPasswordValid) {
-        return res.status(401).json({
-          success: false,
-          message: "Current password is incorrect.",
-        });
-      }
-      await pool.execute(`UPDATE users SET password = ? WHERE ${idColumnName} = ?`, [
-        await hashPassword(nextPassword),
-        rows[0].id,
-      ]);
     }
 
     if (updatingMobile) {
@@ -6828,6 +7406,21 @@ app.post(
 
     if (!departmentHeadUserId) {
       return res.status(400).json({ success: false, message: "No active Head of Department is assigned to your department." });
+    }
+
+    const managedInventories = await getManagedInventorySummary(userId);
+
+    if (managedInventories.count > 0) {
+      const inventoryLabel = managedInventories.count === 1 ? "inventory" : "inventories";
+      const preview = managedInventories.sampleInventories.length > 0
+        ? ` Assigned: ${managedInventories.sampleInventories.join(", ")}${managedInventories.count > managedInventories.sampleInventories.length ? ", ..." : ""}.`
+        : "";
+
+      return res.status(409).json({
+        success: false,
+        code: "MANAGED_INVENTORIES_EXIST",
+        message: `Your account cannot be deactivated because you are managing ${managedInventories.count} ${inventoryLabel}.${preview}`,
+      });
     }
 
     const outstandingReturns = await getOutstandingReturnSummary(userId);
@@ -6912,6 +7505,14 @@ app.post(
       `INSERT INTO account_requests (${insertColumns.join(", ")}) VALUES (${placeholders})`,
       insertValues
     );
+
+    await notifyAccountWorkflowActors({
+      requestId: result.insertId,
+      requestType: "deactivation",
+      requestedRole: role,
+      requestedByName: name || email,
+      departmentId,
+    });
 
     return res.status(201).json({
       success: true,
@@ -7113,6 +7714,7 @@ app.post(
   withDatabase(async (req, res) => {
     const requestId = Number(req.params.id);
     const approverUserId = Number(req.body?.approverUserId ?? 0);
+    const selectedInchargeId = Number(req.body?.inchargeId ?? req.body?.inchargeUserId ?? 0);
     const inventoryRequestColumns = await ensureInventoryCreationRequestsTable();
     const inventoryRequestIdColumn = getInventoryRequestPrimaryKeyColumn(inventoryRequestColumns);
 
@@ -7149,6 +7751,31 @@ app.post(
     }
 
     const requestType = String(inv.request_type || "new_inventory_creation").toLowerCase();
+
+    if (requestType === "change_incharge") {
+      if (!Number.isInteger(selectedInchargeId) || selectedInchargeId <= 0) {
+        return res.status(400).json({
+          success: false,
+          message: "A new inventory officer must be selected before approving this request.",
+        });
+      }
+
+      const requestedById = Number(inv.requested_by_id ?? 0);
+      if (selectedInchargeId === requestedById) {
+        return res.status(400).json({
+          success: false,
+          message: "The new inventory officer must be different from the current officer.",
+        });
+      }
+
+      if (inventoryRequestColumns.has("incharge_user_id")) {
+        await pool.execute(
+          `UPDATE inventory_creation_requests SET incharge_user_id = ? WHERE ${inventoryRequestIdColumn} = ?`,
+          [selectedInchargeId, requestId]
+        );
+        inv.incharge_user_id = selectedInchargeId;
+      }
+    }
 
     if (requestType === "add_inventory" || requestType === "change_incharge") {
       const inventoryColumns = await ensureInventoriesLocationColumn();
@@ -7437,16 +8064,8 @@ app.post(
         return res.status(400).json({ success: false, message: "A valid inventory id is required." });
       }
 
-      if (!Number.isInteger(inchargeUserId) || inchargeUserId <= 0) {
-        return res.status(400).json({ success: false, message: "A proposed inventory officer is required." });
-      }
-
       if (!reason) {
         return res.status(400).json({ success: false, message: "A reason for changing the inventory officer is required." });
-      }
-
-      if (inchargeUserId === requestedById) {
-        return res.status(400).json({ success: false, message: "The new inventory officer must be different from the current officer." });
       }
 
       const inventoryColumns = await ensureInventoriesLocationColumn();
@@ -7491,7 +8110,9 @@ app.post(
       resolvedName = String(inventoryRow.inventory_name ?? "").trim() || name;
       resolvedLocation = String(inventoryRow.location ?? "").trim() || location;
       previousInchargeUserId = currentInchargeId;
-      resolvedInchargeUserId = inchargeUserId;
+      resolvedInchargeUserId = Number.isInteger(inchargeUserId) && inchargeUserId > 0
+        ? inchargeUserId
+        : null;
 
       if (schema.hasDepartmentsTable && resolvedDepartmentId > 0) {
         const departmentJoinIdColumn = schema.departmentColumns.has("id") ? "id" : "department_id";
@@ -7575,7 +8196,7 @@ app.post(
       insertValues.push(resolvedLocation || location);
     }
 
-    if (inventoryRequestColumns.has("incharge_user_id")) {
+    if (inventoryRequestColumns.has("incharge_user_id") && Number.isInteger(resolvedInchargeUserId) && resolvedInchargeUserId > 0) {
       insertColumns.push("incharge_user_id");
       insertValues.push(resolvedInchargeUserId);
     }
@@ -8932,6 +9553,13 @@ app.post(
       insertValues
     );
 
+    await notifyItemRequestProgress({
+      requestId: insertResult.insertId,
+      requestedById,
+      itemName,
+      stage: "submitted",
+    });
+
     return res.status(201).json({
       success: true,
       message: "Item request submitted and forwarded to your Head of Department for recommendation.",
@@ -9020,6 +9648,13 @@ app.post(
 
     updateValues.push(requestId);
     await pool.execute(`UPDATE item_requests SET ${updateParts.join(", ")} WHERE id = ?`, updateValues);
+
+    await notifyItemRequestProgress({
+      requestId,
+      requestedById: itemRequest.requested_by_id,
+      itemName: itemRequest.item_name,
+      stage: "recommended",
+    });
 
     return res.json({
       success: true,
@@ -9159,6 +9794,13 @@ app.post(
       quantity: itemRequest.quantity,
       requesterName,
       inventoryName,
+    });
+
+    await notifyItemRequestProgress({
+      requestId,
+      requestedById: itemRequest.requested_by_id,
+      itemName: itemRequest.item_name,
+      stage: "approved_to_issue",
     });
 
     return res.json({
@@ -9313,6 +9955,13 @@ app.post(
       inventoryItem,
     });
 
+    await notifyItemRequestProgress({
+      requestId,
+      requestedById: itemRequest.requested_by_id,
+      itemName: itemRequest.item_name,
+      stage: "issued",
+    });
+
     return res.json({
       success: true,
       message: requesterName
@@ -9441,6 +10090,13 @@ app.post(
       );
     }
 
+    await notifyItemRequestProgress({
+      requestId,
+      requestedById: itemRequest.requested_by_id,
+      itemName: itemRequest.item_name,
+      stage: "returned",
+    });
+
     return res.json({
       success: true,
       message: "Item returned to Stores.",
@@ -9519,6 +10175,14 @@ app.post(
 
     updateValues.push(requestId);
     await pool.execute(`UPDATE item_requests SET ${updateParts.join(", ")} WHERE id = ?`, updateValues);
+
+    await notifyItemRequestProgress({
+      requestId,
+      requestedById: itemRequest.requested_by_id,
+      itemName: itemRequest.item_name,
+      stage: "rejected",
+      reason,
+    });
 
     return res.json({
       success: true,
