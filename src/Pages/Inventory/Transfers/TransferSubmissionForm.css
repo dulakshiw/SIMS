@@ -20,6 +20,10 @@
     min-height: 210mm;
     margin: 0 auto;
   }
+
+  .transfer-form-page + .transfer-form-page {
+    margin-top: 1rem;
+  }
 }
 
 .transfer-form-document .transfer-form-title {
@@ -146,10 +150,6 @@
   vertical-align: bottom;
 }
 
-.transfer-form-document .transfer-form-part-b {
-  opacity: 0.55;
-}
-
 .transfer-form-document .transfer-form-footer {
   margin-top: 1rem;
   font-size: 0.9rem;
@@ -201,6 +201,16 @@
     border-radius: 0;
     box-shadow: none;
     page-break-inside: avoid;
+  }
+
+  .transfer-form-page {
+    break-after: page;
+    page-break-after: always;
+  }
+
+  .transfer-form-page:last-child {
+    break-after: auto;
+    page-break-after: auto;
   }
 
   .transfer-form-document .transfer-form-title {

@@ -168,16 +168,27 @@ const TransferSubmissionForm = ({
   registrarApprovedBy = "",
   registrarApprovedDate = "",
   showPartB = false,
+  receivedDate = "",
+  receivedByName = "",
+  receiverPost = "",
+  receivedInventoryPageNo = "",
+  partBItems = [],
   className = "",
 }) => {
   const toParty = formatInventoryParty(destinationInventory);
   const fromParty = formatInventoryParty(sourceInventory);
   const tableRows = buildTableRows(items, transferDate);
+  const partBSourceItems = Array.isArray(partBItems) && partBItems.length > 0 ? partBItems : items;
+  const partBRows = buildTableRows(partBSourceItems, receivedDate).map((row) => ({
+    ...row,
+    handedOverDate: formatDisplayDate(receivedDate),
+    inventoryPageNo: String(row.inventoryPageNo || receivedInventoryPageNo || "").trim(),
+  }));
   const hodApprovalLabel = formatHodApprovalLabel(hodDepartmentName || sourceInventory?.department || "");
 
   return (
     <div className={`transfer-form-print-area ${className}`.trim()}>
-      <div className="transfer-form-document">
+      <div className="transfer-form-document transfer-form-page">
         <div className="transfer-form-title">
           Transferring Inventory Items – University of Moratuwa
         </div>
@@ -302,75 +313,132 @@ const TransferSubmissionForm = ({
           </span>
         </div>
 
-        {showPartB ? (
-          <>
-            <div className="transfer-form-section-title transfer-form-part-b">
-              Part (B) (Should be filled by the Taking–over Dept./ Division)
-            </div>
-
-            <div className="transfer-form-row transfer-form-part-b">
-              <div className="transfer-form-field">
-                To : <span className="transfer-form-line" />
-              </div>
-              <div className="transfer-form-field">
-                Through : <span className="transfer-form-line" />
-              </div>
-            </div>
-
-            <div className="transfer-form-row transfer-form-part-b">
-              <div className="transfer-form-field">
-                From : <span className="transfer-form-line" />
-              </div>
-              <div className="transfer-form-field">
-                Date : <span className="transfer-form-line" />
-              </div>
-            </div>
-
-            <p className="transfer-form-part-b">
-              I have received the following item/s and have entered in our Inventory as follows.
-            </p>
-
-            <table className="transfer-form-table transfer-form-part-b">
-              <thead>
-                <tr>
-                  <th>Received Date</th>
-                  <th>Item Name</th>
-                  <th>Item Code</th>
-                  <th>Brand / Model / Serial No.</th>
-                  <th>Qty</th>
-                  <th>Value</th>
-                  <th>Issue No.</th>
-                  <th>Inventory Page No.</th>
-                </tr>
-              </thead>
-              <tbody>
-                {Array.from({ length: 4 }).map((_, index) => (
-                  <tr key={`part-b-row-${index}`}>
-                    <td>&nbsp;</td>
-                    <td />
-                    <td />
-                    <td />
-                    <td />
-                    <td />
-                    <td />
-                    <td />
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-
-            <div className="transfer-form-footer transfer-form-part-b">
-              CC : Registrar
-              <br />
-              Bursar – For recording purposes
-            </div>
-          </>
-        ) : (
+        {!showPartB ? (
           <p className="transfer-form-part-b-note mt-4 text-sm text-text-light italic">
             Part B will be completed later by the receiving inventory officer.
           </p>
-        )}
+        ) : null}
       </div>
+
+      {showPartB ? (
+        <div className="transfer-form-document transfer-form-page">
+          <div className="transfer-form-title">
+            Transferring Inventory Items – University of Moratuwa
+          </div>
+
+          <div className="transfer-form-section-title">
+            Part (B) (Should be filled by the Taking–over Dept./ Division)
+          </div>
+
+          <div className="transfer-form-row">
+            <div className="transfer-form-field">
+              To : <b><span className="transfer-form-line">{fromParty}</span></b>
+            </div>
+            <div className="transfer-form-field">
+              Through : <b><span className="transfer-form-line">Registrar</span></b>
+            </div>
+          </div>
+
+          <div className="transfer-form-row">
+            <div className="transfer-form-field">
+              From : <b><span className="transfer-form-line">{toParty}</span></b>
+            </div>
+            <div className="transfer-form-field">
+              Date : <b><span className="transfer-form-line">{formatDisplayDate(receivedDate)}</span></b>
+            </div>
+          </div>
+
+          <p>
+            I have received the following item/s and have entered in our Inventory as follows.
+          </p>
+
+          <table className="transfer-form-table">
+            <thead>
+              <tr>
+                <th>Received Date</th>
+                <th>Item Name</th>
+                <th>Item Code</th>
+                <th>Brand / Model / Serial No.</th>
+                <th>Qty</th>
+                <th>Value</th>
+                <th>Issue No.</th>
+                <th>Inventory Page No.</th>
+              </tr>
+            </thead>
+            <tbody>
+              {partBRows.map((row, index) => (
+                <tr key={`part-b-row-${index}`}>
+                  <td>{row.handedOverDate || "\u00A0"}</td>
+                  <td>{row.itemName || "\u00A0"}</td>
+                  <td>
+                    {row.itemCodes.length > 0
+                      ? row.itemCodes.map((code, codeIndex) => (
+                          <React.Fragment key={`part-b-${index}-code-${codeIndex}`}>
+                            {codeIndex > 0 ? <br /> : null}
+                            {code}
+                          </React.Fragment>
+                        ))
+                      : "\u00A0"}
+                  </td>
+                  <td>
+                    {row.brandModel ? (
+                      <>
+                        {row.brandModel}
+                        {row.serialNos.length > 0 ? (
+                          <>
+                            <br />
+                            {row.serialNos.map((serial, serialIndex) => (
+                              <React.Fragment key={`part-b-${index}-serial-${serialIndex}`}>
+                                {serialIndex > 0 ? <br /> : null}
+                                {serial}
+                              </React.Fragment>
+                            ))}
+                          </>
+                        ) : null}
+                      </>
+                    ) : (
+                      row.serialNos.map((serial, serialIndex) => (
+                        <React.Fragment key={`part-b-${index}-serial-${serialIndex}`}>
+                          {serialIndex > 0 ? <br /> : null}
+                          {serial}
+                        </React.Fragment>
+                      ))
+                    )}
+                  </td>
+                  <td>{row.quantity || "\u00A0"}</td>
+                  <td>{row.value || "\u00A0"}</td>
+                  <td>{row.issueNo || "\u00A0"}</td>
+                  <td>{row.inventoryPageNo || "\u00A0"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          <div className="transfer-form-signature-section">
+            Received by (Name of In‑Charge of Inventory Register) :{" "}
+            <span className="transfer-form-signature-line"><b>{receivedByName || "\u00A0"}</b></span>
+            &nbsp;&nbsp; Post :{" "}
+            <span className="transfer-form-line"><b>{receiverPost || "Inventory Officer"}</b></span>
+          </div>
+
+           <div className="transfer-form-signature-section">
+          Approval of the Registrar :{" "}
+          <span className="transfer-form-signature-line"><b>
+            {registrarApprovedBy || "\u00A0"}</b>
+          </span>
+          &nbsp;&nbsp; <b>Date :{" "}</b>
+          <span className="transfer-form-line">
+            {registrarApprovedDate ? formatDisplayDate(registrarApprovedDate) : "\u00A0"}
+          </span>
+        </div>
+
+          <div className="transfer-form-footer">
+            CC : Registrar
+            <br />
+            Bursar – For recording purposes
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 };

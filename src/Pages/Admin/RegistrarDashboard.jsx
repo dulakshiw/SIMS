@@ -85,37 +85,30 @@ const RegistrarDashboard = () => {
     };
   }, []);
 
-  const pendingCards = [
+  const summaryCards = [
     {
-      title: "Inventory Creation",
-      count: summary.pendingInventory ?? 0,
-      description: "New inventories awaiting your approval.",
-      icon: "inventory_2",
-      tab: "inventory-requests",
-    },
-    {
-      title: "Item Transfers",
-      count: summary.pendingTransfers ?? 0,
-      description: "Transfer requests awaiting your approval.",
-      icon: "compare_arrows",
-      countClassName: "text-info",
-      tab: "transfer-requests",
-    },
-    {
-      title: "Item Disposals",
-      count: summary.pendingDisposals ?? 0,
-      description: "Disposal requests awaiting your approval.",
-      icon: "delete_sweep",
-      countClassName: "text-warning",
-      tab: "disposal-requests",
-    },
-    {
-      title: "Total Pending",
+      title: "Pending Tasks",
       count: summary.totalPending ?? 0,
       description: "All approval tasks requiring action.",
       icon: "pending_actions",
       countClassName: "text-error",
-      tab: "inventory-requests",
+      onClick: () => navigate("/admin/pending-tasks"),
+    },
+    {
+      title: "Inventories",
+      count: summary.pendingInventory ?? 0,
+      description: "New inventories awaiting your approval.",
+      icon: "inventory_2",
+      onClick: () => handleOpenApprovals("inventory-requests"),
+    },
+    {
+      title: "Approval History",
+      count: (summary.approvedCount ?? 0) + (summary.rejectedCount ?? 0),
+      description: "Recently approved and rejected processes.",
+      icon: "history",
+      countClassName: "text-info",
+      onClick: () => {},
+      hover: false,
     },
   ];
 
@@ -134,8 +127,8 @@ const RegistrarDashboard = () => {
           </div>
         )}
 
-        <SummaryCardsGrid title="Pending Approvals" columns={4}>
-          {pendingCards.map((card) => (
+        <SummaryCardsGrid title="Registrar Summary" columns={3}>
+          {summaryCards.map((card) => (
             <SummaryCard
               key={card.title}
               title={card.title}
@@ -144,30 +137,10 @@ const RegistrarDashboard = () => {
               icon={card.icon}
               loading={loading}
               countClassName={card.countClassName}
-              onClick={() => handleOpenApprovals(card.tab)}
+              onClick={card.onClick}
+              hover={card.hover}
             />
           ))}
-        </SummaryCardsGrid>
-
-        <SummaryCardsGrid showTitle={false} columns={2}>
-          <SummaryCard
-            title="Approved (recent)"
-            count={summary.approvedCount ?? 0}
-            description="Shown in history below"
-            icon="check_circle"
-            loading={loading}
-            countClassName="text-success"
-            hover={false}
-          />
-          <SummaryCard
-            title="Rejected (recent)"
-            count={summary.rejectedCount ?? 0}
-            description="Shown in history below"
-            icon="cancel"
-            loading={loading}
-            countClassName="text-error"
-            hover={false}
-          />
         </SummaryCardsGrid>
 
         <Card title="Approval History" icon="history">

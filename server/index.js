@@ -413,6 +413,8 @@ const resolveDbColumn = (dbColumns, aliases) =>
   aliases.find((alias) => dbColumns.has(alias)) || null;
 
 const getItemIdColumn = (dbColumns) => resolveDbColumn(dbColumns, ["id", "item_id"]) || "item_id";
+const getItemInventoryColumn = (dbColumns) =>
+  resolveDbColumn(dbColumns, ["inventory_id", "inventoryId", "inventoryid"]);
 
 const getItemsOrderClause = (dbColumns) => {
   const idColumn = getItemIdColumn(dbColumns);
@@ -428,7 +430,7 @@ const getItemsOrderClause = (dbColumns) => {
 const normalizeItemRow = (row = {}) => ({
   ...row,
   id: row.id ?? row.item_id,
-  inventory_id: row.inventory_id ?? null,
+  inventory_id: row.inventory_id ?? row.inventoryId ?? row.inventoryid ?? null,
   inventoryName: row.inventoryName ?? row.inventory_name ?? "",
   itemName: row.itemName ?? row.item_name ?? "",
   itemCode: row.itemCode ?? row.item_code ?? "",
@@ -7083,7 +7085,7 @@ app.get(
     const issuedToUserId = Number(req.query?.issuedToUserId ?? 0);
     const ginNo = String(req.query?.ginNo ?? "").trim();
     const searchText = String(req.query?.search ?? req.query?.q ?? "").trim();
-    const hasInventoryId = inventoryItemColumns.has("inventory_id");
+    const itemInventoryColumn = getItemInventoryColumn(inventoryItemColumns);
 
     const whereClauses = [];
     const params = [];
@@ -7094,8 +7096,8 @@ app.get(
       params.push(ginNo);
     }
 
-    if (Number.isInteger(inventoryId) && inventoryId > 0 && hasInventoryId) {
-      whereClauses.push("inventory_id = ?");
+    if (Number.isInteger(inventoryId) && inventoryId > 0 && itemInventoryColumn) {
+      whereClauses.push(`${itemInventoryColumn} = ?`);
       params.push(inventoryId);
     }
 
@@ -7115,7 +7117,7 @@ app.get(
 
     let items = rows.map(normalizeItemRow);
 
-    if (Number.isInteger(inventoryId) && inventoryId > 0 && hasInventoryId) {
+    if (Number.isInteger(inventoryId) && inventoryId > 0 && itemInventoryColumn) {
       const itemIds = items.map((item) => Number(item.id)).filter((id) => Number.isInteger(id) && id > 0);
       const [transferLockMap, disposalLockMap, repairLockMap, warrantyClaimLockMap] = await Promise.all([
         getTransferLockMapForInventory(inventoryId, itemIds),
@@ -8267,6 +8269,13 @@ const createItemTransfersTable = async () => {
           approval_status VARCHAR(50) DEFAULT 'pending_hod',
           transfer_date DATE NULL,
           initiated_by_id INT NULL,
+          source_hod_user_id INT NULL,
+          destination_hod_user_id INT NULL,
+          destination_hod_approved_date TIMESTAMP NULL,
+          destination_hod_approved_by_id INT NULL,
+          received_inventory_page_no VARCHAR(100) NULL,
+          part_b_registrar_approved_date TIMESTAMP NULL,
+          part_b_registrar_approved_by_id INT NULL,
           created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           updated_date TIMESTAMP NULL ON UPDATE CURRENT_TIMESTAMP,
           completed_date TIMESTAMP NULL
@@ -8384,6 +8393,12 @@ const ensureItemTransfersWorkflow = async () => {
     await addWorkflowColumnIfMissing("item_transfers", columns, "registrar_approved_by_id", "INT NULL");
     await addWorkflowColumnIfMissing("item_transfers", columns, "hod_approved_date", "TIMESTAMP NULL");
     await addWorkflowColumnIfMissing("item_transfers", columns, "hod_approved_by_id", "INT NULL");
+    await addWorkflowColumnIfMissing("item_transfers", columns, "destination_hod_user_id", "INT NULL");
+    await addWorkflowColumnIfMissing("item_transfers", columns, "destination_hod_approved_date", "TIMESTAMP NULL");
+    await addWorkflowColumnIfMissing("item_transfers", columns, "destination_hod_approved_by_id", "INT NULL");
+    await addWorkflowColumnIfMissing("item_transfers", columns, "received_inventory_page_no", "VARCHAR(100) NULL");
+    await addWorkflowColumnIfMissing("item_transfers", columns, "part_b_registrar_approved_date", "TIMESTAMP NULL");
+    await addWorkflowColumnIfMissing("item_transfers", columns, "part_b_registrar_approved_by_id", "INT NULL");
     await addWorkflowColumnIfMissing("item_transfers", columns, "rejection_reason", "VARCHAR(500) NULL");
     await addWorkflowColumnIfMissing("item_transfers", columns, "source_hod_user_id", "INT NULL");
 
@@ -8411,6 +8426,14 @@ const ensureItemTransfersWorkflow = async () => {
         WHERE it.source_hod_user_id IS NULL
           AND inv.${inventoryHodColumn} IS NOT NULL
       `);
+
+      await pool.query(`
+        UPDATE item_transfers it
+        INNER JOIN inventories inv ON inv.${inventoryIdColumn} = it.to_inventory_id
+        SET it.destination_hod_user_id = inv.${inventoryHodColumn}
+        WHERE it.destination_hod_user_id IS NULL
+          AND inv.${inventoryHodColumn} IS NOT NULL
+      `);
     }
 
     const schema = await getAuthSchema();
@@ -8432,6 +8455,28 @@ const ensureItemTransfersWorkflow = async () => {
         await pool.execute(
           "UPDATE item_transfers SET source_hod_user_id = ? WHERE from_inventory_id = ? AND source_hod_user_id IS NULL",
           [resolvedHodUserId, row.from_inventory_id]
+        );
+      }
+    }
+
+    const [transfersNeedingDestinationHodRows] = await pool.query(`
+      SELECT DISTINCT to_inventory_id
+      FROM item_transfers
+      WHERE destination_hod_user_id IS NULL
+        AND to_inventory_id IS NOT NULL
+    `);
+
+    for (const row of transfersNeedingDestinationHodRows) {
+      const resolvedHodUserId = await resolveSourceInventoryHodUserId(
+        Number(row.to_inventory_id),
+        inventoryColumns,
+        schema
+      );
+
+      if (resolvedHodUserId) {
+        await pool.execute(
+          "UPDATE item_transfers SET destination_hod_user_id = ? WHERE to_inventory_id = ? AND destination_hod_user_id IS NULL",
+          [resolvedHodUserId, row.to_inventory_id]
         );
       }
     }
@@ -10292,10 +10337,21 @@ app.get(
     const params = [];
     const whereParts = [];
 
-    if (hasSourceHodFilter && columns.has("source_hod_user_id")) {
-      whereParts.push("it.source_hod_user_id = ?");
-      params.push(sourceHodUserId);
-      whereParts.push("LOWER(COALESCE(it.approval_status, '')) IN ('pending_hod', 'pending_staff')");
+    if (hasSourceHodFilter) {
+      const sourceClause = columns.has("source_hod_user_id")
+        ? "(it.source_hod_user_id = ? AND LOWER(COALESCE(it.approval_status, '')) IN ('pending_hod', 'pending_staff'))"
+        : "0 = 1";
+      const destinationClause = columns.has("destination_hod_user_id")
+        ? "(it.destination_hod_user_id = ? AND LOWER(COALESCE(it.approval_status, '')) = 'registrar_approved_part_a')"
+        : "0 = 1";
+
+      whereParts.push(`(${sourceClause} OR ${destinationClause})`);
+      if (columns.has("source_hod_user_id")) {
+        params.push(sourceHodUserId);
+      }
+      if (columns.has("destination_hod_user_id")) {
+        params.push(sourceHodUserId);
+      }
       whereParts.push("LOWER(COALESCE(it.status, '')) NOT IN ('completed', 'rejected', 'cancelled')");
     }
 
@@ -10338,9 +10394,8 @@ app.get(
     if (approvalStatus && !hasInventoryOfficerFilter && !hasSourceHodFilter) {
       if (columns.has("approval_status") && approvalStatus === "pending_registrar") {
         whereParts.push(
-          `(LOWER(COALESCE(it.approval_status, '')) = ? OR (it.approval_status IS NULL AND LOWER(COALESCE(it.status, '')) = 'pending'))`
+          `(LOWER(COALESCE(it.approval_status, '')) IN ('pending_registrar', 'pending_registrar_part_b') OR (it.approval_status IS NULL AND LOWER(COALESCE(it.status, '')) = 'pending'))`
         );
-        params.push(approvalStatus);
       } else if (columns.has("approval_status")) {
         whereParts.push("LOWER(COALESCE(it.approval_status, '')) = ?");
         params.push(approvalStatus);
@@ -10525,6 +10580,7 @@ app.get(
           ${columns.has("completed_date") ? "it.completed_date" : "NULL AS completed_date"},
           ${columns.has("hod_approved_date") ? "it.hod_approved_date" : "NULL AS hod_approved_date"},
           ${columns.has("registrar_approved_date") ? "it.registrar_approved_date" : "NULL AS registrar_approved_date"},
+          ${columns.has("part_b_registrar_approved_date") ? "it.part_b_registrar_approved_date" : "NULL AS part_b_registrar_approved_date"},
           ${columns.has("initiated_by_id") ? "it.initiated_by_id" : "NULL AS initiated_by_id"},
           initiator.${userNameColumn} AS initiated_by_name,
           ${designationSelection},
@@ -10572,7 +10628,8 @@ app.get(
           it.item_id,
           it.quantity,
           it.status,
-          ${columns.has("approval_status") ? "it.approval_status" : "NULL AS approval_status"}
+          ${columns.has("approval_status") ? "it.approval_status" : "NULL AS approval_status"},
+          ${columns.has("received_inventory_page_no") ? "it.received_inventory_page_no" : "NULL AS received_inventory_page_no"}
         FROM item_transfers anchor
         INNER JOIN item_transfers it ON ${batchMatchParts.join(" AND ")}
         WHERE anchor.id = ?
@@ -10623,9 +10680,17 @@ app.get(
         transferLineId: row.id,
         itemId: row.item_id,
         itemName: itemDetail?.itemName || itemDetail?.item_name || `Item #${row.item_id}`,
+        itemCode: itemDetail?.itemCode || itemDetail?.item_code || "",
+        serialNo: itemDetail?.serialNo || itemDetail?.serial_no || "",
+        model: itemDetail?.model || "",
+        brand: itemDetail?.brand || itemDetail?.manufacturer || "",
+        value: itemDetail?.value ?? "",
+        ginNo: itemDetail?.ginNo || itemDetail?.gin_no || "",
+        pageno: itemDetail?.pageno || itemDetail?.pageNo || "",
         quantity,
         status: row.status || "pending",
         approvalStatus: resolveTransferDisposalApprovalStatus(row, columns),
+        inventoryPageNo: row.received_inventory_page_no || itemDetail?.pageno || itemDetail?.pageNo || "",
       };
     });
 
@@ -10661,6 +10726,9 @@ app.get(
         hodDepartmentName: sourceInventory?.department || "",
         registrarApprovedDate: anchor.registrar_approved_date
           ? new Date(anchor.registrar_approved_date).toISOString().split("T")[0]
+          : "",
+        partBRegistrarApprovedDate: anchor.part_b_registrar_approved_date
+          ? new Date(anchor.part_b_registrar_approved_date).toISOString().split("T")[0]
           : "",
         registrarApprovedBy: anchor.registrar_approved_by_name || "",
         initiatedById: anchor.initiated_by_id ?? null,
@@ -10775,6 +10843,7 @@ app.post(
 
     const schema = await getAuthSchema();
     const sourceHodUserId = await resolveSourceInventoryHodUserId(fromInventoryId, inventoryColumns, schema);
+    const destinationHodUserId = await resolveSourceInventoryHodUserId(toInventoryId, inventoryColumns, schema);
 
     if (String(fromInventoryRows[0]?.incharge_id ?? "") !== String(initiatedById)) {
       return res.status(403).json({
@@ -10861,6 +10930,11 @@ app.post(
       if (columns.has("source_hod_user_id") && Number.isInteger(sourceHodUserId) && sourceHodUserId > 0) {
         insertColumns.push("source_hod_user_id");
         insertValues.push(sourceHodUserId);
+      }
+
+      if (columns.has("destination_hod_user_id") && Number.isInteger(destinationHodUserId) && destinationHodUserId > 0) {
+        insertColumns.push("destination_hod_user_id");
+        insertValues.push(destinationHodUserId);
       }
 
       if (columns.has("created_date")) {
@@ -11020,15 +11094,28 @@ app.post(
 
     const anchor = anchorRows[0];
     const currentApprovalStatus = resolveTransferDisposalApprovalStatus(anchor, columns);
-    const hodPendingStatuses = new Set(["pending_hod", "pending_staff"]);
+    const sourceHodPendingStatuses = new Set(["pending_hod", "pending_staff"]);
+    const destinationHodPendingStatuses = new Set(["registrar_approved_part_a"]);
 
-    if (!hodPendingStatuses.has(currentApprovalStatus)) {
+    const isSourceHodFlow = sourceHodPendingStatuses.has(currentApprovalStatus);
+    const isDestinationHodFlow = destinationHodPendingStatuses.has(currentApprovalStatus);
+
+    if (!isSourceHodFlow && !isDestinationHodFlow) {
       return res.status(409).json({ success: false, message: "This transfer is not awaiting HOD recommendation." });
     }
 
-    const assignedHod = columns.has("source_hod_user_id") ? Number(anchor.source_hod_user_id ?? 0) : 0;
-    if (assignedHod > 0 && assignedHod !== approverUserId) {
-      return res.status(403).json({ success: false, message: "Only the assigned Head of Department can recommend this transfer." });
+    if (isSourceHodFlow) {
+      const assignedSourceHod = columns.has("source_hod_user_id") ? Number(anchor.source_hod_user_id ?? 0) : 0;
+      if (assignedSourceHod > 0 && assignedSourceHod !== approverUserId) {
+        return res.status(403).json({ success: false, message: "Only the assigned source Head of Department can recommend this transfer." });
+      }
+    }
+
+    if (isDestinationHodFlow) {
+      const assignedDestinationHod = columns.has("destination_hod_user_id") ? Number(anchor.destination_hod_user_id ?? 0) : 0;
+      if (assignedDestinationHod > 0 && assignedDestinationHod !== approverUserId) {
+        return res.status(403).json({ success: false, message: "Only the assigned destination Head of Department can recommend this transfer." });
+      }
     }
 
     const lineIds = await fetchTransferBatchLineIds(transferId, columns);
@@ -11041,15 +11128,24 @@ app.post(
 
     if (columns.has("approval_status")) {
       updateParts.push("approval_status = ?");
-      updateValues.push("pending_registrar");
+      updateValues.push(isSourceHodFlow ? "pending_registrar" : "pending_destination_inventory");
     }
 
-    if (columns.has("hod_approved_date")) {
+    if (isSourceHodFlow && columns.has("hod_approved_date")) {
       updateParts.push("hod_approved_date = CURRENT_TIMESTAMP");
     }
 
-    if (columns.has("hod_approved_by_id")) {
+    if (isSourceHodFlow && columns.has("hod_approved_by_id")) {
       updateParts.push("hod_approved_by_id = ?");
+      updateValues.push(approverUserId);
+    }
+
+    if (isDestinationHodFlow && columns.has("destination_hod_approved_date")) {
+      updateParts.push("destination_hod_approved_date = CURRENT_TIMESTAMP");
+    }
+
+    if (isDestinationHodFlow && columns.has("destination_hod_approved_by_id")) {
+      updateParts.push("destination_hod_approved_by_id = ?");
       updateValues.push(approverUserId);
     }
 
@@ -11063,19 +11159,85 @@ app.post(
       [...updateValues, ...lineIds]
     );
 
-    await notifyApprovalStage(pool, {
-      userIds: [anchor.initiated_by_id],
-      workflow: "transfer",
-      stage: "hod",
-      entityId: transferId,
-      entityLabel: anchor.transfer_reference || anchor.reference_no || `Transfer #${transferId}`,
-      link: `/inventory/transfers/${transferId}`,
-    });
+    if (isSourceHodFlow) {
+      await notifyApprovalStage(pool, {
+        userIds: [anchor.initiated_by_id],
+        workflow: "transfer",
+        stage: "hod",
+        entityId: transferId,
+        entityLabel: anchor.transfer_reference || anchor.reference_no || `Transfer #${transferId}`,
+        link: `/inventory/transfers/${transferId}`,
+      });
+
+      return res.json({
+        success: true,
+        message: "Transfer recommended by source Head of Department and forwarded to the registrar.",
+        approvalStatus: "pending_registrar",
+        transferIds: lineIds,
+      });
+    }
+
+    const toInventoryId = Number(anchor.to_inventory_id ?? 0);
+    const fromInventoryId = Number(anchor.from_inventory_id ?? 0);
+    const inventoryColumns = await ensureInventoriesLocationColumn();
+    const inventoryIdColumn = getInventoryIdColumn(inventoryColumns);
+    const inventoryInchargeColumn = getInventoryInchargeColumn(inventoryColumns);
+    const inventoryNameColumn = getInventoryNameColumn(inventoryColumns);
+    const inventoryNameColumn = getInventoryNameColumn(inventoryColumns);
+    let destinationInchargeId = 0;
+    let destinationInventoryName = "destination inventory";
+
+    if (inventoryIdColumn && Number.isInteger(toInventoryId) && toInventoryId > 0) {
+      const destinationInchargeSelect = inventoryInchargeColumn
+        ? `${inventoryInchargeColumn} AS incharge_value`
+        : inventoryColumns.has("incharge")
+          ? "incharge AS incharge_value"
+          : inventoryColumns.has("incharge_name")
+            ? "incharge_name AS incharge_value"
+            : inventoryColumns.has("inventory_officer")
+              ? "inventory_officer AS incharge_value"
+              : inventoryColumns.has("inventory_officer_name")
+                ? "inventory_officer_name AS incharge_value"
+                : "NULL AS incharge_value";
+
+      const [destinationInventoryRows] = await pool.execute(
+        `
+          SELECT
+            ${inventoryNameColumn ? `${inventoryNameColumn} AS inventory_name` : "NULL AS inventory_name"},
+            ${destinationInchargeSelect}
+          FROM inventories
+          WHERE ${inventoryIdColumn} = ?
+          LIMIT 1
+        `,
+        [toInventoryId]
+      );
+
+      if (destinationInventoryRows.length > 0) {
+        destinationInventoryName = String(destinationInventoryRows[0]?.inventory_name || "").trim() || "destination inventory";
+        const inchargeRaw = destinationInventoryRows[0]?.incharge_value;
+        const numericInchargeId = Number(inchargeRaw ?? 0);
+        if (Number.isInteger(numericInchargeId) && numericInchargeId > 0) {
+          destinationInchargeId = numericInchargeId;
+        } else if (String(inchargeRaw || "").trim()) {
+          destinationInchargeId = Number(await resolveUserId(String(inchargeRaw).trim()) || 0);
+        }
+      }
+    }
+
+    if (Number.isInteger(destinationInchargeId) && destinationInchargeId > 0) {
+      await createNotificationsForUsers(pool, [destinationInchargeId], {
+        type: "transfer_destination_hod_approved",
+        title: "Transfer ready for inventory entry",
+        message: `Destination HOD recommended transfer #${transferId}. Please add the item(s) to ${destinationInventoryName}.`,
+        link: `/inventory/transfers/${transferId}`,
+        dedupeKey: `transfer_destination_hod_approved_${transferId}_to_${destinationInchargeId}`,
+      });
+    }
 
     return res.json({
       success: true,
-      message: "Transfer recommended by Head of Department and forwarded to the registrar.",
-      approvalStatus: "pending_registrar",
+      message: "Transfer recommended by destination Head of Department and forwarded to destination inventory officer.",
+      approvalStatus: "pending_destination_inventory",
       transferIds: lineIds,
     });
   })
@@ -11112,15 +11274,27 @@ app.post(
 
     const anchor = anchorRows[0];
     const currentApprovalStatus = resolveTransferDisposalApprovalStatus(anchor, columns);
-    const hodPendingStatuses = new Set(["pending_hod", "pending_staff"]);
+    const sourceHodPendingStatuses = new Set(["pending_hod", "pending_staff"]);
+    const destinationHodPendingStatuses = new Set(["registrar_approved_part_a"]);
+    const isSourceHodFlow = sourceHodPendingStatuses.has(currentApprovalStatus);
+    const isDestinationHodFlow = destinationHodPendingStatuses.has(currentApprovalStatus);
 
-    if (!hodPendingStatuses.has(currentApprovalStatus)) {
+    if (!isSourceHodFlow && !isDestinationHodFlow) {
       return res.status(409).json({ success: false, message: "This transfer is not awaiting HOD recommendation." });
     }
 
-    const assignedHod = columns.has("source_hod_user_id") ? Number(anchor.source_hod_user_id ?? 0) : 0;
-    if (assignedHod > 0 && assignedHod !== approverUserId) {
-      return res.status(403).json({ success: false, message: "Only the assigned Head of Department can reject this transfer." });
+    if (isSourceHodFlow) {
+      const assignedHod = columns.has("source_hod_user_id") ? Number(anchor.source_hod_user_id ?? 0) : 0;
+      if (assignedHod > 0 && assignedHod !== approverUserId) {
+        return res.status(403).json({ success: false, message: "Only the assigned source Head of Department can reject this transfer." });
+      }
+    }
+
+    if (isDestinationHodFlow) {
+      const assignedDestinationHod = columns.has("destination_hod_user_id") ? Number(anchor.destination_hod_user_id ?? 0) : 0;
+      if (assignedDestinationHod > 0 && assignedDestinationHod !== approverUserId) {
+        return res.status(403).json({ success: false, message: "Only the assigned destination Head of Department can reject this transfer." });
+      }
     }
 
     const lineIds = await fetchTransferBatchLineIds(transferId, columns);
@@ -11813,6 +11987,11 @@ const approveTransferDisposalByRegistrar = async ({
       message: successMessage,
       approvalStatus: nextApprovalStatus,
     },
+    meta: {
+      record,
+      workflow,
+      detailPath,
+    },
   };
 };
 
@@ -12363,6 +12542,414 @@ app.post(
       approvalStatus: "completed",
       repairIds: lineIds,
       receivedDate,
+    });
+  })
+);
+
+app.post(
+  "/api/item-transfers/:id/approve-registrar",
+  withDatabase(async (req, res) => {
+    const requestId = Number(req.params.id);
+    const approverUserId = Number(req.body?.approverUserId ?? 0);
+
+    if (!Number.isInteger(requestId) || requestId <= 0) {
+      return res.status(400).json({ success: false, message: "A valid transfer id is required." });
+    }
+
+    if (!Number.isInteger(approverUserId) || approverUserId <= 0) {
+      return res.status(400).json({ success: false, message: "A valid approver user id is required." });
+    }
+
+    const columns = await ensureItemTransfersWorkflow();
+    if (!columns) {
+      return res.status(404).json({ success: false, message: "Item transfers are not available." });
+    }
+
+    const [anchorRows] = await pool.execute("SELECT * FROM item_transfers WHERE id = ? LIMIT 1", [requestId]);
+    if (anchorRows.length === 0) {
+      return res.status(404).json({ success: false, message: "Transfer request was not found." });
+    }
+
+    const anchor = anchorRows[0];
+    const currentApprovalStatus = resolveTransferDisposalApprovalStatus(anchor, columns);
+    const lineIds = await fetchTransferBatchLineIds(requestId, columns);
+
+    if (lineIds.length === 0) {
+      return res.status(404).json({ success: false, message: "Transfer request was not found." });
+    }
+
+    if (currentApprovalStatus === "pending_registrar") {
+      const updateParts = [];
+      const updateValues = [];
+
+      if (columns.has("approval_status")) {
+        updateParts.push("approval_status = ?");
+        updateValues.push("registrar_approved_part_a");
+      }
+      if (columns.has("status")) {
+        updateParts.push("status = ?");
+        updateValues.push("registrar_approved_part_a");
+      }
+      if (columns.has("registrar_approved_date")) {
+        updateParts.push("registrar_approved_date = CURRENT_TIMESTAMP");
+      }
+      if (columns.has("registrar_approved_by_id")) {
+        updateParts.push("registrar_approved_by_id = ?");
+        updateValues.push(approverUserId);
+      }
+
+      await pool.execute(
+        `UPDATE item_transfers SET ${updateParts.join(", ")} WHERE id IN (${lineIds.map(() => "?").join(", ")})`,
+        [...updateValues, ...lineIds]
+      );
+
+      const itemId = Number(anchor.item_id ?? 0);
+      const fromInventoryId = Number(anchor.from_inventory_id ?? 0);
+      const toInventoryId = Number(anchor.to_inventory_id ?? 0);
+      const inventoryColumns = await ensureInventoriesLocationColumn();
+      const inventoryIdColumn = getInventoryIdColumn(inventoryColumns);
+      const inventoryNameColumn = getInventoryNameColumn(inventoryColumns);
+      let destinationInventoryName = "destination inventory";
+
+      if (inventoryIdColumn && Number.isInteger(toInventoryId) && toInventoryId > 0) {
+        const [inventoryRows] = await pool.execute(
+          `SELECT ${inventoryNameColumn ? `${inventoryNameColumn} AS inventory_name` : "NULL AS inventory_name"} FROM inventories WHERE ${inventoryIdColumn} = ? LIMIT 1`,
+          [toInventoryId]
+        );
+        destinationInventoryName = String(inventoryRows[0]?.inventory_name || "").trim() || "destination inventory";
+      }
+
+      if (Number.isInteger(itemId) && itemId > 0) {
+        const itemColumns = await ensureInventoryItemsColumns();
+        const itemIdColumn = getItemIdColumn(itemColumns);
+        const itemInventoryColumn = itemColumns.has("inventory_id") ? "inventory_id" : null;
+
+        if (itemIdColumn) {
+          const itemUpdateParts = [];
+          const itemUpdateValues = [];
+
+          if (itemColumns.has("status")) {
+            itemUpdateParts.push("status = ?");
+            itemUpdateValues.push(`transferred to ${destinationInventoryName}`);
+          }
+
+          if (itemColumns.has("remarks")) {
+            itemUpdateParts.push(
+              `remarks = TRIM(CONCAT(COALESCE(remarks, ''), CASE WHEN COALESCE(remarks, '') = '' THEN '' ELSE '\\n' END, ?))`
+            );
+            itemUpdateValues.push(`Transferred to ${destinationInventoryName} via transfer #${requestId}.`);
+          }
+
+          if (itemUpdateParts.length > 0) {
+            const whereParts = [`${itemIdColumn} = ?`];
+            const whereValues = [itemId];
+            if (itemInventoryColumn && Number.isInteger(fromInventoryId) && fromInventoryId > 0) {
+              whereParts.push(`${itemInventoryColumn} = ?`);
+              whereValues.push(fromInventoryId);
+            }
+            await pool.execute(
+              `UPDATE ${DB_ITEMS_TABLE} SET ${itemUpdateParts.join(", ")} WHERE ${whereParts.join(" AND ")}`,
+              [...itemUpdateValues, ...whereValues]
+            );
+          }
+        }
+      }
+
+      const destinationHodId = columns.has("destination_hod_user_id") ? Number(anchor.destination_hod_user_id ?? 0) : 0;
+      if (Number.isInteger(destinationHodId) && destinationHodId > 0) {
+        await createNotificationsForUsers(pool, [destinationHodId], {
+          type: "transfer_registrar_approved_part_a",
+          title: "Transfer needs destination HOD review",
+          message: `Transfer #${requestId} was approved by registrar (Part A). Please review for destination inventory entry.`,
+          link: `/inventory/transfers/${requestId}`,
+          dedupeKey: `transfer_registrar_approved_part_a_${requestId}_hod_${destinationHodId}`,
+        });
+      }
+
+      return res.json({
+        success: true,
+        message: "Transfer approved by registrar (Part A) and forwarded to destination HOD.",
+        approvalStatus: "registrar_approved_part_a",
+        transferIds: lineIds,
+      });
+    }
+
+    if (currentApprovalStatus === "pending_registrar_part_b") {
+      const updateParts = [];
+      const updateValues = [];
+
+      if (columns.has("approval_status")) {
+        updateParts.push("approval_status = ?");
+        updateValues.push("completed");
+      }
+      if (columns.has("status")) {
+        updateParts.push("status = ?");
+        updateValues.push("completed");
+      }
+      if (columns.has("completed_date")) {
+        updateParts.push("completed_date = CURRENT_TIMESTAMP");
+      }
+      if (columns.has("part_b_registrar_approved_date")) {
+        updateParts.push("part_b_registrar_approved_date = CURRENT_TIMESTAMP");
+      }
+      if (columns.has("part_b_registrar_approved_by_id")) {
+        updateParts.push("part_b_registrar_approved_by_id = ?");
+        updateValues.push(approverUserId);
+      }
+
+      await pool.execute(
+        `UPDATE item_transfers SET ${updateParts.join(", ")} WHERE id IN (${lineIds.map(() => "?").join(", ")})`,
+        [...updateValues, ...lineIds]
+      );
+
+      const fromInventoryId = Number(anchor.from_inventory_id ?? 0);
+      const inventoryColumns = await ensureInventoriesLocationColumn();
+      const inventoryIdColumn = getInventoryIdColumn(inventoryColumns);
+      const inventoryInchargeColumn = getInventoryInchargeColumn(inventoryColumns);
+
+      if (inventoryIdColumn && inventoryInchargeColumn && fromInventoryId > 0) {
+        const [sourceRows] = await pool.execute(
+          `SELECT ${inventoryInchargeColumn} AS incharge_value FROM inventories WHERE ${inventoryIdColumn} = ? LIMIT 1`,
+          [fromInventoryId]
+        );
+        const inchargeRaw = sourceRows[0]?.incharge_value;
+        const sourceInchargeId = Number.isInteger(Number(inchargeRaw)) && Number(inchargeRaw) > 0
+          ? Number(inchargeRaw)
+          : Number(await resolveUserId(String(inchargeRaw || "").trim()) || 0);
+
+        if (sourceInchargeId > 0) {
+          await createNotificationsForUsers(pool, [sourceInchargeId], {
+            type: "transfer_completed",
+            title: "Transfer completed",
+            message: `Transfer #${requestId} is now completed after registrar Part B approval.`,
+            link: `/inventory/transfers/${requestId}`,
+            dedupeKey: `transfer_completed_${requestId}_source_${sourceInchargeId}`,
+          });
+        }
+      }
+
+      return res.json({
+        success: true,
+        message: "Transfer Part B approved by registrar and marked as completed.",
+        approvalStatus: "completed",
+        transferIds: lineIds,
+      });
+    }
+
+    return res.status(409).json({ success: false, message: "This transfer is not awaiting registrar action for this stage." });
+  })
+);
+
+app.post(
+  "/api/item-transfers/:id/complete",
+  withDatabase(async (req, res) => {
+    const transferId = Number(req.params.id);
+    const receiverUserId = Number(req.body?.receiverUserId ?? req.body?.receiver_user_id ?? 0);
+    const linePageNos = req.body?.linePageNos && typeof req.body.linePageNos === "object"
+      ? req.body.linePageNos
+      : {};
+    const columns = await ensureItemTransfersWorkflow();
+
+    if (!columns) {
+      return res.status(404).json({ success: false, message: "Item transfers are not available." });
+    }
+
+    if (!Number.isInteger(transferId) || transferId <= 0) {
+      return res.status(400).json({ success: false, message: "A valid transfer id is required." });
+    }
+
+    if (!Number.isInteger(receiverUserId) || receiverUserId <= 0) {
+      return res.status(400).json({ success: false, message: "A valid destination inventory officer user id is required." });
+    }
+
+    const [anchorRows] = await pool.execute(
+      "SELECT * FROM item_transfers WHERE id = ? LIMIT 1",
+      [transferId]
+    );
+
+    if (anchorRows.length === 0) {
+      return res.status(404).json({ success: false, message: "Transfer request was not found." });
+    }
+
+    const anchor = anchorRows[0];
+    const currentApprovalStatus = resolveTransferDisposalApprovalStatus(anchor, columns);
+    const completableStatuses = new Set(["pending_destination_inventory"]);
+
+    if (!completableStatuses.has(currentApprovalStatus)) {
+      return res.status(409).json({ success: false, message: "This transfer is not ready to be completed yet." });
+    }
+
+    const toInventoryId = Number(anchor.to_inventory_id ?? 0);
+    const inventoryColumns = await ensureInventoriesLocationColumn();
+    const inventoryIdColumn = getInventoryIdColumn(inventoryColumns);
+    const inventoryInchargeColumn = getInventoryInchargeColumn(inventoryColumns);
+
+    if (!inventoryIdColumn) {
+      return res.status(500).json({ success: false, message: "Inventory schema is missing required columns." });
+    }
+
+    const destinationInchargeSelect = inventoryInchargeColumn
+      ? `${inventoryInchargeColumn} AS incharge_value`
+      : inventoryColumns.has("incharge")
+        ? "incharge AS incharge_value"
+        : inventoryColumns.has("incharge_name")
+          ? "incharge_name AS incharge_value"
+          : inventoryColumns.has("inventory_officer")
+            ? "inventory_officer AS incharge_value"
+            : inventoryColumns.has("inventory_officer_name")
+              ? "inventory_officer_name AS incharge_value"
+              : "NULL AS incharge_value";
+
+    const [destinationInventoryRows] = await pool.execute(
+      `
+        SELECT ${destinationInchargeSelect}
+        FROM inventories
+        WHERE ${inventoryIdColumn} = ?
+        LIMIT 1
+      `,
+      [toInventoryId]
+    );
+
+    if (destinationInventoryRows.length === 0) {
+      return res.status(404).json({ success: false, message: "Destination inventory was not found." });
+    }
+
+    const inchargeRaw = destinationInventoryRows[0]?.incharge_value;
+    const destinationInchargeId = Number.isInteger(Number(inchargeRaw)) && Number(inchargeRaw) > 0
+      ? Number(inchargeRaw)
+      : Number(await resolveUserId(String(inchargeRaw || "").trim()) || 0);
+
+    if (!Number.isInteger(destinationInchargeId) || destinationInchargeId <= 0 || destinationInchargeId !== receiverUserId) {
+      return res.status(403).json({
+        success: false,
+        message: "Only the destination inventory officer can complete this transfer.",
+      });
+    }
+
+    let sourceInventoryLabel = fromInventoryId > 0 ? `Inventory #${fromInventoryId}` : "Unknown inventory";
+    if (inventoryIdColumn && inventoryNameColumn && fromInventoryId > 0) {
+      const [sourceInventoryRows] = await pool.execute(
+        `SELECT ${inventoryNameColumn} AS inventory_name FROM inventories WHERE ${inventoryIdColumn} = ? LIMIT 1`,
+        [fromInventoryId]
+      );
+      sourceInventoryLabel = String(sourceInventoryRows[0]?.inventory_name || "").trim() || sourceInventoryLabel;
+    }
+
+    const rawTransferDate = anchor.transfer_date ?? anchor.transferDate ?? anchor.created_date ?? anchor.createdDate ?? null;
+    const parsedTransferDate = rawTransferDate ? new Date(rawTransferDate) : null;
+    const transferRemarkDate = parsedTransferDate && !Number.isNaN(parsedTransferDate.getTime())
+      ? parsedTransferDate.toISOString().split("T")[0]
+      : new Date().toISOString().split("T")[0];
+
+    const transferRemark = `Transferered from ${sourceInventoryLabel} on ${transferRemarkDate} via ${transferId}`;
+
+    const lineIds = await fetchTransferBatchLineIds(transferId, columns);
+    if (lineIds.length === 0) {
+      return res.status(404).json({ success: false, message: "Transfer request was not found." });
+    }
+
+    const [lineRows] = await pool.execute(
+      `SELECT id, item_id FROM item_transfers WHERE id IN (${lineIds.map(() => "?").join(", ")})`,
+      lineIds
+    );
+
+    const normalizedLinePageNos = {};
+    for (const row of lineRows) {
+      const lineId = Number(row.id ?? 0);
+      const pageNoValue = String(linePageNos[lineId] ?? linePageNos[String(lineId)] ?? "").trim();
+      if (!pageNoValue) {
+        return res.status(400).json({ success: false, message: `Inventory page no is required for transfer line #${lineId}.` });
+      }
+      normalizedLinePageNos[lineId] = pageNoValue;
+    }
+
+    const updateParts = [];
+    const updateValues = [];
+
+    if (columns.has("approval_status")) {
+      updateParts.push("approval_status = ?");
+      updateValues.push("pending_registrar_part_b");
+    }
+
+    if (columns.has("status")) {
+      updateParts.push("status = ?");
+      updateValues.push("pending_registrar_part_b");
+    }
+
+    if (columns.has("completed_date")) {
+      updateParts.push("completed_date = CURRENT_TIMESTAMP");
+    }
+
+    if (updateParts.length === 0) {
+      return res.status(500).json({ success: false, message: "Unable to complete this transfer." });
+    }
+
+    await pool.execute(
+      `UPDATE item_transfers SET ${updateParts.join(", ")} WHERE id IN (${lineIds.map(() => "?").join(", ")})`,
+      [...updateValues, ...lineIds]
+    );
+
+    if (columns.has("received_inventory_page_no")) {
+      for (const lineId of lineIds) {
+        await pool.execute(
+          "UPDATE item_transfers SET received_inventory_page_no = ? WHERE id = ?",
+          [normalizedLinePageNos[lineId] || null, lineId]
+        );
+      }
+    }
+
+    const itemIds = [...new Set(lineRows.map((row) => Number(row.item_id)).filter((id) => id > 0))];
+    const itemPageNoByItemId = {};
+    lineRows.forEach((row) => {
+      const itemId = Number(row.item_id ?? 0);
+      const lineId = Number(row.id ?? 0);
+      if (itemId > 0 && lineId > 0 && !itemPageNoByItemId[itemId]) {
+        itemPageNoByItemId[itemId] = normalizedLinePageNos[lineId] || "";
+      }
+    });
+    const itemColumns = await ensureInventoryItemsColumns();
+    const itemIdColumn = getItemIdColumn(itemColumns);
+    const itemInventoryColumn = getItemInventoryColumn(itemColumns);
+
+    if (itemIdColumn && itemInventoryColumn && itemIds.length > 0) {
+      const itemUpdateParts = [`${itemInventoryColumn} = ?`];
+      const itemUpdateValues = [toInventoryId];
+
+      if (itemColumns.has("status")) {
+        itemUpdateParts.push("status = ?");
+        itemUpdateValues.push("available");
+      }
+
+      if (itemColumns.has("remarks")) {
+        itemUpdateParts.push(
+          `remarks = TRIM(CONCAT(COALESCE(remarks, ''), CASE WHEN COALESCE(remarks, '') = '' THEN '' ELSE '\\n' END, ?))`
+        );
+        itemUpdateValues.push(transferRemark);
+      }
+
+      for (const itemId of itemIds) {
+        const perItemUpdateParts = [...itemUpdateParts];
+        const perItemUpdateValues = [...itemUpdateValues];
+
+        if (itemColumns.has("pageno")) {
+          perItemUpdateParts.push("pageno = ?");
+          perItemUpdateValues.push(String(itemPageNoByItemId[itemId] || "").trim() || null);
+        }
+
+        await pool.execute(
+          `UPDATE ${DB_ITEMS_TABLE} SET ${perItemUpdateParts.join(", ")} WHERE ${itemIdColumn} = ?`,
+          [...perItemUpdateValues, itemId]
+        );
+      }
+    }
+
+    return res.json({
+      success: true,
+      message: "Items entered to destination inventory and forwarded for registrar Part B approval.",
+      approvalStatus: "pending_registrar_part_b",
+      transferIds: lineIds,
+      completedItemIds: itemIds,
+      linePageNos: normalizedLinePageNos,
     });
   })
 );

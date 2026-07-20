@@ -7,7 +7,7 @@ const POLL_INTERVAL_MS = 60_000;
 const getStoredUserId = () => {
   try {
     const user = JSON.parse(localStorage.getItem("currentUser") || "{}");
-    return Number(user.id ?? 0);
+    return Number(user.id ?? user.user_id ?? user.userId ?? 0);
   } catch {
     return 0;
   }

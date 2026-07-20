@@ -40,7 +40,19 @@ const formatTransferStatus = (transfer) => {
     return "Pending HOD recommendation";
   }
   if (statusKey === "pending_registrar") {
-    return "Pending Registrar Approval";
+    return "Pending registrar approval Part A";
+  }
+  if (statusKey === "registrar_approved_part_a") {
+    return "Registrar Approved Part A";
+  }
+  if (statusKey === "pending_destination_inventory") {
+    return "Pending (destination) inventory";
+  }
+  if (statusKey === "pending_registrar_part_b") {
+    return "Pending registrar approval Part B";
+  }
+  if (statusKey === "registrar_approved" || statusKey === "pending_admin") {
+    return "Registrar Approved";
   }
   if (statusKey === "cancelled") {
     return "Cancelled";
@@ -58,7 +70,7 @@ const resolveTransferBadgeVariant = (transfer) => {
   if (["rejected", "cancelled"].includes(statusKey)) {
     return "rejected";
   }
-  if (["approved", "in-transit"].includes(statusKey)) {
+  if (["approved", "in-transit", "registrar_approved", "pending_admin", "pending_registrar", "pending_registrar_part_b", "registrar_approved_part_a"].includes(statusKey)) {
     return "info";
   }
   return "pending";

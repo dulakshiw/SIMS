@@ -788,9 +788,13 @@ const HodPendingTasks = () => {
 
   const handleTransferAction = async (transfer, actionType) => {
     const isApprove = actionType === 'approve';
+    const statusKey = String(transfer.approvalStatus || transfer.status || '').toLowerCase();
+    const isDestinationReview = statusKey === 'registrar_approved_part_a';
     const confirmed = window.confirm(
       isApprove
-        ? `Recommend this transfer from "${transfer.fromInventory}" to "${transfer.toInventory}" and forward it to the registrar?`
+        ? isDestinationReview
+          ? `Recommend this transfer from "${transfer.fromInventory}" to "${transfer.toInventory}" and forward it to the destination inventory officer?`
+          : `Recommend this transfer from "${transfer.fromInventory}" to "${transfer.toInventory}" and forward it to the registrar?`
         : `Reject this item transfer request from "${transfer.fromInventory}" to "${transfer.toInventory}"?`
     );
 

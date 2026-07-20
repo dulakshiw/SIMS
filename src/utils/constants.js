@@ -196,11 +196,16 @@ export const INVENTORY_REQUEST_STATUS_META = {
   pending_hod: { label: "Pending HOD review", variant: "warning" },
   approved_by_hod: { label: "HOD approved", variant: "info" },
   pending_registrar: { label: "With registrar", variant: "info" },
+  pending_registrar_part_b: { label: "Pending Registrar approval Part B", variant: "info" },
+  registrar_approved_part_a: { label: "Registrar Approved Part A", variant: "info" },
+  pending_destination_inventory: { label: "Pending (destination) inventory", variant: "warning" },
   approved_by_registrar: { label: "Registrar approved", variant: "info" },
+  registrar_approved: { label: "Registrar Approved", variant: "info" },
   pending_writeoff: { label: "Awaiting write-off", variant: "info" },
   pending_admin: { label: "With administrator", variant: "info" },
   approved_by_admin: { label: "Approved", variant: "success" },
   completed: { label: "Completed", variant: "success" },
+  transfer_completed: { label: "Transfer Completed", variant: "success" },
   "process completed": { label: "Completed", variant: "success" },
   rejected: { label: "Rejected", variant: "error" },
 };
@@ -266,9 +271,13 @@ export const ITEM_STATUS = [
 // Transfer Status
 export const TRANSFER_STATUS = [
   { value: "pending", label: "Pending", color: "warning" },
-  { value: "approved", label: "Approved", color: "success" },
-  { value: "in-transit", label: "In Transit", color: "info" },
-  { value: "completed", label: "Completed", color: "success" },
+  { value: "pending_hod", label: "Pending HOD recommendation", color: "warning" },
+  { value: "registrar_approved", label: "Registrar Approved", color: "info" },
+  { value: "pending_registrar", label: "Pending registrar approval Part A", color: "info" },
+  { value: "registrar_approved_part_a", label: "Registrar Approved Part A", color: "info" },
+  { value: "pending_destination_inventory", label: "Pending destination inventory", color: "warning" },
+  { value: "pending_registrar_part_b", label: "Pending registrar approval Part B", color: "info" },
+  { value: "transfer_completed", label: "Transfer Completed", color: "success" },
   { value: "rejected", label: "Rejected", color: "error" },
 ];
 

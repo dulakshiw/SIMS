@@ -29,6 +29,21 @@ const isAwaitingHodRecommendation = (statusKey = "") =>
 const formatTransferStatus = (transfer) => {
   const safeTransfer = transfer ?? {};
   const statusKey = String(safeTransfer.approvalStatus || safeTransfer.status || "pending").toLowerCase();
+  if (statusKey === "pending_registrar") {
+    return "Pending registrar approval Part A";
+  }
+  if (statusKey === "registrar_approved_part_a") {
+    return "Registrar Approved Part A";
+  }
+  if (statusKey === "pending_destination_inventory") {
+    return "Pending (destination) inventory";
+  }
+  if (statusKey === "pending_registrar_part_b") {
+    return "Pending registrar approval Part B";
+  }
+  if (statusKey === "registrar_approved" || statusKey === "pending_admin") {
+    return "Registrar Approved";
+  }
   if (isAwaitingHodRecommendation(statusKey)) {
     return "Pending HOD recommendation";
   }
@@ -59,6 +74,27 @@ const canCancelTransfer = (transfer, currentUser = {}) => {
   return currentUserId > 0 && (currentUserId === initiatorId || currentUserId === sourceInchargeId);
 };
 
+const canCompleteTransfer = (transfer, currentUser = {}) => {
+  if (!transfer) {
+    return false;
+  }
+
+  const statusKey = String(transfer.approvalStatus || transfer.status || "pending").toLowerCase();
+  const completableStatuses = new Set(["pending_destination_inventory"]);
+  if (!completableStatuses.has(statusKey)) {
+    return false;
+  }
+
+  const currentUserId = resolveCurrentUserId(currentUser);
+  const destinationInchargeId = Number(
+    transfer.destinationInventory?.inchargeId
+    ?? transfer.destinationInventory?.inchargeUserId
+    ?? transfer.destinationInventory?.incharge_user_id
+    ?? 0
+  );
+  return currentUserId > 0 && destinationInchargeId > 0 && currentUserId === destinationInchargeId;
+};
+
 const resolveTransferBadgeVariant = (transfer) => {
   const safeTransfer = transfer ?? {};
   const statusKey = String(safeTransfer.approvalStatus || safeTransfer.status || "pending").toLowerCase();
@@ -68,7 +104,7 @@ const resolveTransferBadgeVariant = (transfer) => {
   if (["rejected", "cancelled"].includes(statusKey)) {
     return "rejected";
   }
-  if (["approved", "in-transit"].includes(statusKey)) {
+  if (["approved", "in-transit", "registrar_approved", "pending_admin", "pending_registrar", "pending_registrar_part_b", "registrar_approved_part_a"].includes(statusKey)) {
     return "info";
   }
   return "pending";
@@ -89,11 +125,18 @@ const TransferDetails = () => {
   const [loadError, setLoadError] = useState("");
   const [cancelError, setCancelError] = useState("");
   const [isCancelling, setIsCancelling] = useState(false);
+  const [completeError, setCompleteError] = useState("");
+  const [isCompleting, setIsCompleting] = useState(false);
+  const [linePageNos, setLinePageNos] = useState({});
   const [currentUser] = useState(getStoredUser);
 
   const listPath = role ? `/inventory/transfers/list/${role}` : "/inventory/transfers/list";
   const canCancel = useMemo(
     () => canCancelTransfer(transfer, currentUser),
+    [transfer, currentUser]
+  );
+  const canComplete = useMemo(
+    () => canCompleteTransfer(transfer, currentUser),
     [transfer, currentUser]
   );
 
@@ -113,7 +156,16 @@ const TransferDetails = () => {
         }
 
         if (isMounted) {
-          setTransfer(data.transfer || null);
+          const transferData = data.transfer || null;
+          setTransfer(transferData);
+          const nextLinePageNos = {};
+          (transferData?.items || []).forEach((item) => {
+            const lineId = Number(item.transferLineId ?? 0);
+            if (lineId > 0) {
+              nextLinePageNos[lineId] = String(item.inventoryPageNo || "").trim();
+            }
+          });
+          setLinePageNos(nextLinePageNos);
         }
       } catch (error) {
         if (isMounted) {
@@ -205,6 +257,77 @@ const TransferDetails = () => {
     }
   };
 
+  const handleCompleteTransfer = async () => {
+    if (!transfer || !canComplete) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "Confirm that you have added these items to the destination inventory and complete this transfer?"
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setIsCompleting(true);
+      setCompleteError("");
+
+      const normalizedLinePageNos = {};
+      for (const item of transfer.items || []) {
+        const lineId = Number(item.transferLineId ?? 0);
+        if (!lineId) {
+          continue;
+        }
+        const value = String(linePageNos[lineId] || "").trim();
+        if (!value) {
+          throw new Error(`Inventory page no is required for line TRF-${lineId}.`);
+        }
+        normalizedLinePageNos[lineId] = value;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/item-transfers/${transfer.id}/complete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          receiverUserId: resolveCurrentUserId(currentUser),
+          linePageNos: normalizedLinePageNos,
+        }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || data.error || "Failed to complete transfer.");
+      }
+
+      setTransfer((prev) => (prev
+        ? {
+          ...prev,
+          status: "pending_registrar_part_b",
+          approvalStatus: "pending_registrar_part_b",
+          completedDate: new Date().toISOString().split("T")[0],
+          items: (prev.items || []).map((item) => ({
+            ...item,
+            status: "pending_registrar_part_b",
+            approvalStatus: "pending_registrar_part_b",
+            inventoryPageNo: data.linePageNos?.[item.transferLineId] || normalizedLinePageNos[item.transferLineId] || item.inventoryPageNo || "",
+          })),
+          formItems: (prev.formItems || []).map((item) => ({
+            ...item,
+            pageno: item.pageno,
+            pageNo: item.pageNo,
+          })),
+        }
+        : prev));
+    } catch (error) {
+      setCompleteError(error.message || "Failed to complete transfer.");
+    } finally {
+      setIsCompleting(false);
+    }
+  };
+
   if (loading) {
     return (
       <MainLayout variant={sidebarVariant}>
@@ -252,11 +375,40 @@ const TransferDetails = () => {
             {cancelError}
           </div>
         ) : null}
+        {completeError ? (
+          <div className="no-print rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+            {completeError}
+          </div>
+        ) : null}
 
         <div className="no-print flex flex-wrap gap-3">
           <Button variant="secondary" icon="arrow_back" onClick={() => navigate(listPath)}>
             Back to Transfer List
           </Button>
+          {canComplete ? (
+            <div className="w-full rounded-lg border border-border-light p-3">
+              <p className="text-sm font-semibold text-text-dark mb-2">Destination Inventory Page No (per item)</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {(transfer.items || []).map((item) => {
+                  const lineId = Number(item.transferLineId ?? 0);
+                  return (
+                    <div key={`line-page-${lineId}`}>
+                      <label className="block text-xs font-semibold text-text-light mb-1">
+                        {`TRF-${lineId} • ${item.itemName || "Item"}`}
+                      </label>
+                      <input
+                        type="text"
+                        value={linePageNos[lineId] || ""}
+                        onChange={(event) => setLinePageNos((prev) => ({ ...prev, [lineId]: event.target.value }))}
+                        placeholder="Enter destination page no"
+                        className="w-full rounded-md border border-border-light px-3 py-2 text-sm"
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
           {canCancel ? (
             <Button
               variant="secondary"
@@ -266,6 +418,17 @@ const TransferDetails = () => {
               disabled={isCancelling}
             >
               Cancel Transfer Request
+            </Button>
+          ) : null}
+          {canComplete ? (
+            <Button
+              variant="primary"
+              icon="task_alt"
+              onClick={handleCompleteTransfer}
+              loading={isCompleting}
+              disabled={isCompleting}
+            >
+              Add To Inventory
             </Button>
           ) : null}
           <Button variant="primary" icon="print" onClick={handlePrintForm}>
@@ -348,6 +511,23 @@ const TransferDetails = () => {
             hodApprovedDate={transfer.hodApprovedDate}
             registrarApprovedBy={transfer.registrarApprovedBy}
             registrarApprovedDate={transfer.registrarApprovedDate}
+            showPartB={["pending_destination_inventory", "pending_registrar_part_b", "completed"].includes(String(transfer.approvalStatus || transfer.status || "").toLowerCase())}
+            receivedDate={transfer.completedDate}
+            receivedByName={transfer.destinationInventory?.incharge || ""}
+            receiverPost="Inventory Officer"
+            receivedInventoryPageNo={transfer.receivedInventoryPageNo || ""}
+            partBItems={(transfer.items || []).map((item) => ({
+              itemName: item.itemName,
+              itemCode: item.itemCode,
+              serialNo: item.serialNo,
+              model: item.model,
+              brand: item.brand,
+              value: item.value,
+              ginNo: item.ginNo,
+              pageno: item.inventoryPageNo || item.pageno || item.pageNo || "",
+              pageNo: item.inventoryPageNo || item.pageno || item.pageNo || "",
+              quantity: item.quantity,
+            }))}
           />
         </Card>
       </div>
