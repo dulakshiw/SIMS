@@ -17,6 +17,10 @@ If you are developing a production application, we recommend using TypeScript wi
 # SIMS
 This is the official repository for Smart inventory management system for IT Faculty of UOM
 
+## User Manual
+
+A full user guide for staff, inventory officers, HODs, deans, and administrators is available in [USER_MANUAL.md](USER_MANUAL.md).
+
 ## Database Setup
 
 This project now includes an Express.js API in [server/index.js](server/index.js) that connects to MySQL.

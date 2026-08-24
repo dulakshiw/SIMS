@@ -1877,7 +1877,7 @@ const AddNewItem = () => {
                     aria-invalid={Boolean(identifierErrors.itemCode)}
                   />
                   {identifierErrors.itemCode && (
-                    <p className="rounded bg-yellow-100 px-4 py-3 text-sm text-text-dark border border-red-200 text-justify">
+                    <p className="bg-red-400 text-black border border-red-300 border-l-red-600 font-times text-md font-bold">
                       {identifierErrors.itemCode}
                     </p>
                   )}
@@ -1898,7 +1898,7 @@ const AddNewItem = () => {
                     aria-invalid={Boolean(identifierErrors.serialNo)}
                   />
                   {identifierErrors.serialNo && (
-                    <p className="rounded bg-yellow-100 px-4 py-3 text-sm text-text-dark border border-red-200 text-justify">
+                    <p className="bg-red-400 text-black border border-red-300 border-l-red-600 font-times text-md font-bold">
                       {identifierErrors.serialNo}
                     </p>
                   )}

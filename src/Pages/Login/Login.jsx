@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Card, Button } from "../../Components/UI";
-import fitLogo from "../../assets/fit logo.png";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
 
@@ -214,18 +213,6 @@ const Login = () => {
               </Button>
             </form>
 
-            {/* Footer Link */}
-            <div className="pt-4 border-t border-border text-center">
-              <p className="text-sm text-text-light">
-                Don't have an account?{" "}
-                <Link
-                  to="/signup"
-                  className="text-primary-600 hover:text-primary-700 font-semibold"
-                >
-                  Create one now
-                </Link>
-              </p>
-            </div>
           </div>
         </Card>
       </div>

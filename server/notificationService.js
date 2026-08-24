@@ -175,7 +175,7 @@ export const syncWarrantyNotifications = async (pool, itemsTable) => {
   } catch (error) {
     const [rows] = await pool.execute(
       `
-        SELECT id, itemName AS item_name, warranty, purchaseDate, purchase_date, created_at, inventory_id
+        SELECT item_id, itemName AS item_name, warranty, purchaseDate, purchased_date, created_at, inventory_id
         FROM ${tableName}
         WHERE warranty IS NOT NULL AND TRIM(warranty) <> ''
       `

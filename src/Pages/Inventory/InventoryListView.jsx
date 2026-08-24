@@ -122,32 +122,7 @@ const InventoryListView = () => {
 
         setInventories([]);
         setPendingRequests([]);
-        setItems([
-          {
-            id: 1,
-            itemName: "Laptop Dell XPS 13",
-            itemCode: "LAP-001",
-            status: "available",
-            location: "Room 101",
-            updated_at: "2024-01-15",
-          },
-          {
-            id: 2,
-            itemName: "Office Chair",
-            itemCode: "CHR-002",
-            status: "in-use",
-            location: "Room 102",
-            updated_at: "2024-01-10",
-          },
-          {
-            id: 3,
-            itemName: "Printer HP M433",
-            itemCode: "PRN-003",
-            status: "maintenance",
-            location: "Storage",
-            updated_at: "2024-01-12",
-          },
-        ]);
+       
       } catch (loadError) {
         if (isMountedRef.current) {
           setError(loadError.message || "Failed to load inventory data.");
@@ -187,8 +162,9 @@ const InventoryListView = () => {
       field: "status",
       label: "Status",
       render: (value, row) => {
-        if (row.statusLabel) {
-          return <Badge label={row.statusLabel} variant="info" size="sm" />;
+        if (row.statusLabel || row.locationKind === "place") {
+          const locationStatus = row.statusLabel || row.location;
+          return <Badge label={locationStatus} variant="info" size="sm" />;
         }
 
         const statusObj = ITEM_STATUS.find((s) => s.value === value);

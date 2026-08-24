@@ -31,6 +31,17 @@ import {
   buildUsersByNameMap,
   deriveItemStatusFromLocation,
 } from "../src/utils/itemLocationStatus.js";
+import {
+  createAccountRequestsTable as createAccountRequestsSchema,
+  createInventoryCreationRequestsTable as createInventoryCreationRequestsSchema,
+  createInventoryItemsTable as createInventoryItemsSchema,
+  createItemDisposalsTable as createItemDisposalsSchema,
+  createItemRepairsTable as createItemRepairsSchema,
+  createItemRequestsTable as createItemRequestsSchema,
+  createItemTransfersTable as createItemTransfersSchema,
+  ensureForeignKeyRelationships as ensureForeignKeyRelationshipsSchema,
+  createWarrantyClaimsTable as createWarrantyClaimsSchema,
+} from "./schema.sql.js";
 
 dotenv.config();
 
@@ -207,6 +218,10 @@ const upload = multer({
     cb(null, false);
   },
 });
+
+// -----------------------------------------------------------------------------
+// MODELS: database columns, payload mapping, schema setup, and persistence
+// -----------------------------------------------------------------------------
 
 const itemColumns = [
   "inventory_id",
@@ -491,54 +506,14 @@ const findExistingGinFileByGinNo = async (ginNo) => {
 };
 
 const createInventoryItemsTable = async () => {
-  await pool.query(
-    `
-      CREATE TABLE IF NOT EXISTS ${DB_ITEMS_TABLE} (
-        id INT PRIMARY KEY AUTO_INCREMENT,
-        inventory_id INT NULL,
-        itemName VARCHAR(255) NOT NULL,
-        itemCode VARCHAR(255) DEFAULT '',
-        serialNo VARCHAR(255) DEFAULT '',
-        serialNo2 VARCHAR(255) DEFAULT '',
-        model VARCHAR(255) DEFAULT '',
-        QRCode VARCHAR(255) DEFAULT '',
-        QRCode2 VARCHAR(255) DEFAULT '',
-        pageno VARCHAR(100) DEFAULT '',
-        itemImage VARCHAR(255) DEFAULT '',
-        value DECIMAL(12, 2) NULL,
-        purchaseDate DATE NULL,
-        ginNo VARCHAR(255) DEFAULT '',
-        ginfile VARCHAR(255) DEFAULT '',
-        poNo VARCHAR(255) DEFAULT '',
-        supplier VARCHAR(255) DEFAULT '',
-        funding VARCHAR(255) DEFAULT '',
-        receivedfrom VARCHAR(255) DEFAULT '',
-        warranty VARCHAR(255) DEFAULT '',
-        location VARCHAR(255) DEFAULT '',
-        remarks TEXT,
-        qrcodeUrl TEXT,
-        qrcode2Url TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-      )
-    `
-  );
+  await createInventoryItemsSchema(pool, DB_ITEMS_TABLE);
 };
 
 const ensureForeignKeyRelationships = async () => {
-  const [tableRows] = await pool.query("SHOW TABLES");
-  const tableNames = new Set(tableRows.map((row) => Object.values(row)[0]));
+  await ensureForeignKeyRelationshipsSchema(pool, DB_ITEMS_TABLE);
+};
 
-  const relationships = [
-    {
-      table: DB_ITEMS_TABLE,
-      column: "inventory_id",
-      referencedTable: "inventories",
-      referencedColumn: "id",
-      constraintName: `fk_${DB_ITEMS_TABLE}_inventory`,
-      onDelete: "SET NULL",
-      onUpdate: "CASCADE",
-    },
+/*
     {
       table: "account_requests",
       column: "requested_department_id",
@@ -875,6 +850,8 @@ const ensureForeignKeyRelationships = async () => {
   }
 };
 
+*/
+
 const ensureInventoryItemsColumns = async () => {
   const [tableRows] = await pool.query("SHOW TABLES");
   const tableNames = new Set(tableRows.map((row) => Object.values(row)[0]));
@@ -945,36 +922,7 @@ const ensureInventoryItemsColumns = async () => {
 };
 
 const createAccountRequestsTable = async () => {
-  await pool.query(
-    `
-      CREATE TABLE IF NOT EXISTS account_requests (
-        id INT PRIMARY KEY AUTO_INCREMENT,
-        request_type VARCHAR(50) DEFAULT 'account_creation',
-        requested_by_name VARCHAR(255) NOT NULL,
-        email VARCHAR(255) NOT NULL,
-        requested_role VARCHAR(50) NOT NULL,
-        requested_department_id INT NULL,
-        requested_password VARCHAR(255) NULL,
-        requested_designation VARCHAR(255) NULL,
-        requested_mobile_no VARCHAR(50) NULL,
-        requested_off_ext VARCHAR(50) NULL,
-        approval_status VARCHAR(50) DEFAULT 'pending_admin',
-        requested_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        dept_head_approved_date TIMESTAMP NULL,
-        dept_head_approved_by_id INT NULL,
-        dean_approved_date TIMESTAMP NULL,
-        dean_approved_by_id INT NULL,
-        admin_approved_date TIMESTAMP NULL,
-        admin_approved_by_id INT NULL,
-        rejection_reason VARCHAR(500),
-        rejection_date TIMESTAMP NULL,
-        request_reason VARCHAR(500),
-        user_id INT NULL,
-        created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-      )
-    `
-  );
+  await createAccountRequestsSchema(pool);
 };
 
 const ensureAccountRequestsColumns = async () => {
@@ -995,77 +943,11 @@ const ensureAccountRequestsColumns = async () => {
 };
 
 const createInventoryCreationRequestsTable = async () => {
-  try {
-    await pool.query(
-      `
-        CREATE TABLE IF NOT EXISTS inventory_creation_requests (
-          id INT PRIMARY KEY AUTO_INCREMENT,
-          request_type VARCHAR(50) DEFAULT 'new_inventory_creation',
-          name VARCHAR(255) NOT NULL,
-          location VARCHAR(255) NULL,
-          department_id INT NOT NULL,
-          requested_by_id INT NOT NULL,
-          incharge_user_id INT NULL,
-          hod_user_id INT NULL,
-          requested_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          reason TEXT,
-          approval_status VARCHAR(50) DEFAULT 'pending_hod',
-          hod_approved_date TIMESTAMP NULL,
-          hod_approved_by_id INT NULL,
-          registrar_approved_date TIMESTAMP NULL,
-          registrar_approved_by_id INT NULL,
-          admin_approved_date TIMESTAMP NULL,
-          admin_approved_by_id INT NULL,
-          rejection_reason VARCHAR(500),
-          rejection_date TIMESTAMP NULL,
-          created_inventory_id INT NULL,
-          created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          updated_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-        )
-      `
-    );
-    console.log("inventory_creation_requests table ensured");
-  } catch (error) {
-    console.error("Error creating inventory_creation_requests table:", error.message);
-  }
+  await createInventoryCreationRequestsSchema(pool);
 };
 
 const createItemRequestsTable = async () => {
-  try {
-    await pool.query(
-      `
-        CREATE TABLE IF NOT EXISTS item_requests (
-          id INT AUTO_INCREMENT PRIMARY KEY,
-          item_name VARCHAR(255) NOT NULL,
-          quantity INT NOT NULL DEFAULT 1,
-          priority VARCHAR(50) DEFAULT 'normal',
-          specification TEXT NULL,
-          reason TEXT NULL,
-          requested_by_id INT NOT NULL,
-          requested_inventory_id INT NULL,
-          inventory_location VARCHAR(255) NULL,
-          department_id INT NULL,
-          inventory_department_id INT NULL,
-          hod_user_id INT NULL,
-          lab_hod_user_id INT NULL,
-          approval_status VARCHAR(50) DEFAULT 'pending_requester_hod',
-          requested_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          required_by_date DATE NULL,
-          requester_hod_recommended_date TIMESTAMP NULL,
-          requester_hod_recommended_by_id INT NULL,
-          lab_hod_approved_date TIMESTAMP NULL,
-          lab_hod_approved_by_id INT NULL,
-          hod_approved_date TIMESTAMP NULL,
-          hod_approved_by_id INT NULL,
-          rejection_reason VARCHAR(500) NULL,
-          rejection_date TIMESTAMP NULL
-        )
-      `
-    );
-    console.log("item_requests table ensured");
-  } catch (error) {
-    console.error("Error creating item_requests table:", error.message);
-  }
+  await createItemRequestsSchema(pool);
 };
 
 const validateRequiredFields = (item) => {
@@ -1265,6 +1147,10 @@ const searchItemNames = async (dbColumns, query = "", limit = 10) => {
 
   return rows.map((row) => String(row.name || "").trim()).filter(Boolean);
 };
+
+// -----------------------------------------------------------------------------
+// SERVICES: authentication, notifications, workflows, and business rules
+// -----------------------------------------------------------------------------
 
 let authSchema = null;
 
@@ -1960,42 +1846,37 @@ const notifyAccountWorkflowActors = async ({
     : `new ${roleLabel} account request for ${requesterLabel}`;
 
   const schema = await getAuthSchema();
+  const requiresDeanApproval = normalizedRequestType === "account_creation"
+    && ["admin", "head_of_department", "registrar"].includes(normalizedRole);
+
+  if (requiresDeanApproval) {
+    const deanIds = await getActiveUserIdsByRole(schema, "dean");
+    await createNotificationsForUsers(pool, deanIds, {
+      type: "account_request_submitted_dean",
+      title: "Account request needs review",
+      message: `A ${requestLabel} has been submitted and may require dean approval.`,
+      link: "/requests/approval/dean",
+      dedupeKey: `account_request_${requestId}_dean_submitted`,
+    });
+    return;
+  }
+
   const explicitDepartmentHodUserId = Number.isInteger(Number(departmentId)) && Number(departmentId) > 0
     ? await resolveDepartmentHeadUserId(schema, Number(departmentId))
     : null;
-  const [hodIds, deanIds, registrarIds] = await Promise.all([
-    getActiveUserIdsByRole(schema, "head_of_department", { departmentId }),
-    getActiveUserIdsByRole(schema, "dean"),
-    getActiveUserIdsByRole(schema, "registrar"),
-  ]);
+  const hodIds = await getActiveUserIdsByRole(schema, "head_of_department", { departmentId });
   const hodRecipientIds = [
     ...(Array.isArray(hodIds) ? hodIds : []),
     Number(explicitDepartmentHodUserId) > 0 ? Number(explicitDepartmentHodUserId) : null,
   ].filter((id) => Number.isInteger(id) && id > 0);
 
-  await Promise.all([
-    createNotificationsForUsers(pool, hodRecipientIds, {
+  await createNotificationsForUsers(pool, hodRecipientIds, {
       type: "account_request_submitted_hod",
       title: "Account request needs review",
       message: `A ${requestLabel} has been submitted and may need HOD action.`,
-      link: "/admin/users",
+      link: "/hod/pending-tasks",
       dedupeKey: `account_request_${requestId}_hod_submitted`,
-    }),
-    createNotificationsForUsers(pool, deanIds, {
-      type: "account_request_submitted_dean",
-      title: "Account request submitted",
-      message: `A ${requestLabel} has been submitted and may require dean approval.`,
-      link: "/admin/users",
-      dedupeKey: `account_request_${requestId}_dean_submitted`,
-    }),
-    createNotificationsForUsers(pool, registrarIds, {
-      type: "account_request_submitted_registrar",
-      title: "Account request submitted",
-      message: `A ${requestLabel} has been submitted and may require registrar/admin follow-up.`,
-      link: "/admin/users",
-      dedupeKey: `account_request_${requestId}_registrar_submitted`,
-    }),
-  ]);
+  });
 };
 
 const notifyAccountRequestProgress = async ({
@@ -3066,6 +2947,10 @@ const withDatabase = (handler) => async (req, res) => {
   }
 };
 
+// -----------------------------------------------------------------------------
+// CONTROLLERS: HTTP routes and request/response handling
+// -----------------------------------------------------------------------------
+
 app.get("/api/health", async (_req, res) => {
   try {
     await pool.query("SELECT 1");
@@ -3583,6 +3468,110 @@ app.get(
         userStatus: String(row.status || "inactive").toLowerCase(),
         submittedByRole: normalizeUserRole(row.submitted_by_role || ""),
         canAdminAct: String(row.approval_status || "pending_dept_head").toLowerCase() === "pending_admin",
+      })),
+    });
+  })
+);
+
+app.get(
+  "/api/staff-directory",
+  withDatabase(async (req, res) => {
+    const viewerRole = normalizeRoleForStorage(req.query?.viewerRole || "");
+    const viewerUserId = Number(req.query?.viewerUserId ?? 0);
+
+    if (!["head_of_department", "dean"].includes(viewerRole) || !Number.isInteger(viewerUserId) || viewerUserId <= 0) {
+      return res.status(400).json({ success: false, message: "A valid directory viewer is required." });
+    }
+
+    const schema = await getAuthSchema();
+    const userIdColumn = schema.userColumns.has("id") ? "id" : "user_id";
+    const userNameColumn = schema.userColumns.has("name") ? "name" : "full_name";
+    const departmentIdColumn = schema.departmentColumns.has("id") ? "id" : "department_id";
+    const departmentNameColumn = schema.departmentColumns.has("name")
+      ? "d.name"
+      : schema.departmentColumns.has("department_name")
+        ? "d.department_name"
+        : "NULL";
+    const roleSelection = schema.userColumns.has("role")
+      ? "u.role AS role"
+      : schema.hasUserRolesTable
+        ? "ur.user_role AS role"
+        : "NULL AS role";
+    const roleJoin = !schema.userColumns.has("role") && schema.hasUserRolesTable
+      ? "LEFT JOIN user_roles ur ON ur.role_id = u.role_id"
+      : "";
+    const { designationSelection, designationJoin } = getDesignationQueryParts(schema);
+    const createdDateColumn = schema.userColumns.has("created_date")
+      ? "u.created_date"
+      : schema.userColumns.has("created_at")
+        ? "u.created_at"
+        : "NULL";
+    const mobileNoColumn = schema.userColumns.has("mobile_no") ? "u.mobile_no" : "NULL";
+    const officeExtColumn = schema.userColumns.has("off_ext") ? "u.off_ext" : "NULL";
+    const locationColumn = schema.userColumns.has("location") ? "u.location" : "NULL";
+    const lastLoginColumn = schema.userColumns.has("last_login") ? "u.last_login" : "NULL";
+    const departmentJoin = schema.hasDepartmentsTable
+      ? `LEFT JOIN departments d ON d.${departmentIdColumn} = u.department_id`
+      : "";
+    let departmentFilter = "";
+    const params = [];
+
+    if (viewerRole === "head_of_department") {
+      const [viewerRows] = await pool.execute(
+        `SELECT department_id FROM users WHERE ${userIdColumn} = ? LIMIT 1`,
+        [viewerUserId]
+      );
+      const departmentId = Number(viewerRows[0]?.department_id ?? 0);
+
+      if (!Number.isInteger(departmentId) || departmentId <= 0) {
+        return res.status(404).json({ success: false, message: "Unable to resolve the HOD department." });
+      }
+
+      departmentFilter = "WHERE u.department_id = ?";
+      params.push(departmentId);
+    }
+
+    const [rows] = await pool.execute(
+      `
+        SELECT
+          u.${userIdColumn} AS id,
+          u.${userNameColumn} AS name,
+          u.email,
+          ${roleSelection},
+          ${departmentNameColumn} AS department_name,
+          ${designationSelection},
+          ${schema.userColumns.has("status") ? "u.status" : "'active'"} AS status,
+          ${mobileNoColumn} AS mobile_no,
+          ${officeExtColumn} AS off_ext,
+          ${locationColumn} AS user_location,
+          ${createdDateColumn} AS created_date,
+          ${lastLoginColumn} AS last_login
+        FROM users u
+        ${roleJoin}
+        ${departmentJoin}
+        ${designationJoin}
+        ${departmentFilter}
+        ORDER BY u.${userNameColumn} ASC
+      `,
+      params
+    );
+    const inventoryLocationMap = await getInventoryLocationMapByIncharge();
+
+    return res.json({
+      success: true,
+      users: rows.map((row) => ({
+        id: row.id,
+        name: row.name ?? "",
+        email: row.email ?? "",
+        role: normalizeUserRole(row.role),
+        department: row.department_name ?? "",
+        designation: row.designation ?? "",
+        status: String(row.status ?? "active").toLowerCase(),
+        mobileNo: row.mobile_no ?? "",
+        officeExtNo: row.off_ext ?? "",
+        location: resolveUserLocation(inventoryLocationMap, row.id, row.user_location),
+        createdDate: row.created_date ? new Date(row.created_date).toISOString().split("T")[0] : "",
+        lastLogin: row.last_login ? new Date(row.last_login).toISOString() : null,
       })),
     });
   })
@@ -6251,7 +6240,9 @@ app.post(
     const createdByRole = normalizeRoleForStorage(req.body?.createdByRole || "");
     const requestedRoleInput = normalizeRoleForStorage(req.body?.role || "staff");
     const isAdminManagedSignup = createdByRole === "admin";
-    const requestedRole = isAdminManagedSignup
+    const isHodManagedSignup = createdByRole === "head_of_department";
+    const isManagedSignup = isAdminManagedSignup || isHodManagedSignup;
+    const requestedRole = isManagedSignup
       ? (adminRequest ? "admin" : requestedRoleInput || "staff")
       : "staff";
     const department = String(req.body?.department ?? "").trim();
@@ -6270,10 +6261,17 @@ app.post(
       });
     }
 
-    if (!isAdminManagedSignup && (adminRequest || requestedRoleInput !== "staff")) {
+    if (!isManagedSignup && (adminRequest || requestedRoleInput !== "staff")) {
       return res.status(403).json({
         success: false,
         error: "Self-signup is only available for staff member accounts. Dean, HOD, registrar, and admin accounts must be created by admin.",
+      });
+    }
+
+    if (isHodManagedSignup && requestedRoleInput !== "staff") {
+      return res.status(403).json({
+        success: false,
+        error: "HODs can only create staff member accounts.",
       });
     }
 
@@ -6345,6 +6343,7 @@ app.post(
     const departmentHeadUserId = departmentId ? await resolveDepartmentHeadUserId(schema, departmentId) : null;
     const deanUserId = await resolveDeanUserId(schema);
     const isDirectAdminProvisionedRole = isAdminManagedSignup && ["head_of_department", "dean", "registrar", "admin"].includes(requestedRole);
+    const isDirectHodProvisionedStaff = isHodManagedSignup && requestedRole === "staff";
     const requiresDeanApproval = isAdminManagedSignup && ["admin", "head_of_department", "registrar"].includes(requestedRole);
 
     if (["head_of_department", "dean", "registrar"].includes(requestedRole)) {
@@ -6360,7 +6359,7 @@ app.post(
       }
     }
 
-    if (!isDirectAdminProvisionedRole && !requiresDeanApproval && !departmentHeadUserId) {
+    if (!isDirectAdminProvisionedRole && !isDirectHodProvisionedStaff && !requiresDeanApproval && !departmentHeadUserId) {
       return res.status(409).json({
         success: false,
         error: "No active Head of Department is assigned to the selected department yet. Create the HOD account first.",
@@ -6374,7 +6373,7 @@ app.post(
       });
     }
 
-    if (isDirectAdminProvisionedRole) {
+    if (isDirectAdminProvisionedRole || isDirectHodProvisionedStaff) {
       const userNameColumn = schema.userColumns.has("name") ? "name" : "full_name";
       const insertColumns = [userNameColumn, "email", "password", "department_id", "status"];
       const insertValues = [
@@ -6507,7 +6506,7 @@ app.post(
       if (accountRequestColumns.has("request_reason")) {
         requestInsertColumns.push("request_reason");
         requestInsertValues.push(
-          isAdminManagedSignup
+          isManagedSignup
             ? `Administrator submitted account request for ${requestedRole.replace(/_/g, " ")}.`
             : `Signup requested with target role: ${requestedRole}`
         );
@@ -6533,7 +6532,7 @@ app.post(
           ? "Admin account request submitted successfully. Your account will stay pending until dean approval."
           : requiresDeanApproval
             ? "Account request submitted successfully. Your account will stay pending until dean approval."
-            : isAdminManagedSignup
+              : isAdminManagedSignup
               ? "Account request submitted for HOD review. It is listed under User Management → Pending Approvals."
               : "Staff account request submitted successfully. Your account will stay pending until HOD approval.",
         request: {
@@ -7177,6 +7176,74 @@ app.get(
 );
 
 app.get(
+  "/api/items/scan",
+  withDatabase(async (req, res) => {
+    const payload = String(req.query?.q ?? '').trim();
+    const [itemCode, ...serialParts] = payload.split('_');
+    const serialNo = serialParts.join('_').trim();
+
+    if (!itemCode) {
+      return res.status(400).json({ success: false, error: "A QR item code is required." });
+    }
+
+    const itemColumns = await ensureInventoryItemsColumns();
+    const itemCodeColumn = resolveDbColumn(itemColumns, ["itemCode", "item_code"]);
+    const serialNoColumn = resolveDbColumn(itemColumns, ["serialNo", "serial_no"]);
+
+    if (!itemCodeColumn) {
+      return res.status(500).json({ success: false, error: "Item code is not available in the inventory schema." });
+    }
+
+    const schema = await getAuthSchema();
+    const userIdColumn = schema.userColumns.has("id") ? "id" : "user_id";
+    const userNameColumn = schema.userColumns.has("name") ? "name" : "full_name";
+    const inventoryColumns = await ensureInventoriesLocationColumn();
+    const inventoryIdColumn = getInventoryIdColumn(inventoryColumns);
+    const inventoryNameColumn = getInventoryNameColumn(inventoryColumns);
+    const departmentIdColumn = schema.departmentColumns.has("id") ? "id" : "department_id";
+    const departmentNameColumn = schema.departmentColumns.has("name")
+      ? "d.name"
+      : schema.departmentColumns.has("department_name")
+        ? "d.department_name"
+        : "NULL";
+    const inchargeColumn = getInventoryInchargeColumn(inventoryColumns);
+    const whereParts = [`LOWER(TRIM(i.${itemCodeColumn})) = LOWER(?)`];
+    const params = [itemCode];
+
+    if (serialNo && serialNoColumn) {
+      whereParts.push(`LOWER(TRIM(i.${serialNoColumn})) = LOWER(?)`);
+      params.push(serialNo);
+    }
+
+    const [rows] = await pool.execute(
+      `
+        SELECT i.*, inv.${inventoryNameColumn} AS inventory_name,
+          ${departmentNameColumn} AS department_name,
+          ${inchargeColumn ? `incharge_u.${userNameColumn}` : "NULL"} AS incharge_name
+        FROM ${DB_ITEMS_TABLE} i
+        LEFT JOIN inventories inv ON inv.${inventoryIdColumn} = i.inventory_id
+        ${schema.hasDepartmentsTable ? `LEFT JOIN departments d ON d.${departmentIdColumn} = inv.department_id` : ""}
+        ${inchargeColumn ? `LEFT JOIN users incharge_u ON incharge_u.${userIdColumn} = inv.${inchargeColumn}` : ""}
+        WHERE ${whereParts.join(" AND ")}
+        LIMIT 1
+      `,
+      params
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ success: false, error: "Item not found." });
+    }
+
+    const usersByName = await fetchUsersByNameMap();
+    const item = applyItemLocationContext(normalizeItemRow(rows[0]), usersByName);
+    item.inventoryName = rows[0].inventory_name ?? "";
+    item.department = rows[0].department_name ?? "";
+    item.incharge = rows[0].incharge_name ?? "";
+    return res.json({ success: true, item });
+  })
+);
+
+app.get(
   "/api/items/:id",
   withDatabase(async (req, res) => {
     const inventoryItemColumns = await ensureInventoryItemsColumns();
@@ -7196,7 +7263,8 @@ app.get(
       return res.status(404).json({ success: false, error: "Item not found" });
     }
 
-    const item = normalizeItemRow(rows[0]);
+    const usersByName = await fetchUsersByNameMap();
+    const item = applyItemLocationContext(normalizeItemRow(rows[0]), usersByName);
     const inventoryIdValue = Number(item.inventory_id ?? 0);
 
     if (inventoryIdValue > 0) {
@@ -8254,129 +8322,19 @@ app.post(
 );
 
 const createItemTransfersTable = async () => {
-  try {
-    await pool.query(
-      `
-        CREATE TABLE IF NOT EXISTS item_transfers (
-          id INT AUTO_INCREMENT PRIMARY KEY,
-          item_id INT NOT NULL,
-          from_inventory_id INT NOT NULL,
-          to_inventory_id INT NOT NULL,
-          quantity INT NOT NULL DEFAULT 1,
-          reason TEXT NULL,
-          notes TEXT NULL,
-          status VARCHAR(50) DEFAULT 'pending',
-          approval_status VARCHAR(50) DEFAULT 'pending_hod',
-          transfer_date DATE NULL,
-          initiated_by_id INT NULL,
-          source_hod_user_id INT NULL,
-          destination_hod_user_id INT NULL,
-          destination_hod_approved_date TIMESTAMP NULL,
-          destination_hod_approved_by_id INT NULL,
-          received_inventory_page_no VARCHAR(100) NULL,
-          part_b_registrar_approved_date TIMESTAMP NULL,
-          part_b_registrar_approved_by_id INT NULL,
-          created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          updated_date TIMESTAMP NULL ON UPDATE CURRENT_TIMESTAMP,
-          completed_date TIMESTAMP NULL
-        )
-      `
-    );
-    console.log("item_transfers table ensured");
-  } catch (error) {
-    console.error("Error creating item_transfers table:", error.message);
-  }
+  await createItemTransfersSchema(pool);
 };
 
 const createItemDisposalsTable = async () => {
-  try {
-    await pool.query(
-      `
-        CREATE TABLE IF NOT EXISTS item_disposals (
-          id INT AUTO_INCREMENT PRIMARY KEY,
-          item_id INT NOT NULL,
-          inventory_id INT NOT NULL,
-          quantity INT NOT NULL DEFAULT 1,
-          reason TEXT NULL,
-          description TEXT NULL,
-          \`condition\` VARCHAR(100) NULL,
-          status VARCHAR(50) DEFAULT 'pending',
-          approval_status VARCHAR(50) DEFAULT 'pending_hod',
-          disposal_date DATE NULL,
-          initiated_by_id INT NULL,
-          created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          updated_date TIMESTAMP NULL ON UPDATE CURRENT_TIMESTAMP,
-          completed_date TIMESTAMP NULL
-        )
-      `
-    );
-    console.log("item_disposals table ensured");
-  } catch (error) {
-    console.error("Error creating item_disposals table:", error.message);
-  }
+  await createItemDisposalsSchema(pool);
 };
 
 const createItemRepairsTable = async () => {
-  try {
-    await pool.query(
-      `
-        CREATE TABLE IF NOT EXISTS item_repairs (
-          id INT AUTO_INCREMENT PRIMARY KEY,
-          item_id INT NOT NULL,
-          inventory_id INT NOT NULL,
-          quantity INT NOT NULL DEFAULT 1,
-          fault_description TEXT NULL,
-          repair_notes TEXT NULL,
-          status VARCHAR(50) DEFAULT 'submitted',
-          approval_status VARCHAR(50) DEFAULT 'pending_hod',
-          repair_date DATE NULL,
-          initiated_by_id INT NULL,
-          contact_person_user_id INT NULL,
-          source_hod_user_id INT NULL,
-          hod_approved_date TIMESTAMP NULL,
-          hod_approved_by_id INT NULL,
-          registrar_approved_date TIMESTAMP NULL,
-          registrar_approved_by_id INT NULL,
-          rejection_reason VARCHAR(500) NULL,
-          repaired_by VARCHAR(255) NULL,
-          repair_cost DECIMAL(10,2) NULL,
-          received_date DATE NULL,
-          created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          updated_date TIMESTAMP NULL ON UPDATE CURRENT_TIMESTAMP,
-          completed_date TIMESTAMP NULL
-        )
-      `
-    );
-    console.log("item_repairs table ensured");
-  } catch (error) {
-    console.error("Error creating item_repairs table:", error.message);
-  }
+  await createItemRepairsSchema(pool);
 };
 
 const createWarrantyClaimsTable = async () => {
-  try {
-    await pool.query(
-      `
-        CREATE TABLE IF NOT EXISTS warranty_claims (
-          id INT AUTO_INCREMENT PRIMARY KEY,
-          item_id INT NOT NULL,
-          inventory_id INT NOT NULL,
-          quantity INT NOT NULL DEFAULT 1,
-          fault_description TEXT NULL,
-          claim_notes TEXT NULL,
-          status VARCHAR(50) DEFAULT 'submitted',
-          claim_date DATE NULL,
-          initiated_by_id INT NULL,
-          created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          updated_date TIMESTAMP NULL ON UPDATE CURRENT_TIMESTAMP,
-          completed_date TIMESTAMP NULL
-        )
-      `
-    );
-    console.log("warranty_claims table ensured");
-  } catch (error) {
-    console.error("Error creating warranty_claims table:", error.message);
-  }
+  await createWarrantyClaimsSchema(pool);
 };
 
 const ensureItemTransfersWorkflow = async () => {
@@ -11182,7 +11140,6 @@ app.post(
     const inventoryColumns = await ensureInventoriesLocationColumn();
     const inventoryIdColumn = getInventoryIdColumn(inventoryColumns);
     const inventoryInchargeColumn = getInventoryInchargeColumn(inventoryColumns);
-    const inventoryNameColumn = getInventoryNameColumn(inventoryColumns);
     const inventoryNameColumn = getInventoryNameColumn(inventoryColumns);
     let destinationInchargeId = 0;
     let destinationInventoryName = "destination inventory";
@@ -14879,6 +14836,10 @@ app.get(
 app.use((req, res) => {
   return res.status(404).json({ success: false, error: `Route not found: ${req.method} ${req.path}` });
 });
+
+// -----------------------------------------------------------------------------
+// SERVER STARTUP: database initialization and application bootstrapping
+// -----------------------------------------------------------------------------
 
 const startServer = async () => {
   try {

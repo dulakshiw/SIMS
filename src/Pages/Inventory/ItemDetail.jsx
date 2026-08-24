@@ -211,7 +211,10 @@ const ItemDetail = () => {
   const transferPath = `/inventory/transfers/list?itemId=${itemId}`;
   const disposePath = `/inventory/disposals/new/${rolePath}?itemId=${itemId}&itemName=${encodeURIComponent(itemName)}`;
   const updatePath = `/inventory/add/${rolePath}?editItemId=${itemId}&inventoryId=${pickField(item, "inventory_id", "inventoryId") || ""}`;
-  const statusLabel = statusMeta?.label || status;
+  const statusLabel = pickField(item, "statusLabel")
+    || (item.locationKind === "place" ? locationValue : null)
+    || statusMeta?.label
+    || status;
 
   return (
     <MainLayout variant={sidebarVariant}>
@@ -405,12 +408,6 @@ const ItemDetail = () => {
 
           {!(["registrar", "dean"].includes(rolePath)) && (
             <div className="no-print mt-8 flex flex-wrap justify-end gap-3 border-t border-border-lighter pt-6">
-              <Button variant="secondary" icon="compare_arrows" onClick={() => navigate(transferPath)}>
-                Transfer
-              </Button>
-              <Button variant="secondary" icon="delete_sweep" onClick={() => navigate(disposePath)}>
-                Dispose
-              </Button>
               <Button variant="primary" icon="edit" onClick={() => navigate(updatePath)}>
                 Update
               </Button>

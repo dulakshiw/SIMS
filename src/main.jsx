@@ -5,7 +5,6 @@ import './index.css'
 
 // Auth Pages - Using existing pages
 import Login from './Pages/Login/Login'
-import SignUp from './Pages/Login/SIgnUp'
 import ForgotPW from './Pages/Login/ForgotPW'
 import ResetPassword from './Pages/Login/ResetPassword'
 
@@ -60,6 +59,7 @@ import HodPendingTasks from './Pages/StaffMember/HodPendingTasks'
 import HodReports from './Pages/StaffMember/HodReports'
 import DeanDashboard from './Pages/StaffMember/DeanDashboard'
 import DeanPendingApprovals from './Pages/StaffMember/DeanPendingApprovals'
+import StaffDirectory from './Pages/StaffMember/StaffDirectory'
 import DepartmentManagement from './Pages/Admin/DepartmentManagement'
 import InventoryManagement from './Pages/Admin/InventoryManagement'
 import RegistrarAdminOutlet from './Components/Auth/RegistrarAdminOutlet'
@@ -69,10 +69,6 @@ const router = createBrowserRouter([
   {
     path: "/",
     element: <Login />
-  },
-  {
-    path: "/signup",
-    element: <SignUp />
   },
   {
     path: "/forgotPassword",
@@ -407,12 +403,20 @@ const router = createBrowserRouter([
     element: <HodPendingTasks />
   },
   {
+    path: "/hod/users/create",
+    element: <CreateUser isHodMode />
+  },
+  {
     path: "/hod/approval-history",
     element: <HodPendingTasks />
   },
   {
     path: "/hod/inventory",
     element: <InventoryManagement />
+  },
+  {
+    path: "/hod/users",
+    element: <StaffDirectory viewerRole="head_of_department" />
   },
 
   // ==================== Dean Routes ====================
@@ -426,6 +430,10 @@ const router = createBrowserRouter([
       {
         path: "inventory",
         element: <InventoryManagement />
+      },
+      {
+        path: "users",
+        element: <StaffDirectory viewerRole="dean" />
       }
     ]
   },

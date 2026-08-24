@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
-import AdminLayout from '../../Components/Layouts/AdminLayout'
+import { useNavigate } from 'react-router-dom'
+import MainLayout from '../../Components/Layouts/MainLayout'
 import { Card, Button, FormInput, Select, PageHeader } from '../../Components/UI'
-import { ROLE_HIERARCHY, ACCOUNT_REQUEST_STATUS } from '../../utils/constants'
+import { ROLE_HIERARCHY } from '../../utils/constants'
 import {
   getPasswordStrength,
   getPasswordStrengthColorClass,
@@ -14,9 +14,16 @@ import {
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000'
 
-const CreateUser = () => {
+const getStoredUser = () => {
+  try {
+    return JSON.parse(localStorage.getItem('currentUser') || '{}')
+  } catch {
+    return {}
+  }
+}
+
+const CreateUser = ({ isHodMode = false }) => {
   const navigate = useNavigate()
-  const location = useLocation()
   const [otherDesignation, setOtherDesignation] = useState('')
   const [passwordStrength, setPasswordStrength] = useState(0)
   const [formData, setFormData] = useState({
@@ -29,7 +36,6 @@ const CreateUser = () => {
     password: '',
     confirmPassword: '',
   })
-  const [users, setUsers] = useState([])
   const [departments, setDepartments] = useState([])
   const [designations, setDesignations] = useState([])
   const [submitError, setSubmitError] = useState('')
@@ -37,27 +43,29 @@ const CreateUser = () => {
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   useEffect(() => {
+    if (!isHodMode) return
+
+    const storedUser = getStoredUser()
+    const department = storedUser.departmentName || storedUser.department || ''
+    setFormData((prev) => ({ ...prev, role: 'staff', department }))
+  }, [isHodMode])
+
+  useEffect(() => {
     let isMounted = true
 
     const loadData = async () => {
       try {
-        const [usersResponse, departmentsResponse, designationsResponse] = await Promise.all([
-          fetch(`${API_BASE_URL}/api/users`),
+        const [departmentsResponse, designationsResponse] = await Promise.all([
           fetch(`${API_BASE_URL}/api/departments`),
           fetch(`${API_BASE_URL}/api/designations`),
         ])
 
-        const [usersData, departmentsData, designationsData] = await Promise.all([
-          usersResponse.json(),
+        const [departmentsData, designationsData] = await Promise.all([
           departmentsResponse.json(),
           designationsResponse.json(),
         ])
 
         if (!isMounted) return
-
-        if (usersResponse.ok && usersData.success) {
-          setUsers(usersData.users || [])
-        }
 
         if (departmentsResponse.ok) {
           setDepartments(departmentsData.departments ?? departmentsData ?? [])
@@ -104,13 +112,12 @@ const CreateUser = () => {
   const designationOptions = React.useMemo(() => {
     const baseOptions = [
       { value: 'Lecturer', label: 'Lecturer' },
-      { value: 'Senior Lecturer', label: 'Senior Lecturer' },
-      { value: 'Assistant Professor', label: 'Assistant Professor' },
-      { value: 'Associate Professor', label: 'Associate Professor' },
-      { value: 'Professor', label: 'Professor' },
+      { value: 'Instructor', label: 'Instructor' },
       { value: 'Technical Officer', label: 'Technical Officer' },
       { value: 'Management Assistant', label: 'Management Assistant' },
-      { value: 'Lab Assistant', label: 'Lab Assistant' },
+      { value: 'Laboratory Attendant', label: 'Laboratory Attendant' },
+      { value: 'Works Aide', label: 'Works Aide' },
+      { value: 'Other', label: 'Other' },
     ]
 
     const combined = new Map()
@@ -148,6 +155,11 @@ const CreateUser = () => {
         return
       }
 
+      if (isHodMode && !window.confirm(`Create and activate an account for ${formData.name.trim()} in ${formData.department}?`)) {
+        setIsSubmitting(false)
+        return
+      }
+
       // If "Other" is selected, use the custom designation
       const finalDesignation = formData.designation === 'Other' ? otherDesignation : formData.designation
 
@@ -161,7 +173,7 @@ const CreateUser = () => {
           officeExtNo: formData.officeExtNo,
           password: formData.password,
           role: 'staff',
-          createdByRole: 'admin',
+          createdByRole: isHodMode ? 'head_of_department' : 'admin',
           department: formData.department,
           designation: finalDesignation,
         }),
@@ -180,7 +192,9 @@ const CreateUser = () => {
 
       // Reset form after successful submission
       setTimeout(() => {
-        navigate('/admin/users', { state: { activeTab: 'pending-approvals' } })
+        navigate(isHodMode ? '/hod/dashboard' : '/admin/users', {
+          state: isHodMode ? undefined : { activeTab: 'pending-approvals' },
+        })
       }, 2000)
     } catch (error) {
       setSubmitError(error.message || 'Failed to submit account request.')
@@ -190,14 +204,16 @@ const CreateUser = () => {
   }
 
   const handleCancel = () => {
-    navigate('/admin/users')
+    navigate(isHodMode ? '/hod/dashboard' : '/admin/users')
   }
 
   return (
-    <AdminLayout>
+    <MainLayout variant={isHodMode ? 'hod' : 'admin'}>
       <PageHeader
         title="Create User"
-        subtitle="Create a new user account or submit an account request"
+        subtitle={isHodMode
+          ? 'Create an active staff account for your department'
+          : 'Create a new user account or submit an account request'}
       />
 
       <div className="p-6 space-y-6">
@@ -261,15 +277,25 @@ const CreateUser = () => {
 
             {/* Row 3: Department and Designation */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <Select
-                label="Department"
-                name="department"
-                options={departmentOptions}
-                value={formData.department}
-                onChange={handleSelectChange('department')}
-                placeholder="Select department"
-                required
-              />
+              {isHodMode ? (
+                <FormInput
+                  label="Department"
+                  name="department"
+                  value={formData.department}
+                  disabled
+                  required
+                />
+              ) : (
+                <Select
+                  label="Department"
+                  name="department"
+                  options={departmentOptions}
+                  value={formData.department}
+                  onChange={handleSelectChange('department')}
+                  placeholder="Select department"
+                  required
+                />
+              )}
 
               <Select
                 label="Designation"
@@ -340,7 +366,7 @@ const CreateUser = () => {
             {/* Action Buttons */}
             <div className="flex gap-4 pt-6 border-t border-border-lighter">
               <Button type="submit" variant="primary" disabled={isSubmitting}>
-                {isSubmitting ? 'Creating...' : 'Submit Request'}
+                {isSubmitting ? 'Creating...' : isHodMode ? 'Create User' : 'Submit Request'}
               </Button>
               <Button type="button" variant="secondary" onClick={handleCancel}>
                 Cancel
@@ -349,7 +375,7 @@ const CreateUser = () => {
           </form>
         </Card>
       </div>
-    </AdminLayout>
+    </MainLayout>
   )
 }
 

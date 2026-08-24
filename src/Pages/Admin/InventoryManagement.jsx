@@ -269,6 +269,7 @@ const InventoryManagement = () => {
 
   const columns = [
     { field: "name", label: "Inventory Name", sortable: true },
+    { field: "department", label: "Department", sortable: true },
     { field: "location", label: "Location", sortable: true },
     { field: "incharge", label: "Inventory Officer", sortable: true },
     { field: "createdDate", label: "Created Date", sortable: true },

@@ -81,6 +81,7 @@ const MyIssuedItems = () => {
             issuedItem: allocated.itemName || request.itemName || "—",
             itemCode: allocated.itemCode || "—",
             inventory: request.inventoryLocation || request.inventoryName || "—",
+            department: request.department || allocated.department || "—",
             issuedDate: request.issuedDate || "—",
             returnedDate: request.returnedDate || "—",
             status: request.approvalStatus || "approved",
@@ -117,6 +118,7 @@ const MyIssuedItems = () => {
             issuedItem: item.itemName || item.name || "—",
             itemCode: item.itemCode || "—",
             inventory: item.inventoryName || "—",
+            department: item.department || item.departmentName || item.inventoryDepartment || "—",
             issuedDate: item.updated_at || item.created_at || "—",
             returnedDate: "—",
             status: "approved",
@@ -179,6 +181,7 @@ const MyIssuedItems = () => {
     { field: "issuedItem", label: "Issued Item", sortable: true },
     { field: "itemCode", label: "Item Code", sortable: true },
     { field: "inventory", label: "Lab Inventory", sortable: true },
+    { field: "department", label: "Department", sortable: true },
     { field: "issuedDate", label: "Issued Date", sortable: true },
     {
       field: "returnedDate",
@@ -199,7 +202,7 @@ const MyIssuedItems = () => {
   ];
 
   const filtered = issuedItems.filter((entry) =>
-    `${entry.id} ${entry.requestedItem} ${entry.issuedItem} ${entry.itemCode} ${entry.inventory} ${entry.location}`
+    `${entry.id} ${entry.requestedItem} ${entry.issuedItem} ${entry.itemCode} ${entry.inventory} ${entry.department} ${entry.location}`
       .toLowerCase()
       .includes(searchTerm.toLowerCase())
   );
@@ -260,6 +263,7 @@ const MyIssuedItems = () => {
                 { label: "Model", value: selectedItem.model },
                 { label: "GIN No.", value: selectedItem.ginNo },
                 { label: "Lab Inventory", value: selectedItem.inventory },
+                { label: "Department", value: selectedItem.department },
                 { label: "Quantity", value: selectedItem.quantity },
                 { label: "Current Location", value: selectedItem.location },
                 {

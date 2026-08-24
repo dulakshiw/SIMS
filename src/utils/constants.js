@@ -309,7 +309,7 @@ export const ADMIN_NAV_ITEMS = [
 
 export const REGISTRAR_NAV_ITEMS = [
   { id: "registrar-dashboard", type: "item", label: "Dashboard", path: "/admin/dashboard", icon: "dashboard" },
-  { id: "registrar-approvals", type: "section", label: "Approvals" },
+  { id: "registrar-approvals", type: "section", label: "Pending Tasks" },
   {
     id: "registrar-inventory",
     type: "item",
@@ -433,14 +433,6 @@ export const STAFF_INCHARGE_NAV_ITEMS = [
 
 export const HOD_NAV_ITEMS = [
   { id: 1, label: "Dashboard", path: "/hod/dashboard", icon: "dashboard" },
-  { id: 2, label: "Pending Tasks", path: "/hod/pending-tasks", icon: "pending_actions" },
-  {
-    id: "hod-approval-history",
-    label: "Approval History",
-    path: "/hod/approval-history",
-    icon: "history",
-    activeTab: "forwarded",
-  },
   { id: "hod-my-requests-menu", type: "section", label: "Item Requests", icon: "fact_check" },
   {
     id: "hod-request-items",
@@ -466,7 +458,18 @@ export const HOD_NAV_ITEMS = [
     icon: "inventory_2",
     nested: true,
   },
+  { id: 2, label: "Pending Tasks", path: "/hod/pending-tasks", icon: "pending_actions" },
+  { id: "hod-users-menu", type: "section", label: "Department Users", icon: "group" },
+  { id: "hod-create-user", type: "item", label: "Create User", path: "/hod/users/create", icon: "person_add", nested: true },
+  { id: "hod-users", type: "item", label: "View Users", path: "/hod/users", icon: "group", nested: true },
   { id: "hod-inventories", label: "Inventories", path: "/hod/inventory", icon: "inventory_2" },
+  {
+    id: "hod-approval-history",
+    label: "Approval History",
+    path: "/hod/approval-history",
+    icon: "history",
+    activeTab: "forwarded",
+  },
   { id: 6, label: "Requests by Staff", path: "/inventory/requests/list/hod", icon: "rule" },
   { id: 7, label: "Reports", path: "/reports/hod", icon: "assessment" },
   { id: 8, label: "Profile", path: "/profile/hod", icon: "person" },
@@ -500,21 +503,12 @@ export const DEAN_NAV_ITEMS = [
     icon: "inventory_2",
     nested: true,
   },
-  { id: 3, label: "All Inventory Items", path: "/dean/inventory", icon: "inventory_2" },
   { id: 4, label: "Pending Approvals", path: "/requests/approval/dean", icon: "how_to_reg" },
+  { id: 3, label: "All Inventory Items", path: "/dean/inventory", icon: "inventory_2" },
+  { id: "dean-users", label: "Faculty Users", path: "/dean/users", icon: "group" },
   { id: 5, label: "Reports", path: "/reports/dean", icon: "assessment" },
   { id: 6, label: "Profile", path: "/profile/dean", icon: "person" },
 ];
-
-// Mock data structure
-export const MOCK_USER = {
-  id: 1,
-  name: "John Doe",
-  email: "john@example.com",
-  role: ROLES.ADMIN,
-  department: "IT",
-  avatar: null,
-};
 
 export default {
   COLORS,
