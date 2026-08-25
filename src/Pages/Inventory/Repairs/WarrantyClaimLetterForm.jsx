@@ -56,6 +56,7 @@ const buildEquipmentDetailRows = (item = {}) => {
 
   const rows = [
     { label: "Item Name", value: item.itemName },
+    { label: "Item Code", value: item.itemCode },
     { label: "Brand", value: item.brand },
     { label: "Model", value: item.model },
     { label: "Warranty", value: item.warranty },

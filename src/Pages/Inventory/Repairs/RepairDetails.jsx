@@ -104,14 +104,24 @@ const RepairDetails = () => {
 
   const handlePrintForm = () => window.print();
 
-  const itemRows = (repair?.items || []).map((item, index) => ({
-    no: index + 1,
-    itemName: item.itemName || "—",
-    itemCode: item.itemCode || "—",
-    serialNo: item.serialNo || "—",
-    model: item.model || "—",
-    quantity: item.quantity ?? 1,
-  }));
+  const itemDetailsById = new Map(
+    (repair?.formItems || []).map((item) => [String(item.id), item])
+  );
+  const itemRows = (repair?.items || []).map((item, index) => {
+    const details = itemDetailsById.get(String(item.itemId)) || {};
+    return {
+      no: index + 1,
+      itemName: item.itemName || details.itemName || "—",
+      itemCode: item.itemCode || details.itemCode || "—",
+      serialNo: item.serialNo || details.serialNo || "—",
+      model: item.model || details.model || "—",
+      warranty: item.warranty || details.warranty || "—",
+      purchaseDate: item.purchaseDate || details.purchaseDate || "—",
+      supplier: item.supplier || details.supplier || "—",
+      ginNo: item.ginNo || details.ginNo || "—",
+      quantity: item.quantity ?? 1,
+    };
+  });
 
   const canShowForm = Boolean(
     repair?.faultDescription?.trim()
@@ -250,7 +260,7 @@ const RepairDetails = () => {
           <>
             <Card title="Repair Summary" icon="handyman">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                <p><span className="text-text-light">Status:</span> <Badge variant={resolveRepairBadgeVariant(repair)}>{formatRepairStatus(repair)}</Badge></p>
+                <p><span className="text-text-light">Status:</span> <Badge label={formatRepairStatus(repair)} variant={resolveRepairBadgeVariant(repair)} /></p>
                 <p><span className="text-text-light">Inventory:</span> {repair.inventory?.name || repair.inventory?.location || "—"}</p>
                 <p><span className="text-text-light">Department:</span> {repair.inventory?.department || "—"}</p>
                 <p><span className="text-text-light">Submitted Date:</span> {repair.repairDate || "—"}</p>
@@ -295,6 +305,10 @@ const RepairDetails = () => {
                   { field: "itemCode", label: "Item Code", sortable: true },
                   { field: "serialNo", label: "Serial No.", sortable: true },
                   { field: "model", label: "Model", sortable: true },
+                  { field: "warranty", label: "Warranty", sortable: true },
+                  { field: "purchaseDate", label: "Purchase Date", sortable: true },
+                  { field: "supplier", label: "Supplier", sortable: true },
+                  { field: "ginNo", label: "GIN No.", sortable: true },
                   { field: "quantity", label: "Qty", sortable: false },
                 ]}
                 data={itemRows}

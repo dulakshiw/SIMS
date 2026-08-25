@@ -8,6 +8,14 @@ import "../../Styles/ItemDetail.css";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
 
+const getStoredUser = () => {
+  try {
+    return JSON.parse(localStorage.getItem("currentUser") || "{}");
+  } catch {
+    return {};
+  }
+};
+
 const SYSTEM_HEADER_TITLE =
   "Inventory Management System - Faculty of Information Technology";
 
@@ -113,6 +121,8 @@ const ItemDetail = () => {
   const rolePath = role || sidebarVariant || "incharge";
   const [item, setItem] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [returning, setReturning] = useState(false);
+  const [returnError, setReturnError] = useState("");
   const [printedAt, setPrintedAt] = useState("");
 
   const refreshPrintedAt = () => {
@@ -215,6 +225,52 @@ const ItemDetail = () => {
     || (item.locationKind === "place" ? locationValue : null)
     || statusMeta?.label
     || status;
+  const storedUser = getStoredUser();
+  const isInventoryIncharge = rolePath === "incharge"
+    || rolePath === "inventory_incharge"
+    || storedUser.role === "inventory_incharge";
+  const canReturnItem = isInventoryIncharge && Number(item.issuedRequestId) > 0;
+
+  const handleReturnItem = async () => {
+    const returnerUserId = Number(storedUser.id ?? storedUser.user_id ?? storedUser.userId ?? 0);
+    if (!Number.isInteger(returnerUserId) || returnerUserId <= 0) {
+      setReturnError("Your session is missing a user id. Please sign in again.");
+      return;
+    }
+
+    if (!window.confirm(`Return ${itemName} to ${inventoryName || "the inventory"}?`)) {
+      return;
+    }
+
+    try {
+      setReturning(true);
+      setReturnError("");
+      const response = await fetch(`${API_BASE_URL}/api/item-requests/${item.issuedRequestId}/return`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ returnerUserId }),
+      });
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || data.error || "Failed to return item.");
+      }
+
+      setItem((currentItem) => ({
+        ...currentItem,
+        status: "available",
+        location: data.location || currentItem.inventoryName || currentItem.location,
+        statusLabel: data.location || currentItem.inventoryName || currentItem.location,
+        locationKind: "place",
+        issuedRequestId: null,
+      }));
+      window.alert(data.message || "Item returned successfully.");
+    } catch (error) {
+      setReturnError(error.message || "Failed to return item.");
+    } finally {
+      setReturning(false);
+    }
+  };
 
   return (
     <MainLayout variant={sidebarVariant}>
@@ -408,9 +464,20 @@ const ItemDetail = () => {
 
           {!(["registrar", "dean"].includes(rolePath)) && (
             <div className="no-print mt-8 flex flex-wrap justify-end gap-3 border-t border-border-lighter pt-6">
+              {canReturnItem && (
+                <Button
+                  variant="secondary"
+                  icon="assignment_return"
+                  onClick={handleReturnItem}
+                  disabled={returning}
+                >
+                  {returning ? "Returning..." : "Return Item"}
+                </Button>
+              )}
               <Button variant="primary" icon="edit" onClick={() => navigate(updatePath)}>
                 Update
               </Button>
+              {returnError && <p className="basis-full text-sm text-red-600">{returnError}</p>}
             </div>
           )}
         </Card>

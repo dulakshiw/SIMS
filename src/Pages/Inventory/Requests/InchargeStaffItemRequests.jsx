@@ -611,7 +611,7 @@ const InchargeStaffItemRequests = () => {
     }
 
     const confirmed = window.confirm(
-      `Return the issued item for request REQ-${selectedRequest.id}? Location will be set to Stores and status to Returned.`
+      `Return the issued item for request REQ-${selectedRequest.id}? It will be assigned back to its lab inventory.`
     );
 
     if (!confirmed) {

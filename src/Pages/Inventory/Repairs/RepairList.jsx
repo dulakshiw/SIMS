@@ -28,8 +28,10 @@ const getStoredUser = () => {
 };
 
 const formatRepairStatus = (repair = {}) => {
-  const statusKey = String(repair.status || "submitted").toLowerCase();
+  const statusKey = String(repair.approvalStatus || repair.status || "submitted").toLowerCase();
   if (statusKey === "submitted") return "Submitted";
+  if (statusKey === "pending_hod" || statusKey === "pending_staff") return "Pending HOD";
+  if (statusKey === "pending_registrar") return "Pending Registrar";
   if (statusKey === "in_progress") return "In Progress";
   if (statusKey === "completed") return "Completed";
   if (statusKey === "cancelled") return "Cancelled";
@@ -37,7 +39,7 @@ const formatRepairStatus = (repair = {}) => {
 };
 
 const resolveRepairBadgeVariant = (repair = {}) => {
-  const statusKey = String(repair.status || "submitted").toLowerCase();
+  const statusKey = String(repair.approvalStatus || repair.status || "submitted").toLowerCase();
   if (statusKey === "completed") return "completed";
   if (statusKey === "cancelled") return "rejected";
   if (statusKey === "in_progress") return "info";
@@ -158,7 +160,7 @@ const RepairList = () => {
       field: "status",
       label: "Status",
       sortable: true,
-      render: (value, row) => <Badge variant={resolveRepairBadgeVariant(row._repair)}>{value}</Badge>,
+      render: (value, row) => <Badge label={value} variant={resolveRepairBadgeVariant(row._repair)} />,
     },
     { field: "date", label: "Repair Date", sortable: true },
     { field: "initiatedBy", label: "Initiated By", sortable: true },

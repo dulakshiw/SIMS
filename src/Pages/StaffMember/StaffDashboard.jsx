@@ -89,7 +89,7 @@ const StaffDashboard = () => {
 
   useEffect(() => {
     let isMounted = true
-    const userId = Number(currentUser.id ?? 0)
+    const userId = Number(currentUser.id ?? currentUser.user_id ?? currentUser.userId ?? 0)
 
     if (!Number.isInteger(userId) || userId <= 0) {
       setRequestStats({ myRequests: 0, myIssuedItems: 0 })

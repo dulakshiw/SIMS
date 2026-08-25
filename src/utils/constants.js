@@ -537,5 +537,4 @@ export default {
   STAFF_INCHARGE_NAV_ITEMS,
   HOD_NAV_ITEMS,
   DEAN_NAV_ITEMS,
-  MOCK_USER,
 };

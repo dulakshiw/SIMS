@@ -28,8 +28,10 @@ const getStoredUser = () => {
 };
 
 const formatClaimStatus = (claim = {}) => {
-  const statusKey = String(claim.status || "submitted").toLowerCase();
+  const statusKey = String(claim.approvalStatus || claim.status || "submitted").toLowerCase();
   if (statusKey === "submitted") return "Letter Submitted";
+  if (statusKey === "pending_hod" || statusKey === "pending_staff") return "Pending HOD";
+  if (statusKey === "pending_registrar") return "Pending Registrar";
   if (statusKey === "in_progress") return "In Progress";
   if (statusKey === "completed") return "Completed";
   if (statusKey === "cancelled") return "Cancelled";
@@ -37,7 +39,7 @@ const formatClaimStatus = (claim = {}) => {
 };
 
 const resolveClaimBadgeVariant = (claim = {}) => {
-  const statusKey = String(claim.status || "submitted").toLowerCase();
+  const statusKey = String(claim.approvalStatus || claim.status || "submitted").toLowerCase();
   if (statusKey === "completed") return "completed";
   if (statusKey === "cancelled") return "rejected";
   if (statusKey === "in_progress") return "info";
@@ -158,7 +160,7 @@ const WarrantyClaimList = () => {
       field: "status",
       label: "Status",
       sortable: true,
-      render: (value, row) => <Badge variant={resolveClaimBadgeVariant(row._claim)}>{value}</Badge>,
+      render: (value, row) => <Badge label={value} variant={resolveClaimBadgeVariant(row._claim)} />,
     },
     { field: "date", label: "Claim Date", sortable: true },
     { field: "initiatedBy", label: "Initiated By", sortable: true },

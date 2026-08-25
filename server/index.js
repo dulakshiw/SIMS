@@ -7283,6 +7283,39 @@ app.get(
       }
     }
 
+    const itemRequestColumns = await ensureItemRequestsTable();
+    if (itemRequestColumns.has("allocated_inventory_item_id")) {
+      const schema = await getAuthSchema();
+      const userIdColumn = getUserPrimaryKeyColumn(schema);
+      const userNameColumn = getUserNameColumn(schema);
+      const issuedRequestConditions = [
+        "ir.allocated_inventory_item_id = ?",
+        "LOWER(COALESCE(ir.approval_status, '')) = 'approved'",
+      ];
+      if (itemRequestColumns.has("returned_date")) {
+        issuedRequestConditions.push("ir.returned_date IS NULL");
+      }
+
+      const [issuedRequestRows] = await pool.execute(
+        `
+          SELECT ir.id, ir.requested_by_id,
+            ${userNameColumn ? `u.${userNameColumn} AS requested_by_name` : "NULL AS requested_by_name"}
+          FROM item_requests ir
+          ${userNameColumn ? `LEFT JOIN users u ON u.${userIdColumn} = ir.requested_by_id` : ""}
+          WHERE ${issuedRequestConditions.join(" AND ")}
+          ORDER BY ir.issued_date DESC, ir.id DESC
+          LIMIT 1
+        `,
+        [itemId]
+      );
+
+      if (issuedRequestRows[0]) {
+        item.issuedRequestId = issuedRequestRows[0].id;
+        item.issuedToUserId = issuedRequestRows[0].requested_by_id;
+        item.issuedToName = issuedRequestRows[0].requested_by_name || "";
+      }
+    }
+
     return res.json({ success: true, item });
   })
 );
@@ -8612,16 +8645,16 @@ const getWarrantyClaimItemIdColumn = (claimColumns) => {
 };
 
 const getWarrantyClaimIdColumn = (claimColumns) => {
-  if (claimColumns?.has("id")) {
-    return "id";
-  }
-
   if (claimColumns?.has("claim_id")) {
     return "claim_id";
   }
 
   if (claimColumns?.has("warranty_claim_id")) {
     return "warranty_claim_id";
+  }
+
+  if (claimColumns?.has("id")) {
+    return "id";
   }
 
   return null;
@@ -9252,8 +9285,24 @@ app.get(
         if (itemRequestColumns.has("approval_status")) {
           whereParts.push(`LOWER(COALESCE(ir.approval_status, '')) IN ('approved', 'returned')`);
         }
+        const issuedEvidenceParts = [];
+        if (itemRequestColumns.has("issued_date")) {
+          issuedEvidenceParts.push("ir.issued_date IS NOT NULL");
+        }
+        if (itemRequestColumns.has("allocated_date")) {
+          issuedEvidenceParts.push("ir.allocated_date IS NOT NULL");
+        }
+        if (itemRequestColumns.has("allocated_quantity")) {
+          issuedEvidenceParts.push("COALESCE(ir.allocated_quantity, 0) > 0");
+        }
+        if (itemRequestColumns.has("allocated_inventory_id")) {
+          issuedEvidenceParts.push("ir.allocated_inventory_id IS NOT NULL");
+        }
         if (itemRequestColumns.has("allocated_inventory_item_id")) {
-          whereParts.push("ir.allocated_inventory_item_id IS NOT NULL");
+          issuedEvidenceParts.push("ir.allocated_inventory_item_id IS NOT NULL");
+        }
+        if (issuedEvidenceParts.length > 0) {
+          whereParts.push(`(${issuedEvidenceParts.join(" OR ")})`);
         }
       }
     }
@@ -10036,6 +10085,21 @@ app.post(
     }
 
     const inventoryItem = inventoryItemRows[0];
+    const inventoryColumns = await ensureInventoriesLocationColumn();
+    const inventoryIdColumn = getInventoryIdColumn(inventoryColumns);
+    const inventoryNameColumn = getInventoryNameColumn(inventoryColumns);
+    let returnLocation = "Stores";
+
+    if (inventoryIdColumn && inventoryNameColumn) {
+      const inventoryItemInventoryId = Number(inventoryItem.inventory_id ?? 0);
+      const [inventoryRows] = await pool.execute(
+        `SELECT ${inventoryNameColumn} AS inventory_name, ${inventoryColumns.has("location") ? "location" : "NULL AS location"}
+         FROM inventories WHERE ${inventoryIdColumn} = ? LIMIT 1`,
+        [inventoryItemInventoryId]
+      );
+      returnLocation = String(inventoryRows[0]?.inventory_name || inventoryRows[0]?.location || "Stores").trim();
+    }
+
     const requestUpdateParts = [];
     const requestUpdateValues = [];
 
@@ -10068,12 +10132,12 @@ app.post(
 
     if (inventoryItemColumns.has("location")) {
       itemUpdateParts.push("location = ?");
-      itemUpdateValues.push("Stores");
+      itemUpdateValues.push(returnLocation);
     }
 
     if (inventoryItemColumns.has("status")) {
       itemUpdateParts.push("status = ?");
-      itemUpdateValues.push("Returned");
+      itemUpdateValues.push("available");
     }
 
     if (inventoryItemColumns.has("remarks")) {
@@ -10102,9 +10166,10 @@ app.post(
 
     return res.json({
       success: true,
-      message: "Item returned to Stores.",
+      message: `Item returned to ${returnLocation}.`,
       approvalStatus: "returned",
       inventoryItemId,
+      location: returnLocation,
     });
   })
 );
@@ -12560,7 +12625,6 @@ app.post(
         [...updateValues, ...lineIds]
       );
 
-      const itemId = Number(anchor.item_id ?? 0);
       const fromInventoryId = Number(anchor.from_inventory_id ?? 0);
       const toInventoryId = Number(anchor.to_inventory_id ?? 0);
       const inventoryColumns = await ensureInventoriesLocationColumn();
@@ -12576,7 +12640,13 @@ app.post(
         destinationInventoryName = String(inventoryRows[0]?.inventory_name || "").trim() || "destination inventory";
       }
 
-      if (Number.isInteger(itemId) && itemId > 0) {
+      const [transferItemRows] = await pool.execute(
+        `SELECT item_id FROM item_transfers WHERE id IN (${lineIds.map(() => "?").join(", ")})`,
+        lineIds
+      );
+      const itemIds = [...new Set(transferItemRows.map((row) => Number(row.item_id)).filter((id) => id > 0))];
+
+      if (itemIds.length > 0) {
         const itemColumns = await ensureInventoryItemsColumns();
         const itemIdColumn = getItemIdColumn(itemColumns);
         const itemInventoryColumn = itemColumns.has("inventory_id") ? "inventory_id" : null;
@@ -12598,9 +12668,9 @@ app.post(
           }
 
           if (itemUpdateParts.length > 0) {
-            const whereParts = [`${itemIdColumn} = ?`];
-            const whereValues = [itemId];
-            if (itemInventoryColumn && Number.isInteger(fromInventoryId) && fromInventoryId > 0) {
+            const whereParts = [`${itemIdColumn} IN (${itemIds.map(() => "?").join(", ")})`];
+            const whereValues = [...itemIds];
+            if (itemInventoryColumn && fromInventoryId > 0) {
               whereParts.push(`${itemInventoryColumn} = ?`);
               whereValues.push(fromInventoryId);
             }
@@ -12737,8 +12807,10 @@ app.post(
     }
 
     const toInventoryId = Number(anchor.to_inventory_id ?? 0);
+    const fromInventoryId = Number(anchor.from_inventory_id ?? 0);
     const inventoryColumns = await ensureInventoriesLocationColumn();
     const inventoryIdColumn = getInventoryIdColumn(inventoryColumns);
+    const inventoryNameColumn = getInventoryNameColumn(inventoryColumns);
     const inventoryInchargeColumn = getInventoryInchargeColumn(inventoryColumns);
 
     if (!inventoryIdColumn) {
@@ -12798,7 +12870,19 @@ app.post(
       ? parsedTransferDate.toISOString().split("T")[0]
       : new Date().toISOString().split("T")[0];
 
-    const transferRemark = `Transferered from ${sourceInventoryLabel} on ${transferRemarkDate} via ${transferId}`;
+    const destinationInventoryName = await (async () => {
+      if (!inventoryNameColumn || toInventoryId <= 0) {
+        return "destination inventory";
+      }
+
+      const [destinationRows] = await pool.execute(
+        `SELECT ${inventoryNameColumn} AS inventory_name FROM inventories WHERE ${inventoryIdColumn} = ? LIMIT 1`,
+        [toInventoryId]
+      );
+      return String(destinationRows[0]?.inventory_name || "").trim() || "destination inventory";
+    })();
+
+    const transferRemark = `Transferred from ${sourceInventoryLabel} to ${destinationInventoryName} on ${transferRemarkDate} via ${transferId}`;
 
     const lineIds = await fetchTransferBatchLineIds(transferId, columns);
     if (lineIds.length === 0) {
@@ -12874,7 +12958,12 @@ app.post(
 
       if (itemColumns.has("status")) {
         itemUpdateParts.push("status = ?");
-        itemUpdateValues.push("available");
+        itemUpdateValues.push(`transferred to ${destinationInventoryName}`);
+      }
+
+      if (itemColumns.has("location")) {
+        itemUpdateParts.push("location = ?");
+        itemUpdateValues.push(destinationInventoryName);
       }
 
       if (itemColumns.has("remarks")) {
@@ -14292,6 +14381,22 @@ app.post(
     }
 
     const createdClaims = [];
+    const requiredClaimIdColumn = columns.has("claim_id")
+      ? "claim_id"
+      : columns.has("warranty_claim_id")
+        ? "warranty_claim_id"
+        : null;
+    let nextClaimId = null;
+
+    if (requiredClaimIdColumn) {
+      const [claimIdRows] = await pool.query(
+        `SELECT COALESCE(MAX(${requiredClaimIdColumn}), 0) + 1 AS next_id FROM warranty_claims FOR UPDATE`
+      );
+      nextClaimId = Number(claimIdRows[0]?.next_id ?? 0);
+      if (!Number.isInteger(nextClaimId) || nextClaimId <= 0) {
+        return res.status(500).json({ success: false, message: "Unable to allocate a warranty claim id." });
+      }
+    }
 
     for (const entry of items) {
       const itemId = Number(entry?.itemId ?? entry?.item_id ?? 0);
@@ -14332,6 +14437,12 @@ app.post(
       const insertColumns = [claimItemIdColumn, "inventory_id", "quantity", "fault_description", "status"];
       const insertValues = [itemId, inventoryId, quantity, faultDescription, "submitted"];
 
+      if (requiredClaimIdColumn) {
+        insertColumns.unshift(requiredClaimIdColumn);
+        insertValues.unshift(nextClaimId);
+        nextClaimId += 1;
+      }
+
       if (columns.has("claim_notes")) {
         insertColumns.push("claim_notes");
         insertValues.push(claimNotes);
@@ -14355,7 +14466,7 @@ app.post(
         insertValues
       );
 
-      createdClaims.push({ id: result.insertId, itemId, quantity });
+      createdClaims.push({ id: result.insertId || insertValues[0], itemId, quantity });
     }
 
     return res.status(201).json({

@@ -246,6 +246,19 @@ const AddNewItem = () => {
   );
 
   const selectedInventory = assignedInventories.find((inventory) => String(inventory.id) === String(selectedInventoryId)) || null;
+  const currentInventoryPlaceOption = useMemo(() => {
+    const inventoryLocation = String(selectedInventory?.location || "").trim();
+    if (!inventoryLocation) {
+      return null;
+    }
+
+    const isExistingPlace = COMMON_PLACE_OPTIONS.some(
+      (place) => place.value.toLowerCase() === inventoryLocation.toLowerCase()
+    );
+    return isExistingPlace
+      ? null
+      : { value: inventoryLocation, label: `${inventoryLocation} (Current inventory)` };
+  }, [selectedInventory]);
   const userLocationOptions = useMemo(() => {
     const staffUsers = systemUsers
       .filter((user) => !LOCATION_EXCLUDED_ROLES.has(String(user.role || "").toLowerCase().trim()))
@@ -268,9 +281,10 @@ const AddNewItem = () => {
   const commonPlaceOptions = useMemo(
     () => [
       ...COMMON_PLACE_OPTIONS,
+      ...(currentInventoryPlaceOption ? [currentInventoryPlaceOption] : []),
       { value: LOCATION_OTHER_VALUE, label: "Other (place outside faculty)" },
     ],
-    []
+    [currentInventoryPlaceOption]
   );
 
   const showLocationOtherInput =
@@ -323,7 +337,7 @@ const AddNewItem = () => {
       return;
     }
 
-    const matchedPlace = COMMON_PLACE_OPTIONS.find((place) => place.value === normalizedLocation);
+    const matchedPlace = commonPlaceOptions.find((place) => place.value === normalizedLocation);
     if (matchedPlace) {
       setLocationAssignmentType("place");
       setSelectedCommonPlace(matchedPlace.value);
@@ -442,7 +456,7 @@ const AddNewItem = () => {
 
     applyLocationFromValue(pendingEditLocation, systemUsers);
     setPendingEditLocation("");
-  }, [isEditMode, pendingEditLocation, systemUsers]);
+  }, [commonPlaceOptions, isEditMode, pendingEditLocation, systemUsers]);
 
   const applyIdentifierConflicts = (conflicts = {}) => {
     setIdentifierErrors({

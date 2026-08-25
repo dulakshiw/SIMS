@@ -41,6 +41,10 @@ const buildRepairTableRows = (items = [], faultDescription = "") => {
     natureOfDamage: faultDescription || "\u00A0",
     underWarranty: "No",
     agent: String(item.supplier || "").trim() || "\u00A0",
+    warranty: String(item.warranty || "").trim() || "\u00A0",
+    purchaseDate: formatDisplayDate(item.purchaseDate),
+    ginNo: String(item.ginNo || "").trim() || "\u00A0",
+    poNo: String(item.poNo || "").trim() || "\u00A0",
   }));
 
   if (rows.length === 0) {
@@ -52,6 +56,10 @@ const buildRepairTableRows = (items = [], faultDescription = "") => {
       natureOfDamage: "\u00A0",
       underWarranty: "\u00A0",
       agent: "\u00A0",
+      warranty: "\u00A0",
+      purchaseDate: "\u00A0",
+      ginNo: "\u00A0",
+      poNo: "\u00A0",
     });
   }
 
@@ -102,6 +110,10 @@ const RepairSubmissionForm = ({
               <th>Serial No *</th>
               <th>Nature of Damage</th>
               <th>Under Warranty (Yes/No)</th>
+              <th>Warranty Period</th>
+              <th>Purchase Date</th>
+              <th>GIN No</th>
+              <th>PO No</th>
               <th>Agent</th>
             </tr>
           </thead>
@@ -114,6 +126,10 @@ const RepairSubmissionForm = ({
                 <td>{row.serialNo}</td>
                 <td>{row.natureOfDamage}</td>
                 <td>{row.underWarranty}</td>
+                <td>{row.warranty}</td>
+                <td>{row.purchaseDate}</td>
+                <td>{row.ginNo}</td>
+                <td>{row.poNo}</td>
                 <td>{row.agent}</td>
               </tr>
             ))}
